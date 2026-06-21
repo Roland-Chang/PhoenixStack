@@ -1,0 +1,5 @@
+# Local DNS Records for phoenix.stack
+# Auto-generated from pihole_local_records variable
+{% for record in pihole_local_records %}
+address=/{{ record.hostname }}/{{ record.ip }}
+{% endfor %}

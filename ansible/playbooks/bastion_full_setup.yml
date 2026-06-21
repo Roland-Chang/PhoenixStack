@@ -1,0 +1,197 @@
+#!/usr/bin/env ansible-playbook
+# BASTION Full Setup Playbook
+# Consolidated setup for all bastion servers: base configuration, 1Password CLI, and GitHub runner
+#
+# This playbook combines all bastion setup into a single run:
+#   1. Base system configuration (users, packages, timezone, firewall)
+#   2. 1Password CLI installation and token configuration
+#   3. GitHub Actions runner installation with 1Password token integration
+#
+# Prerequisites:
+#   - Terraform has deployed the bastion LXC containers
+#   - Bastion containers are accessible via SSH (port 22)
+#   - 1Password service account token available (via ansible-vault or -e flag)
+#   - GitHub runner registration token available (via ansible-vault or -e flag)
+#
+# Usage:
+#   # Full deployment on all bastion servers
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/bastion_full_setup.yml \
+#     -e @ansible/vault/onepassword.yml \
+#     -e @ansible/vault/github_runner.yml \
+#     --vault-id @prompt
+#
+#   # Deploy only to bastion01
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/bastion_full_setup.yml \
+#     -l bastion01 \
+#     -e @ansible/vault/onepassword.yml \
+#     -e @ansible/vault/github_runner.yml \
+#     --vault-id @prompt
+#
+#   # Run only specific roles (e.g., skip GitHub runner)
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/bastion_full_setup.yml \
+#     --tags base,onepassword \
+#     -e @ansible/vault/onepassword.yml \
+#     --vault-id @prompt
+#
+# Tags:
+#   - base          : Base system configuration
+#   - onepassword   : 1Password CLI installation
+#   - runner        : GitHub Actions runner installation
+#   - always        : Always executed (pre/post tasks)
+#
+# Exit codes:
+#   0 = Success
+#   1 = Syntax error
+#   2 = Host unreachable or authentication failed
+#   3 = Role failed
+
+---
+- name: BASTION Full Setup - Base Config, 1Password, GitHub Runner
+  hosts: bastion
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../vault/github_runner.yml
+    - ../vault/onepassword.yml
+    - ../vault/backup_credentials.yml
+
+  vars:
+    # System configuration
+    timezone: UTC
+
+    # Service user configuration (base_config role)
+    svc_ansible_password: ""  # Will be prompted or provided via -e flag
+
+    # GitHub runner configuration (github_runner role)
+    github_runner_registration_token: ""  # MUST be provided (from vault or -e)
+    github_repo_url: "https://github.com/Roland-Chang/PhoenixStack"
+    github_runner_labels: "self-hosted,bastion,infrastructure"
+
+    # 1Password service account token (onepassword_client role)
+    onepassword_service_account_token: ""  # Will be fetched from vault or -e flag
+
+    # Bastion firewall rules (orchestration/control plane)
+    ufw_service_rules:
+      - { rule: "allow", port: 22, protocol: "tcp" }    # SSH
+      - { rule: "allow", port: 80, protocol: "tcp" }    # HTTP
+      - { rule: "allow", port: 443, protocol: "tcp" }   # HTTPS
+
+  pre_tasks:
+    - name: Display deployment info
+      debug:
+        msg:
+          - "BASTION FULL SETUP PLAYBOOK"
+          - "========================================="
+          - "Host: {{ inventory_hostname }}"
+          - "IP Address: {{ ansible_host }}"
+          - "SSH User: {{ ansible_user }}"
+          - "Roles to run: base_config → onepassword_client → github_runner"
+          - "========================================="
+      tags:
+        - always
+
+    - name: Wait for SSH connection to be ready
+      wait_for_connection:
+        delay: 5
+        timeout: 30
+      tags:
+        - always
+
+    - name: Gather system facts
+      setup:
+      tags:
+        - always
+
+  roles:
+    # ========================================================================
+    # ROLE 1: Base System Configuration
+    # NOTE: This is now run as PHASE 0 (common_base_setup.yml) for all hosts!
+    # If Phase 0 already completed, use: --skip-tags base
+    # If deploying bastion only: remove --skip-tags base to rerun base_config
+    # ========================================================================
+    - role: base_config
+      tags:
+        - base
+
+    # ========================================================================
+    # ROLE 2: 1Password CLI Installation
+    # Installs 1Password CLI and configures service account token
+    # ========================================================================
+    - role: onepassword_client
+      tags:
+        - onepassword
+        - always
+
+    # ========================================================================
+    # ROLE 3: GitHub Actions Runner Installation
+    # Downloads, installs, and registers the GitHub Actions self-hosted runner
+    # Requires: 1Password CLI must be installed (role 2 runs before this)
+    # ========================================================================
+    - role: github_runner
+      tags:
+        - runner
+        - always
+
+  post_tasks:
+    - name: Verify setup completion
+      block:
+        - name: Display verification info
+          debug:
+            msg:
+              - "BASTION SETUP VERIFICATION"
+              - "========================================="
+              - "Host: {{ inventory_hostname }}"
+              - "IP: {{ ansible_host }}"
+              - "Checking 1Password CLI connectivity..."
+              - "Checking GitHub runner service status..."
+          tags:
+            - always
+
+        - name: Verify 1Password CLI is functional
+          shell: |
+            export OP_SERVICE_ACCOUNT_TOKEN=$(cat /etc/phoenixstack/1password_token)
+            op whoami
+          register: op_whoami_result
+          changed_when: false
+          tags:
+            - always
+
+        - name: Display 1Password verification result
+          debug:
+            msg:
+              - "✓ 1Password CLI verified"
+              - "{{ op_whoami_result.stdout }}"
+          tags:
+            - always
+          when: op_whoami_result.rc == 0
+
+        - name: Verify GitHub runner service is active
+          systemd:
+            name: github-runner
+            state: started
+          register: runner_service
+          tags:
+            - always
+
+        - name: Display GitHub runner verification result
+          debug:
+            msg:
+              - "✓ GitHub runner service: {{ runner_service.status.ActiveState | default('unknown') }}"
+              - "Check runner status at: https://github.com/Roland-Chang/PhoenixStack/settings/actions/runners"
+          tags:
+            - always
+
+        - name: Display setup completion message
+          debug:
+            msg:
+              - ""
+              - "✓ BASTION '{{ inventory_hostname }}' SETUP COMPLETE"
+              - "========================================="
+              - "Ready for infrastructure orchestration"
+              - ""
+          tags:
+            - always
+
+      tags:
+        - always

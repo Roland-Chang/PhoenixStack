@@ -1,0 +1,162 @@
+# 1Password CLI Installation and Configuration
+
+---
+- name: Install 1Password CLI
+  block:
+    - name: Create 1Password config directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - "{{ onepassword_token_dir }}"
+        - "{{ onepassword_config_dir }}"
+      tags:
+        - onepassword
+        - install
+
+    - name: Add 1Password repository GPG key
+      shell: |
+        curl -sSL {{ onepassword_repo_key_url }} | \
+        gpg --dearmor --output {{ onepassword_repo_key_path }}
+      args:
+        creates: "{{ onepassword_repo_key_path }}"
+      tags:
+        - onepassword
+        - install
+
+    - name: Add 1Password repository
+      shell: |
+        echo "deb [signed-by={{ onepassword_repo_key_path }}] {{ onepassword_repo_url }}/debian/$(dpkg --print-architecture) stable main" | \
+        tee /etc/apt/sources.list.d/1password.sources.list > /dev/null
+      args:
+        creates: "/etc/apt/sources.list.d/1password.sources.list"
+      register: repo_added
+      tags:
+        - onepassword
+        - install
+
+    - name: Force update APT cache after repository addition
+      apt:
+        update_cache: yes
+        cache_valid_time: 0
+      when: repo_added.changed
+      tags:
+        - onepassword
+        - install
+
+    - name: Update APT cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags:
+        - onepassword
+        - install
+
+    - name: Install 1Password CLI
+      apt:
+        name: 1password-cli
+        state: present
+      tags:
+        - onepassword
+        - install
+
+- name: Configure 1Password Service Account Token
+  block:
+    - name: Validate service account token is provided
+      fail:
+        msg: "ERROR: onepassword_service_account_token is required. Provide via -e flag or ansible-vault"
+      when: onepassword_service_account_token | length == 0
+      tags:
+        - onepassword
+        - config
+
+    - name: Ensure svc_github_runner group exists
+      group:
+        name: svc_github_runner
+        state: present
+        system: yes
+      tags:
+        - onepassword
+        - config
+
+    - name: Write service account token to file
+      copy:
+        content: "{{ onepassword_service_account_token }}"
+        dest: "{{ onepassword_token_file }}"
+        owner: root
+        group: svc_github_runner
+        mode: '0640'
+      no_log: yes
+      tags:
+        - onepassword
+        - config
+
+    # SECURITY NOTE: Token is stored in {{ onepassword_token_file }} with restricted permissions
+    # Do NOT export token as environment variable in shell commands (visible in ps output)
+    # Instead, GitHub runner will read from file with: OP_SERVICE_ACCOUNT_TOKEN=$(cat {{ onepassword_token_file }})
+    # This keeps sensitive data out of process listings while remaining accessible to services
+
+  when: onepassword_service_account_token | length > 0
+  tags:
+    - onepassword
+    - config
+
+- name: Test 1Password Connectivity
+  block:
+    - name: Test 1Password CLI access
+      shell: |
+        OP_SERVICE_ACCOUNT_TOKEN=$(cat {{ onepassword_token_file }}) op whoami
+      register: op_whoami
+      changed_when: false
+      no_log: yes
+      tags:
+        - onepassword
+        - test
+
+    - name: Display 1Password account info
+      debug:
+        msg: "✅ 1Password CLI configured successfully"
+      tags:
+        - onepassword
+        - test
+
+  when: onepassword_test_connectivity and onepassword_service_account_token | length > 0
+  tags:
+    - onepassword
+    - test
+
+- name: Create 1Password shell profile helper
+  copy:
+    dest: "/etc/profile.d/1password.sh"
+    content: |
+      #!/bin/bash
+      # Load 1Password service account token from secure file
+      if [ -f {{ onepassword_token_file }} ]; then
+        export OP_SERVICE_ACCOUNT_TOKEN=$(cat {{ onepassword_token_file }})
+      fi
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - onepassword
+    - config
+
+- name: Display installation summary
+  debug:
+    msg:
+      - "✅ 1Password CLI Installation Complete!"
+      - "CLI Version: (run 'op --version' to check)"
+      - "Token file: {{ onepassword_token_file }}"
+      - "Config dir: {{ onepassword_config_dir }}"
+      - ""
+      - "To use 1Password in Ansible:"
+      - "  environment:"
+      - "    OP_SERVICE_ACCOUNT_TOKEN: '{{ '{{ lookup(\"file\", \"' }}{{ onepassword_token_file }}{{ '\") }}' }}'"
+      - ""
+      - "To use in shell commands:"
+      - "  export OP_SERVICE_ACCOUNT_TOKEN=$(cat {{ onepassword_token_file }})"
+      - "  op read op://vault-name/item-name/field-name"
+  tags:
+    - onepassword
+    - always

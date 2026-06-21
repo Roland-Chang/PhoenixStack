@@ -1,0 +1,65 @@
+---
+# Common Base Configuration Playbook
+# Runs base system configuration for ALL hosts in parallel before service deployment
+# This consolidates redundant tasks and significantly reduces overall deployment time
+#
+# Purpose:
+#   - APT mirror configuration (same for all)
+#   - dpkg lock clearing (idempotent, runs once)
+#   - System package updates (happens once per host)
+#   - This MUST run before service-specific playbooks
+#
+# Usage (standalone):
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/common_base_setup.yml
+#
+# Usage (as part of site.yml):
+#   - Automatically runs as PHASE 0
+#   - Subsequent phases skip base_config via tags
+#
+# Time Savings:
+#   - Without optimization: base_config runs 16x (80-160 min for full stack)
+#   - With optimization: base_config runs 1x for all hosts in parallel (10-15 min)
+
+- name: "PHASE 0: Common Base Configuration for All Hosts"
+  hosts: all
+  remote_user: root
+  become: no
+  serial: 0  # 0 = run all hosts in parallel (respects forks setting in ansible.cfg)
+
+  pre_tasks:
+    - name: "Display deployment info"
+      debug:
+        msg: |
+          ╔════════════════════════════════════════╗
+          ║  Common Base Configuration             ║
+          ║  {{ inventory_hostname | upper }}      ║
+          ║  IP: {{ ansible_host }}                ║
+          ╚════════════════════════════════════════╝
+
+    - name: "Wait for SSH to be ready"
+      wait_for_connection:
+        delay: 5
+        timeout: 30
+
+    - name: "Gather facts"
+      setup:
+
+  roles:
+    # Apply base system configuration to ALL hosts (APT mirrors, packages, security, firewall)
+    - role: base_config
+      vars:
+        container_role: "base"
+      tags:
+        - base
+        - always
+
+  post_tasks:
+    - name: "Verify base configuration"
+      debug:
+        msg: |
+          ✓ {{ inventory_hostname }} base configuration complete
+          - Hostname: {{ inventory_hostname }}
+          - IP Address: {{ ansible_host }}
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Kernel: {{ ansible_kernel }}
+          - Ready for service deployment

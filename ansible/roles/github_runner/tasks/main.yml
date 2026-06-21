@@ -1,0 +1,210 @@
+# GitHub Actions Self-Hosted Runner Installation and Configuration
+
+---
+# Validate required variables
+- name: Validate required variables
+  block:
+    - name: Check github_api_token is provided
+      fail:
+        msg: "ERROR: github_api_token is required. Provide via ansible-vault"
+      when: github_api_token | length == 0
+
+    - name: Check github_repo_url is provided
+      fail:
+        msg: "ERROR: github_repo_url is required (e.g., https://github.com/username/repo). Provide via -e flag or group_vars"
+      when: github_repo_url | length == 0
+
+    - name: Check github_repo_owner is provided
+      fail:
+        msg: "ERROR: github_repo_owner is required (e.g., username). Provide via -e flag or ansible-vault"
+      when: github_repo_owner | length == 0
+
+    - name: Check github_repo_name is provided
+      fail:
+        msg: "ERROR: github_repo_name is required (e.g., repo-name). Provide via -e flag or ansible-vault"
+      when: github_repo_name | length == 0
+  tags:
+    - github_runner
+    - always
+
+# Generate fresh registration token via GitHub API
+- name: Generate GitHub runner registration token
+  include_tasks: generate_token.yml
+  tags:
+    - github_runner
+    - api
+
+# Install dependencies
+- name: Install GitHub Runner dependencies
+  apt:
+    name: "{{ runner_dependencies }}"
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+  tags:
+    - github_runner
+    - packages
+
+# Create runner service user
+- name: Create github runner system group
+  group:
+    name: "{{ runner_group }}"
+    state: present
+    system: yes
+  tags:
+    - github_runner
+    - users
+
+- name: Create github runner service user
+  user:
+    name: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    home: "{{ runner_home }}"
+    shell: "{{ runner_shell }}"
+    comment: "GitHub Actions runner service account"
+    state: present
+    createhome: yes
+    system: yes
+  tags:
+    - github_runner
+    - users
+
+- name: Create .ssh directory for runner user
+  file:
+    path: "{{ runner_home }}/.ssh"
+    state: directory
+    owner: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    mode: '0700'
+  tags:
+    - github_runner
+    - security
+
+- name: Set restrictive home permissions
+  file:
+    path: "{{ runner_home }}"
+    state: directory
+    owner: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    mode: '0750'
+  tags:
+    - github_runner
+    - security
+
+# Download and install GitHub Actions Runner
+- name: Create runner installation directory
+  file:
+    path: "{{ runner_install_dir }}"
+    state: directory
+    owner: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    mode: '0755'
+  tags:
+    - github_runner
+    - install
+
+- name: Download GitHub Actions Runner
+  get_url:
+    url: "{{ runner_download_url }}"
+    dest: "/tmp/actions-runner-{{ runner_version }}.tar.gz"
+    owner: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    mode: '0640'
+    force: no
+  tags:
+    - github_runner
+    - install
+
+- name: Extract GitHub Actions Runner
+  unarchive:
+    src: "/tmp/actions-runner-{{ runner_version }}.tar.gz"
+    dest: "{{ runner_install_dir }}"
+    owner: "{{ runner_user }}"
+    group: "{{ runner_group }}"
+    remote_src: yes
+  tags:
+    - github_runner
+    - install
+
+- name: Verify runner installation
+  stat:
+    path: "{{ runner_install_dir }}/run.sh"
+  register: runner_script
+  failed_when: not runner_script.stat.exists
+  tags:
+    - github_runner
+    - install
+
+# Configure GitHub Actions Runner
+- name: Check if runner is already configured
+  stat:
+    path: "{{ runner_install_dir }}/.runner"
+  register: runner_config
+  tags:
+    - github_runner
+    - config
+
+- name: Register runner with GitHub
+  block:
+    - name: Run runner configuration script
+      shell: |
+        cd "{{ runner_install_dir }}"
+        ./config.sh \
+          --url "{{ github_repo_url }}" \
+          --token "{{ github_runner_registration_token }}" \
+          --name "{{ github_runner_name }}" \
+          --labels "{{ github_runner_labels }}" \
+          --runnergroup "Default" \
+          --work "_work" \
+          --unattended \
+          --replace
+      become: yes
+      become_user: "{{ runner_user }}"
+      no_log: yes  # Don't log the token
+      register: runner_config_result
+      tags:
+        - github_runner
+        - config
+  when: not runner_config.stat.exists
+  tags:
+    - github_runner
+    - config
+
+# Configure systemd service
+- name: Create systemd service file for GitHub Actions Runner
+  template:
+    src: github-runner.service.j2
+    dest: /etc/systemd/system/github-runner.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd
+    - start github-runner
+  tags:
+    - github_runner
+    - systemd
+
+# Start and enable service
+- name: Enable and start GitHub Actions Runner service
+  systemd:
+    name: "{{ runner_systemd_service }}"
+    state: started
+    enabled: yes
+    daemon_reload: yes
+  tags:
+    - github_runner
+    - systemd
+
+- name: Display runner status
+  debug:
+    msg:
+      - "GitHub Actions Runner installed successfully"
+      - "Service: {{ runner_systemd_service }}"
+      - "User: {{ runner_user }}"
+      - "Install Dir: {{ runner_install_dir }}"
+      - "Runner Name: {{ github_runner_name }}"
+      - "Labels: {{ github_runner_labels }}"
+  tags:
+    - github_runner
+    - always

@@ -1,0 +1,55 @@
+---
+# PiHole Installation and Configuration Playbook
+# Installs Docker and deploys PiHole container with local DNS records
+# Targets all DNS servers (dns01, dns02) for consistent configuration
+
+- name: "PiHole Installation"
+  hosts: dns
+  remote_user: root
+  become: no
+
+  pre_tasks:
+    - name: "Display PiHole deployment info"
+      debug:
+        msg: |
+          ╔════════════════════════════════════════╗
+          ║     PiHole Installation                ║
+          ║  DNS: {{ inventory_hostname }}          
+          ║  IP: {{ ansible_host }}                
+          ╚════════════════════════════════════════╝
+
+    - name: "Wait for SSH to be ready"
+      wait_for_connection:
+        delay: 20
+        timeout: 60
+
+    - name: "Gather facts"
+      setup:
+
+  roles:
+    # Install and configure PiHole
+    - role: pihole
+      vars:
+        pihole_web_password: "{{ pihole_admin_password }}"
+
+  post_tasks:
+    - name: "Display PiHole access information"
+      debug:
+        msg: |
+          ✓ {{ inventory_hostname }} PiHole deployment complete
+          
+          Web Interface: http://{{ ansible_host }}/admin
+          Username: admin
+          
+          Local DNS Records Configured:
+          - pve01.phoenix.stack → 10.101.0.11
+          - bastion01.phoenix.stack → 10.101.0.20
+          - dns01.phoenix.stack → 10.101.0.201
+          - dns02.phoenix.stack → 10.101.0.202
+          - unas01.phoenix.stack → 10.101.0.101
+          
+          To configure clients:
+          - Set Primary DNS to 10.101.0.201 (DNS01)
+          - Set Secondary DNS to 10.101.0.202 (DNS02)
+          - Set Primary DNS to 10.101.0.201
+          - Set Secondary DNS to 10.101.0.202

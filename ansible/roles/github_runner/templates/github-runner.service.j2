@@ -1,0 +1,32 @@
+[Unit]
+Description=GitHub Actions Runner
+Documentation=https://github.com/actions/runner
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty={{ runner_install_dir }}/.runner
+
+[Service]
+Type=simple
+User={{ runner_systemd_user }}
+Group={{ runner_systemd_group }}
+WorkingDirectory={{ runner_install_dir }}
+
+# Run the runner
+ExecStart={{ runner_install_dir }}/run.sh
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Security/sandboxing
+PrivateTmp=yes
+NoNewPrivileges=yes
+KillMode=process
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=github-runner
+
+[Install]
+WantedBy=multi-user.target

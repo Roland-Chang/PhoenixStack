@@ -1,0 +1,99 @@
+# This is the primary instructions/agents file for the PhoenixStack environment
+
+PhoenixStack is primarily a "Homelab" / learning environment with some "production" services for my personal use as well as for my friends and family. The goal of this environment is to provide a platform for learning and experimentation with various technologies, while also offering useful services for personal use.
+
+I'd like to build out a well architected framework and system of modules for this environment, and to use that framework to build out a variety of services and applications. The framework should be secure, flexible and extensible, allowing for easy addition of new services and applications as needed.  It should adhere to best practices for security and performance, and should be designed with scalability in mind.    The framework should also include a robust set of tools and utilities for managing and monitoring the environment, as well as for automating common tasks and processes.    Overall, the goal of this environment is to provide a rich and engaging learning experience, while also offering practical and useful services for personal use.
+
+Please use this prompt and the existing files/folders in this folder to create the Agents.md or Instructions.md file that will serve as the beginning of our project.  Please also create a README.md file for the GitHub repository.  Steps moving forward should be methodical, small (I don't want to get too far ahead of myself or be subject to unnecessary scope/feature creep), and above all, should have security at the forefront of all considerations.
+
+PHOENIX-PRIMARY Site Hardware
+
+Compute Hardware
+Proxmox Host (PVE01):  Dell PowerEdge T640 tower server
+Service Tag: 5MWT7X2
+BIOS version 2.27.0
+Dual Intex XEON 5118 CPUs @ 2.30GHz
+256GB DDR4 2400 MT/s RAM
+Nvidia Quadro P2000 graphics card
+10Gb networking
+
+Network Hardware
+100% Ubiquiti environment
+Unifi Dream Machine SE
+Unifi USW 10Gb Aggregation Switch
+Unifi USW 24 PoE
+Unifi USW Flex XG
+Unifi U7-Pro-Wall (x3)
+
+Storage Hardware
+Unifi UNAS Pro
+10Gb networking
+CIFS/SMB shares over NFS.  NFS should not be ruled out entirely however, but currently it's not being utilized.
+
+
+Network overview
+PHOENIX-PRIMARY WAN: Direct Communications 1Gb/1Gb fiber optic internet
+PHOENIX-PRIMARY Subnet 10.101.0.0/16
+PHOENIX-PRIMARY Gateway 10.101.1.254
+PHOENIX-SECONDARY Subnet 10.102.0.0/16
+PHOENIX-SECONDARY Gateway 10.102.1.254
+PHOENIX-TERTIARY Subnet 10.103.0.0/16
+PHOENIX-TERTIARY Subnet 10.103.1.254
+Future Cloud-Based Subnet 10.100.0.0/16
+Future Cloud-Based Gateway 10.100.1.254
+VLAN 10
+IPv6 should be disabled wherever possible
+Internal Domain: phoenix.stack
+External Domain: phoenixstack.net
+CloudFlare DNS services (Orange Cloud proxy)
+CloudFlare for external DNS servers 1.1.1.1, 1.0.0.1
+Namecheap DNS Registrar
+Microsoft M365 MX records
+LXC based PiHole for internal DNS Server(s) (via Terraform and Ansible configuration post Proxmox deployment)
+LXC based Docker container providing reverse proxy services via Traefik
+
+Proxmox Host iDRAC IPMI | IPMI-PVE01.phoenix.stack | 10.101.0.1
+Proxmox Host | PVE01.phoenix.stack | 10.101.1.1
+UNAS01 | UNAS01.phoenix.stack | 10.101.1.101
+
+
+Software/Tooling Preferences
+
+Visual Studio Code for IDE
+GitHub CoPilot for AI assisted coding
+GitHub Pro for source control.  A new repository will be created for this project. "PhoenixStack"
+GitHub Actions or Terraform Cloud for IaC deployments
+Windows 11 Professional for Workstations for Windows clients/VMs
+Linux Mint Cinnamon for Linux desktop clients and Linux Desktop VMs (I switch between Windows 11 and Linux Mint on my primary workstation and laptop)
+Ubuntu Server for LXC Containers and Linux Server VMs
+Terraform should be the primary IaC tool for infrastructure deployments.
+Ansible should be the primary IaC tool for infrastructure configurations.
+nano should be used as the default text editor in all Linux environments.
+Microsoft 365 for productivity software, OAuth/User credentials and primary email services
+Authentik will be the eventual OAuth solution for securing PhoenixStack services.  This will require its own thorough outline and planning phase to ensure it is integrated with the Entra ID tenant correctly and completely.  I'll provide additional context when we arrive at that phase of the project.
+Markdown files should be used for all documentation
+Hashicorp Vault for secrets management/rotation
+AI answers should look first to internal documentation before looking externally
+Secrets must NEVER be put in plain text in code or used in AI generated results.
+Docker and Docker Compose
+I will be utilizing "Deployrr" (more info here https://simplehomelab.com) for many of the docker and reverse proxy systems and configuration.  At this point in time, we don't need to worry too much about capturing those configurations as part of the IaC efforts, though I do want to shift those responsibilities over to Ansible at some point in the future.
+
+Other thoughts/ "Wish list" (Not exhaustive)
+
+Deploy and configure Proxmox host with existing script.  This node has already been setup and SHOULD be aligned with this script but I would like to validate that before adding any resources.
+
+I'd like any/all fstab entries to be well formatted for readability, functionality, security and best practices.  They should all follow the same formatting, perhaps a template should be created as a markdown file.
+
+All reference documentation should be centrally located in a "docs" folder unless impractical.  Deviations to this should be noted/documented.
+
+Post Proxmox configuration deploy LXC containers (in this priority/order): ANSIBLE01, PROXY01, AUTHENTIK01, DNS01, DOCKER01, PLEX01 - We'll fine tune the specs for each of these as we configure their code/modules.
+
+Configure each of the LXC hosts with Ansible playbooks where practical.
+
+ANSIBLE01 should be setup first for facilitating the ongoing playbooks/automation.  PROXY01 should be deployed second so that I can get CloudFlare configured to point the necessary internet traffic to the new host.  AUTHENTIK01 should be setup 3rd to facilitate strong security methods for all resources.  If you have suggestions for a different priority then please feel free to suggest them.
+
+IaC should be integrated with either GitHub Actions or Terraform Cloud (We'll need to analyze which solution makes the most sense, I've struggled with understanding Terraform cloud in the past and will need significant guidance there) and updates to the environment should be managed with standard source control practices using GitHub.
+
+While not needed initially, there may come a time where adding AWS or Azure resources to the stack may become necessary (primarily Azure).  We should take steps to "future-proof" the stack for that scenario.
+
+Based on this information, what are your thoughts?  Do you need any additional or clarifying information before we proceed with outlining this framework?

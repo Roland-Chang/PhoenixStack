@@ -1,0 +1,182 @@
+---
+# PiHole Installation and Configuration Role
+# Installs PiHole DNS server in Docker container
+# Configures gravity database with local DNS records
+# DNS records are loaded from: 
+#   - defaults/main.yml (Terraform-generated infrastructure)
+#   - defaults/manual-dns-records.yml (Manual/external infrastructure)
+# Both sources are automatically merged and deployed
+
+- name: "Install Docker prerequisites"
+  apt:
+    name:
+      - docker.io
+      - curl
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: "Download docker-compose binary and verify checksum"
+  block:
+    - name: "Determine system architecture"
+      set_fact:
+        docker_compose_arch: "{{ ansible_system }}-{{ ansible_machine }}"
+
+    - name: "Download docker-compose binary"
+      get_url:
+        url: "https://github.com/docker/compose/releases/latest/download/docker-compose-{{ docker_compose_arch }}"
+        dest: "/usr/local/bin/docker-compose"
+        mode: '0755'
+      register: compose_download
+      changed_when: compose_download.changed
+
+    - name: "Download SHA256SUMS file from GitHub Releases"
+      get_url:
+        url: "https://github.com/docker/compose/releases/latest/download/sha256sum.txt"
+        dest: "/tmp/docker-compose-sha256sum.txt"
+        mode: '0644'
+      register: sha256_download
+
+    - name: "Verify docker-compose SHA256 checksum"
+      shell: |
+        cd /usr/local/bin
+        grep "docker-compose-{{ docker_compose_arch }}" /tmp/docker-compose-sha256sum.txt | sha256sum -c - || {
+          echo "ERROR: docker-compose checksum verification failed!"
+          echo "This could indicate a compromised binary. Aborting playbook."
+          exit 1
+        }
+      args:
+        warn: false
+      register: checksum_verification
+      changed_when: false
+
+    - name: "Clean up temporary checksum file"
+      file:
+        path: "/tmp/docker-compose-sha256sum.txt"
+        state: absent
+  rescue:
+    - name: "Remove downloaded binary on checksum failure"
+      file:
+        path: "/usr/local/bin/docker-compose"
+        state: absent
+      when: checksum_verification.failed | default(false)
+
+    - name: "Fail playbook due to checksum mismatch"
+      fail:
+        msg: "Docker-compose checksum verification failed. Binary not executed. Check github.com/docker/compose for latest checksums."
+
+- name: "Ensure docker group exists"
+  group:
+    name: docker
+    state: present
+    system: yes
+
+- name: "Start and enable Docker service"
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
+
+- name: "Stop conflicting systemd-resolved DNS service"
+  systemd:
+    name: systemd-resolved
+    state: stopped
+  ignore_errors: yes
+
+- name: "Remove any existing PiHole containers"
+  shell: |
+    docker-compose -f /opt/pihole/docker-compose.yml down 2>/dev/null || true
+    docker stop pihole-pihole-1 2>/dev/null || true
+    docker rm pihole-pihole-1 2>/dev/null || true
+  args:
+    creates: /opt/pihole
+  ignore_errors: yes
+
+- name: "Clear PiHole data directory to reset configuration"
+  shell: |
+    rm -rf /opt/pihole/etc-pihole/* 2>/dev/null || true
+    rm -rf /opt/pihole/etc-dnsmasq.d/* 2>/dev/null || true
+  ignore_errors: yes
+
+- name: "Create PiHole data directory"
+  file:
+    path: /opt/pihole
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: "Create PiHole docker-compose file"
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/pihole/docker-compose.yml
+    mode: '0644'
+
+- name: "Create dnsmasq config directory"
+  file:
+    path: /opt/pihole/etc-dnsmasq.d
+    state: directory
+    mode: '0755'
+
+- name: "Create local DNS records config"
+  template:
+    src: 05-local-records.conf.j2
+    dest: /opt/pihole/etc-dnsmasq.d/05-local-records.conf
+    mode: '0644'
+
+- name: "Deploy PiHole container"
+  shell: cd /opt/pihole && docker-compose up -d
+  register: compose_result
+  changed_when: "'Created' in compose_result.stdout or 'Started' in compose_result.stdout"
+<<<<<<< HEAD
+  retries: 3
+  delay: 5
+  until: compose_result.rc == 0
+=======
+>>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072
+
+- name: "Display docker compose output"
+  debug:
+    msg: "{{ compose_result.stdout }}"
+  when: compose_result.stdout
+
+- name: "Wait for PiHole to be ready"
+  wait_for:
+    port: 53
+    delay: 20
+    timeout: 180
+    host: "127.0.0.1"
+  ignore_errors: yes
+
+- name: "Verify PiHole container is running"
+  shell: |
+    docker ps | grep pihole-pihole-1 | grep -q "Up" && echo "running"
+  register: dig_result
+  retries: 5
+  delay: 5
+  until: dig_result.rc == 0 and "running" in dig_result.stdout
+
+- name: "Set PiHole web interface password"
+  shell: |
+    docker exec pihole-pihole-1 pihole setpassword "{{ pihole_web_password }}"
+  register: setpass_result
+  retries: 3
+  delay: 5
+  until: setpass_result.rc == 0
+
+- name: "Display PiHole access information"
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════╗
+      ║  PiHole Installation Complete            ║
+      ╚══════════════════════════════════════════╝
+      Web Interface: http://{{ inventory_hostname }}/admin
+      Default Username: admin
+      Password: {{ pihole_web_password | default('changeme') }}
+      
+      Verify DNS Resolution:
+        dig @{{ inventory_hostname }} google.com +short
+      
+      Configure clients to use:
+        Primary DNS: {{ inventory_hostname }}
+        Secondary DNS: (configure other DNS server)

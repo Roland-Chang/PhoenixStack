@@ -1,0 +1,6 @@
+# Handlers for ansible_user role
+
+---
+- name: Reload sudoers
+  debug:
+    msg: "Sudoers configuration reloaded"

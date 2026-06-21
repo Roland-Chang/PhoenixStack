@@ -1,0 +1,14 @@
+# Handlers for base_config role
+
+---
+- name: Restart SSH
+  systemd:
+    name: ssh
+    state: restarted
+  listen: "Restart SSH"
+
+- name: Restart systemd-resolved
+  systemd:
+    name: systemd-resolved
+    state: restarted
+  listen: "Restart DNS"

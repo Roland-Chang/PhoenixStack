@@ -1,0 +1,21 @@
+# Manual DNS Records for Infrastructure
+# Add entries here for:
+# - Physical hosts (Proxmox, storage, network devices)
+# - Out-of-band management (iDRAC, iLO, IPMI)
+# - External services not managed by Terraform
+# - Legacy systems
+#
+# Format: { hostname: "fqdn", ip: "x.x.x.x" }
+
+pihole_manual_records:
+  # Proxmox Hypervisor
+  - hostname: pve01.phoenix.stack
+    ip: 10.101.0.11
+  
+  # Proxmox iDRAC (out-of-band management)
+  - hostname: ipmi-pve01.phoenix.stack
+    ip: 10.101.0.11
+  
+  # Network Attached Storage
+  - hostname: unas01.phoenix.stack
+    ip: 10.101.0.101

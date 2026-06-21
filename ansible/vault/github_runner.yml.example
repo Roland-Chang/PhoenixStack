@@ -1,0 +1,27 @@
+# GitHub Actions Runner Configuration - Vault Template
+# 
+# This file should be encrypted with ansible-vault for secure credential storage
+# 
+# SETUP:
+#   1. Create this file: ansible/vault/github_runner.yml
+#   2. Encrypt it: ansible-vault encrypt ansible/vault/github_runner.yml
+#   3. Add to .gitignore (it already is in vault/* pattern)
+#   4. Use with playbook: 
+#      ansible-playbook -i inventory/hosts.yml playbooks/bastion01_github_runner.yml \
+#        --vault-id @prompt -e @vault/github_runner.yml
+
+---
+# GitHub Repository Information
+github_repo_url: "https://github.com/Roland-Chang/PhoenixStack"
+
+# GitHub Fine-Grained Personal Access Token for API access
+# Create at: https://github.com/settings/personal-access-tokens/new
+# Recommended over classic PATs for better security (least-privilege principle)
+# Required permissions: Administration (read/write) on PhoenixStack repository
+# Used to generate runner registration tokens dynamically via GitHub API
+# NOTE: Keep this secure! Do not commit unencrypted.
+github_api_token: "github_pat_YOUR_TOKEN_HERE"
+
+# GitHub repository owner (used for API calls)
+github_repo_owner: "Roland-Chang"
+github_repo_name: "PhoenixStack"

@@ -1,0 +1,44 @@
+# GitHub Actions Self-Hosted Runner Role Defaults
+# Configures GitHub Actions runner on bastion01
+
+---
+# GitHub Runner Service User
+runner_user: svc_github_runner
+runner_group: svc_github_runner
+runner_home: /home/svc_github_runner
+runner_shell: /bin/bash
+
+# GitHub Runner Installation
+runner_version: "2.321.0"  # Pinned for reproducibility
+runner_install_dir: "{{ runner_home }}/actions-runner"
+runner_download_url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
+
+# GitHub Runner Configuration
+# IMPORTANT: These should be provided via:
+#   1. ansible-vault for sensitive data (github_api_token)
+#   2. -e flag or group_vars/host_vars for repository info
+github_api_token: ""                    # GitHub PAT (MUST be provided via vault)
+github_repo_url: ""                     # e.g., https://github.com/username/repo
+github_repo_owner: ""                   # Repository owner (e.g., username)
+github_repo_name: ""                    # Repository name
+github_runner_name: ""                  # Will default to hostname if not provided
+github_runner_labels: "self-hosted"     # Comma-separated labels for runner
+
+# Systemd Service Configuration
+runner_systemd_service: "github-runner"
+runner_systemd_user: "{{ runner_user }}"
+runner_systemd_group: "{{ runner_group }}"
+
+# Dependencies
+runner_dependencies:
+  - git
+  - curl
+  - libicu-dev
+  - ca-certificates
+  - jq
+  - nodejs
+  - python3-requests  # For GitHub API calls via uri module
+
+# Security
+runner_sudo_access: false  # Runner should not need sudo in most cases
+runner_shell_login: false  # Don't use login shells

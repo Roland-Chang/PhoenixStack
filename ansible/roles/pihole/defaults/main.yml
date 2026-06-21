@@ -1,0 +1,90 @@
+---
+# Default variables for PiHole role
+
+# Web interface password (change in vault for production)
+pihole_web_password: "changeme"
+
+# Upstream DNS servers (Cloudflare public DNS)
+pihole_dns1: "1.1.1.1"
+pihole_dns2: "1.0.0.1"
+
+# Enable DNSSEC validation
+pihole_dnssec: true
+
+# Local DNS records (override in host_vars or playbook)
+pihole_local_records:
+  # Infrastructure - Non-Terraform (Fixed)
+  - hostname: pve01.phoenix.stack
+    ip: 10.101.0.11
+  - hostname: unas01.phoenix.stack
+    ip: 10.101.0.101
+  
+  # Bastion Tier
+  - hostname: bastion01.phoenix.stack
+    ip: 10.101.0.21
+  - hostname: bastion02.phoenix.stack
+    ip: 10.101.0.22
+  
+  # DNS Tier
+  - hostname: dns01.phoenix.stack
+    ip: 10.101.0.201
+  - hostname: dns02.phoenix.stack
+    ip: 10.101.0.202
+  
+  # Proxy/Ingress Tier
+  - hostname: proxy01.phoenix.stack
+    ip: 10.101.0.31
+  - hostname: proxy02.phoenix.stack
+    ip: 10.101.0.32
+  
+  # Authentication Tier
+  - hostname: authentik01.phoenix.stack
+    ip: 10.101.0.41
+  - hostname: authentik02.phoenix.stack
+    ip: 10.101.0.42
+  
+  # Database Tier - PostgreSQL
+  - hostname: pgsql01.phoenix.stack
+    ip: 10.101.0.71
+  - hostname: pgsql02.phoenix.stack
+    ip: 10.101.0.72
+  
+  # Database Tier - MariaDB
+  - hostname: db01.phoenix.stack
+    ip: 10.101.0.75
+  - hostname: db02.phoenix.stack
+    ip: 10.101.0.76
+  
+  # Security Tier - Vault
+  - hostname: vault01.phoenix.stack
+    ip: 10.101.0.81
+  - hostname: vault02.phoenix.stack
+    ip: 10.101.0.82
+  
+  # Observability Tier - Monitoring
+  - hostname: monitor01.phoenix.stack
+    ip: 10.101.0.91
+  - hostname: monitor02.phoenix.stack
+    ip: 10.101.0.92
+  
+  # Backup Tier
+  - hostname: backup01.phoenix.stack
+    ip: 10.101.0.98
+  
+  # Application Services - Container/Compute (10.101.1.x)
+  - hostname: docker01.phoenix.stack
+    ip: 10.101.1.51
+  - hostname: docker02.phoenix.stack
+    ip: 10.101.1.52
+  
+  # Media Tier (10.101.1.x)
+  - hostname: plex01.phoenix.stack
+    ip: 10.101.1.61
+  - hostname: plex02.phoenix.stack
+    ip: 10.101.1.62
+  
+  # Game Server Tier (10.101.1.x)
+  - hostname: amp01.phoenix.stack
+    ip: 10.101.1.81
+  - hostname: amp02.phoenix.stack
+    ip: 10.101.1.82

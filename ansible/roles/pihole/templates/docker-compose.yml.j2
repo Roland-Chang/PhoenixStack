@@ -1,0 +1,29 @@
+services:
+  pihole:
+    image: pihole/pihole:latest
+    hostname: "{{ inventory_hostname }}"
+    ports:
+      - "53:53/tcp"
+      - "53:53/udp"
+      - "80:80/tcp"
+    environment:
+      - WEBPASSWORD="{{ pihole_web_password | default('changeme') }}"
+      - PIHOLE_TIMEZONE=UTC
+      - DNS1=1.1.1.1
+      - DNS2=1.0.0.1
+      - DNSSEC=true
+      - FTLCONF_dns_listeningMode=ALL
+    extra_hosts:
+{% for record in (pihole_manual_records | default([])) + (pihole_local_records | default([])) %}
+      {{ record.hostname }}: "{{ record.ip }}"
+{% endfor %}
+    volumes:
+      - ./etc-pihole/:/etc/pihole/
+      - ./etc-dnsmasq.d/:/etc/dnsmasq.d/
+    restart: always
+    healthcheck:
+      test: ["CMD", "dig", "@localhost", "google.com", "+short"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

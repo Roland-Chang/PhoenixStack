@@ -1,0 +1,117 @@
+# Ansible Service User Role
+# Creates svc_ansible non-root user for Ansible operations
+
+---
+- name: Create svc_ansible system group
+  group:
+    name: svc_ansible
+    state: present
+  tags:
+    - ansible_user
+    - users
+
+- name: Create svc_ansible system user
+  user:
+    name: svc_ansible
+    group: svc_ansible
+    groups:
+      - sudo
+      - adm
+    shell: /bin/bash
+    home: /home/svc_ansible
+    comment: "Ansible service account"
+    state: present
+    createhome: yes
+    system: no
+  tags:
+    - ansible_user
+    - users
+
+- name: Create .ssh directory for svc_ansible
+  file:
+    path: /home/svc_ansible/.ssh
+    state: directory
+    owner: svc_ansible
+    group: svc_ansible
+    mode: '0700'
+  tags:
+    - ansible_user
+    - security
+
+- name: Set svc_ansible password (prompted)
+  user:
+    name: svc_ansible
+    password: "{{ svc_ansible_password | password_hash('sha512') }}"
+  when: svc_ansible_password is defined
+  tags:
+    - ansible_user
+    - users
+
+- name: Configure sudoers for svc_ansible (NOPASSWD)
+  lineinfile:
+    path: /etc/sudoers.d/svc_ansible
+    line: "svc_ansible ALL=(ALL) NOPASSWD:ALL"
+    create: yes
+    owner: root
+    group: root
+    mode: '0440'
+    validate: 'visudo -cf %s'
+  tags:
+    - ansible_user
+    - security
+
+- name: Enable SSH key-based authentication for svc_ansible
+  authorized_key:
+    user: svc_ansible
+    state: present
+    key: "{{ item }}"
+  loop: "{{ svc_ansible_ssh_keys | default([]) }}"
+  when: svc_ansible_ssh_keys is defined
+  tags:
+    - ansible_user
+    - security
+
+- name: Configure Ansible home directory permissions
+  file:
+    path: /home/svc_ansible
+    owner: svc_ansible
+    group: svc_ansible
+    mode: '0755'
+    state: directory
+  tags:
+    - ansible_user
+
+- name: Create Ansible directories for svc_ansible
+  file:
+    path: "/home/svc_ansible/{{ item }}"
+    state: directory
+    owner: svc_ansible
+    group: svc_ansible
+    mode: '0755'
+  loop:
+    - .ansible
+    - .ansible/roles
+    - .ansible/playbooks
+    - .ansible/inventory
+    - .ansible/group_vars
+    - .ansible/host_vars
+  tags:
+    - ansible_user
+    - ansible_config
+
+- name: Create docker group (for future Docker integration)
+  group:
+    name: docker
+    state: present
+  tags:
+    - ansible_user
+    - docker
+
+- name: Add svc_ansible to docker group
+  user:
+    name: svc_ansible
+    groups: docker
+    append: yes
+  tags:
+    - ansible_user
+    - docker

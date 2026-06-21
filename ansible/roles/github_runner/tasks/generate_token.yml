@@ -1,0 +1,89 @@
+# Generate GitHub Runner Registration Token via API
+# This task generates a fresh registration token for each runner
+# Tokens expire after 1 hour from creation
+
+---
+- name: Validate GitHub API credentials
+  block:
+    - name: Check github_api_token is provided
+      fail:
+        msg: "ERROR: github_api_token is required. Provide via ansible-vault"
+      when: github_api_token | length == 0
+
+    - name: Check github_repo_owner is provided
+      fail:
+        msg: "ERROR: github_repo_owner is required (e.g., username)"
+      when: github_repo_owner | length == 0
+
+    - name: Check github_repo_name is provided
+      fail:
+        msg: "ERROR: github_repo_name is required (e.g., repo-name)"
+      when: github_repo_name | length == 0
+  tags:
+    - github_runner
+    - always
+
+- name: Generate runner registration token via GitHub API
+  block:
+    - name: Set default runner name from hostname if not provided
+      set_fact:
+        github_runner_name: "{{ ansible_hostname }}-runner"
+      when: github_runner_name | length == 0
+
+    - name: Add environment-specific labels if needed
+      set_fact:
+        github_runner_labels: "{{ github_runner_labels }},{{ ansible_hostname }}"
+      when: github_runner_labels is defined and github_runner_labels | length > 0
+
+    - name: Create registration token via GitHub API
+      uri:
+        url: "https://api.github.com/repos/{{ github_repo_owner }}/{{ github_repo_name }}/actions/runners/registration-token"
+        method: POST
+        headers:
+          Authorization: "token {{ github_api_token }}"
+          Accept: "application/vnd.github.v3+json"
+          User-Agent: "Ansible"
+        status_code: 201
+        body_format: json
+      register: github_token_response
+      no_log: yes  # Don't log sensitive output
+      tags:
+        - github_runner
+        - api
+
+    - name: Extract registration token
+      set_fact:
+        github_runner_registration_token: "{{ github_token_response.json.token }}"
+        runner_token_expires_at: "{{ github_token_response.json.expires_at }}"
+      no_log: yes  # Don't log the token
+      tags:
+        - github_runner
+        - api
+
+    - name: Display token expiration warning
+      debug:
+        msg:
+          - "✓ Generated fresh GitHub runner registration token"
+          - "⏱️  Token expires at: {{ runner_token_expires_at }}"
+          - "⚠️  Token is valid for approximately 1 hour"
+          - "🔐 Token will be used immediately for runner registration"
+      tags:
+        - github_runner
+        - api
+
+  rescue:
+    - name: Handle API error
+      fail:
+        msg: |
+          Failed to generate GitHub runner registration token via API.
+          Error: {{ github_token_response.status | default('Unknown') }}
+          Response: {{ github_token_response.json | default(github_token_response) }}
+          
+          Verify:
+          - GitHub PAT (github_api_token) is valid and not expired
+          - PAT has required scopes: admin:org_hook, repo
+          - Repository owner and name are correct
+          - You have permission to register runners in this repository
+      tags:
+        - github_runner
+        - api

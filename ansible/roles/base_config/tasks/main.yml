@@ -1,0 +1,352 @@
+# Base System Configuration Role
+# Configures Ubuntu LXC container with common packages and settings
+
+---
+# Configure APT mirrors for faster updates
+- name: Configure APT mirrors (XMission)
+  block:
+    - name: Detect OS distribution
+      set_fact:
+        apt_mirror: "https://mirrors.xmission.com/ubuntu"
+        dist_code: '{{ ansible_facts["distribution_release"] }}'
+      when: ansible_facts['distribution'] == "Ubuntu"
+
+    - name: Configure APT mirrors for Debian
+      set_fact:
+        apt_mirror: "https://mirrors.xmission.com/debian"
+        dist_code: '{{ ansible_facts["distribution_release"] }}'
+      when: ansible_facts['distribution'] == "Debian"
+
+    - name: Update sources.list with XMission mirrors (Ubuntu)
+      copy:
+        dest: /etc/apt/sources.list
+        content: |
+          deb https://mirrors.xmission.com/ubuntu/ {{ dist_code }} main restricted universe multiverse
+          deb https://mirrors.xmission.com/ubuntu/ {{ dist_code }}-updates main restricted universe multiverse
+          deb https://mirrors.xmission.com/ubuntu/ {{ dist_code }}-security main restricted universe multiverse
+          deb https://mirrors.xmission.com/ubuntu/ {{ dist_code }}-backports main restricted universe multiverse
+      when: ansible_facts['distribution'] == "Ubuntu"
+
+    - name: Update sources.list with XMission mirrors (Debian)
+      copy:
+        dest: /etc/apt/sources.list
+        content: |
+          deb https://mirrors.xmission.com/debian/ {{ dist_code }} main contrib non-free non-free-firmware
+          deb https://mirrors.xmission.com/debian/ {{ dist_code }}-updates main contrib non-free non-free-firmware
+          deb https://mirrors.xmission.com/debian/ {{ dist_code }}-security main contrib non-free non-free-firmware
+      when: ansible_facts['distribution'] == "Debian"
+  tags:
+    - base
+    - mirrors
+
+# Wait for system provisioning (cloud-init) to complete
+- name: Wait for dpkg/apt to be available
+  block:
+    - name: Wait for dpkg lock to be released
+      shell: |
+        # Kill any background apt processes that may be holding locks
+        pkill -9 apt-get 2>/dev/null || true
+        pkill -9 unattended-upgrades 2>/dev/null || true
+        pkill -9 apt 2>/dev/null || true
+        
+        # Remove stale lock files
+        rm -f /var/lib/apt/lists/lock 2>/dev/null || true
+        rm -f /var/cache/apt/archives/lock 2>/dev/null || true
+        rm -f /var/lib/dpkg/lock* 2>/dev/null || true
+        
+        # Configure any pending packages
+        dpkg --configure -a 2>/dev/null || true
+        
+        echo "dpkg lock cleared"
+      register: dpkg_clear_result
+      changed_when: false
+
+    - name: Verify dpkg is available
+      shell: dpkg -l > /dev/null 2>&1 && echo "dpkg available"
+      register: dpkg_verify
+      retries: 5
+      delay: 5
+      until: dpkg_verify.rc == 0
+      changed_when: false
+  tags:
+    - base
+    - packages
+    - skip_ansible_lint
+
+# Main tasks for base configuration
+- name: Update APT cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 0
+  retries: 3
+  delay: 10
+  until: apt_cache_result is succeeded
+  register: apt_cache_result
+  tags:
+    - base
+    - packages
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+  retries: 3
+  delay: 10
+  until: apt_upgrade_result is succeeded
+  register: apt_upgrade_result
+  tags:
+    - base
+    - packages
+    - upgrade_packages
+
+- name: Install essential packages
+  apt:
+    name:
+      - curl
+      - wget
+      - git
+      - nano
+      - vim
+      - htop
+      - net-tools
+      - unzip
+      - ca-certificates
+      - apt-transport-https
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - openssh-client
+      - openssh-server
+      - ssh-import-id
+      - python3
+      - python3-pip
+      - python3-dev
+      - python3-venv
+      - build-essential
+      - sudo
+    state: present
+  tags:
+    - base
+    - packages
+
+- name: Install Ansible dependencies
+  apt:
+    name:
+      - ansible
+      - ansible-core
+      - python3-argcomplete
+      - python3-netaddr
+      - python3-jinja2
+      - python3-paramiko
+      - sshpass
+    state: present
+  tags:
+    - ansible
+    - orchestration
+
+- name: Configure system timezone
+  timezone:
+    name: "{{ timezone | default('UTC') }}"
+  tags:
+    - base
+    - system
+
+- name: Configure hostname
+  hostname:
+    name: "{{ hostname | default(inventory_hostname) }}"
+  tags:
+    - base
+    - system
+
+- name: Update /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    regexp: "^127.0.0.1"
+    line: "127.0.0.1 localhost {{ hostname | default(inventory_hostname) }}"
+    state: present
+  tags:
+    - base
+    - system
+
+- name: Configure SSH - Disable password authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+    state: present
+  notify: Restart SSH
+  tags:
+    - base
+    - security
+    - ssh
+
+- name: Configure SSH - Enable key-based authentication
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PubkeyAuthentication"
+    line: "PubkeyAuthentication yes"
+    state: present
+  notify: Restart SSH
+  tags:
+    - base
+    - security
+    - ssh
+
+- name: Configure SSH - Disable root login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PermitRootLogin"
+    line: "PermitRootLogin prohibit-password"
+    state: present
+  notify: Restart SSH
+  tags:
+    - base
+    - security
+    - ssh
+
+- name: Create .ssh directory for root
+  file:
+    path: /root/.ssh
+    state: directory
+    mode: '0700'
+  tags:
+    - base
+    - security
+
+- name: Configure sysctl - Enable IP forwarding for Ansible
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  loop:
+    - { name: "net.ipv4.ip_forward", value: "1" }
+    - { name: "net.ipv4.conf.all.rp_filter", value: "0" }
+  tags:
+    - base
+    - network
+
+- name: Update APT package list
+  apt:
+    update_cache: yes
+  tags:
+    - base
+
+- name: Configure backup share mount point (passed from pve01)
+  block:
+    - name: Create backup mount point directory
+      file:
+        path: "{{ backup_share_mount_point }}"
+        state: directory
+        mode: '0755'
+      tags:
+        - backup
+        - mount
+
+    - name: Verify backup mount point is accessible
+      stat:
+        path: "{{ backup_share_mount_point }}"
+      register: backup_mount_stat
+      failed_when: not backup_mount_stat.stat.exists
+      tags:
+        - backup
+        - mount
+
+    - name: Display backup mount confirmation
+      debug:
+        msg: "✓ Backup share mount point available at {{ backup_share_mount_point }}"
+      tags:
+        - backup
+        - always
+
+  rescue:
+    - name: Display backup mount point warning
+      debug:
+        msg:
+          - "⚠️  WARNING: Backup mount point not accessible at {{ backup_share_mount_point }}"
+          - "To enable backups, configure on pve01:"
+          - "  1. Add to /etc/fstab on pve01: {{ backup_share_server }}:/{{ backup_share_base_path }}/{{ inventory_hostname | upper }} /mnt/backups-{{ inventory_hostname }} nfs soft,timeo=30,retrans=3 0 0"
+          - "  2. Mount: mount /mnt/backups-{{ inventory_hostname }}"
+          - "  3. Add to bastion01 LXC config in pve01:"
+          - "     mp0: /mnt/backups-{{ inventory_hostname }},mp={{ backup_share_mount_point }}"
+          - "  4. Restart bastion01 container"
+      tags:
+        - backup
+        - always
+
+  when: backup_share_enabled
+  tags:
+    - backup
+
+- name: Enable SSH on startup
+  systemd:
+    name: ssh
+    enabled: yes
+    state: started
+  tags:
+    - base
+    - security
+
+- name: Configure UFW Firewall
+  block:
+    - name: Install UFW
+      apt:
+        name: ufw
+        state: present
+      tags:
+        - firewall
+        - packages
+
+    - name: Configure UFW default policies
+      ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+        state: enabled
+      loop:
+        - { direction: "incoming", policy: "{{ ufw_default_incoming }}" }
+        - { direction: "outgoing", policy: "{{ ufw_default_outgoing }}" }
+      tags:
+        - firewall
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+      tags:
+        - firewall
+
+    - name: Allow SSH access (required for Ansible management)
+      ufw:
+        rule: allow
+        port: "{{ ufw_ssh_port }}"
+        proto: tcp
+      tags:
+        - firewall
+        - ssh
+
+    - name: Configure service-specific firewall rules
+      ufw:
+        rule: "{{ item.rule }}"
+        port: "{{ item.port | string }}"
+        proto: "{{ item.protocol }}"
+      loop: "{{ ufw_service_rules }}"
+      when: ufw_service_rules | length > 0
+      tags:
+        - firewall
+
+    - name: Display UFW firewall status
+      debug:
+        msg:
+          - "✓ UFW firewall enabled"
+          - "  Default Incoming: {{ ufw_default_incoming }}"
+          - "  Default Outgoing: {{ ufw_default_outgoing }}"
+          - "  SSH: Allowed (port {{ ufw_ssh_port }})"
+          - "  Service Rules: {{ ufw_service_rules | length }} configured"
+      tags:
+        - firewall
+        - always
+
+  when: ufw_enabled
+  tags:
+    - base
+    - firewall
+    - security

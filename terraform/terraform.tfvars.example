@@ -1,0 +1,145 @@
+# PhoenixStack Terraform - Configuration Template
+# 
+# This file serves as documentation for terraform.tfvars configuration
+# DO NOT use this file for actual deployments
+# Instead, create terraform.tfvars with your actual credentials
+#
+# SECURITY BEST PRACTICES:
+# 1. Local Development:
+#    - Copy this file to terraform.tfvars
+#    - Fill in actual Proxmox credentials
+#    - Ensure terraform.tfvars is in .gitignore (it already is)
+#    - Never commit terraform.tfvars to git
+#
+# 2. GitHub Actions / Remote Execution:
+#    - Store Proxmox credentials as GitHub Secrets:
+#      * PROXMOX_API_URL
+#      * PROXMOX_API_TOKEN_ID
+#      * PROXMOX_API_TOKEN_SECRET
+#    - GitHub Actions will inject these at runtime via self-hosted runner
+#    - terraform.tfvars becomes unnecessary
+#    - terraform plan/apply runs on bastion01 self-hosted runner
+
+# ============================================================================
+# PROXMOX API CONFIGURATION
+# ============================================================================
+
+# Proxmox API URL
+# Format: https://<ip-or-hostname>:<port>/api2/json/
+# Recommendation: Use static IP (10.101.0.11) rather than DNS name
+# Reason: Ensures availability if DNS/DHCP is misconfigured
+proxmox_api_url = "https://10.101.0.11:8006/api2/json/"
+
+# Proxmox API Token ID
+# Format: user@realm!tokenname
+# To create a token in Proxmox:
+#   1. Datacenter > API Tokens > Create Token
+#   2. Use user: root@pam
+#   3. Use token name: terraform-token
+#   4. Grant permissions: Datastore.Allocate, Datastore.AllocateSpace, Datastore.Audit, SDN.Use, Sys.Audit, VM.Allocate, VM.Audit, VM.CLone, VM.Config.CDROM, VM.Config.CPU, VM.Config.CloudInit, VM.Config.Disk, VM.Config.HYType, VM.Config.Memory, VM.Config.Network, VM.Config.Options, VM.Console, VM.PowerMgmt
+#   5. Copy the token ID and secret
+proxmox_api_token_id = "root@pam!terraform-token"
+
+# Proxmox API Token Secret
+# This is the token password/secret generated when creating the token in Proxmox
+# Value: Copy from 1Password "Proxmox Terraform Token" entry
+# WARNING: This is a sensitive credential. Never commit to git.
+proxmox_api_token_secret = "YOUR_ACTUAL_TOKEN_SECRET_HERE"
+
+# ============================================================================
+# SSH PUBLIC KEY CONFIGURATION
+# ============================================================================
+
+# SSH public key to install in all container root accounts
+# This key will be installed for password-less root access
+<<<<<<< HEAD
+# SECURITY: SSH keys should NOT be hardcoded in this file!
+# 
+# To provide SSH key:
+# 1. Local development: export TF_VAR_ssh_public_keys="ssh-ed25519 AAAA..."
+# 2. GitHub Actions: Set SSH_PUBLIC_KEY secret in GitHub
+# 3. Get your key with: cat ~/.ssh/id_ed25519.pub or cat ~/.ssh/id_rsa.pub
+#
+# Format: ssh-ed25519 AAAA... comment  OR  ssh-rsa AAAA... comment
+# For multiple keys: ["ssh-ed25519 AAAA...", "ssh-rsa BBBB..."]
+ssh_public_keys = ""  # Provide via TF_VAR_ssh_public_keys environment variable
+=======
+# Value: Copy your ED25519 public key from 1Password SSH Keys
+# Format: Must be valid SSH public key format (ssh-ed25519 AAAA... comment)
+# Do not include the private key - only the public key
+ssh_public_keys = ["ssh-ed25519 AAAA... your-key-comment"]
+>>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072
+
+# ============================================================================
+# PROXMOX STORAGE POOL PREREQUISITES (CRITICAL)
+# ============================================================================
+#
+# BEFORE running terraform apply, verify these storage pools exist in Proxmox:
+#
+# REQUIRED Storage Pool:
+# - ssd: 500GB+ minimum (LVM-thin or SSD-based filesystem)
+#   IMPORTANT: Must be LVM-thin, SSD, or ZFS. NOT a directory-based "local" pool.
+#   Used by: ALL containers (BASTION01-02, DNS01-02, PROXY01-02, AUTHENTIK01-02, DOCKER01-02, PLEX01)
+#
+# ERROR Prevention:
+# If you see: "storage 'local' does not support container directories"
+#   → You need to create an SSD pool that is LVM-thin or SSD-based
+#   → Directory-based storage pools CANNOT be used for containers
+#
+# To verify available storage pools:
+# 1. Proxmox Web UI: Datacenter > Storage (check Status tab)
+# 2. Via SSH to Proxmox node: pvesh get /storage
+#
+# To create the 'ssd' storage pool:
+# - See terraform/README_STORAGE_POOLS.md for detailed instructions
+# - Common pool types: LVM-thin (recommended), ZFS, or SSD filesystem mount
+#
+# If your storage pool has a different name (not 'ssd'):
+# - Edit each module's variables.tf file
+# - Update the storage_pool default value
+# - Example: terraform/bastion01/variables.tf
+#   storage_pool = "nvme"  (or your pool name)
+
+# ============================================================================
+# VM ID ALLOCATION SCHEMA (MUST BE UNIQUE)
+# ============================================================================
+#
+# PhoenixStack uses these fixed VM IDs. If you need different IDs:
+# 1. Edit each module's variables.tf file
+# 2. Change the container_vmid default value
+# 3. Ensure NO duplicate VM IDs
+# 4. Run terraform plan to verify no conflicts
+#
+# Current allocation:
+# 101: BASTION01 (Management & GitHub runner)
+# 102: BASTION02 (Secondary bastion & GitHub runner)
+# 103: DNS01 (DNS/PiHole server)
+# 104: DNS02 (DNS/PiHole server secondary)
+# 105: PROXY01 (Reverse proxy/Traefik)
+# 106: PROXY02 (Reverse proxy/Traefik secondary)
+# 107: AUTHENTIK01 (Identity provider)
+# 108: AUTHENTIK02 (Identity provider secondary)
+# 109: DOCKER01 (Container host)
+# 110: DOCKER02 (Container host secondary)
+# 111: PLEX01 (Media server)
+# 112: SQL01 (PostgreSQL primary) - PLANNED
+# 113: SQL02 (PostgreSQL standby) - PLANNED
+#
+# Reserved for future services:
+# 114+: Additional services
+
+# ============================================================================
+# DEPLOYMENT VERIFICATION
+# ============================================================================
+#
+# After terraform apply succeeds:
+# 1. Check Proxmox Web UI - all 10 containers should be running
+# 2. Verify IPs: ssh -i ~/.ssh/id_ed25519 root@10.101.0.20 (BASTION01)
+# 3. Verify all containers: for ip in 10.101.0.{20,21,22,23,25,30,201,202}; do ping -c 1 $ip; done
+#
+# If containers fail to start:
+# - Check Proxmox > Node > LXC > Container > Status tab
+# - Common issues:
+#   * Storage pool doesn't exist (update variables.tf for that module)
+#   * VM ID conflict (check for duplicate IDs across modules)
+#   * Insufficient disk space (expand storage pool or reduce container sizes)

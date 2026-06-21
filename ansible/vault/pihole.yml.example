@@ -1,0 +1,19 @@
+# PiHole Admin Credentials - Vault Template
+# 
+# This file should be encrypted with ansible-vault for secure credential storage
+# 
+# SETUP:
+#   1. Create this file: ansible/vault/pihole.yml
+#   2. Edit it: nano ansible/vault/pihole.yml (add password)
+#   3. Encrypt it: ansible-vault encrypt ansible/vault/pihole.yml
+#   4. Use with playbook: 
+#      ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/dns_pihole.yml \
+#        -e @ansible/vault/pihole.yml
+
+---
+# PiHole Web Interface Admin Password
+# Used to access the PiHole dashboard at http://dns01.phoenix.stack/admin
+# Generate a strong password (min 16 chars recommended)
+#
+# ⚠️  CRITICAL: Never commit this unencrypted. Always use ansible-vault.
+pihole_admin_password: "your_secure_password_here_minimum_16_chars"

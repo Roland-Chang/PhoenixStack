@@ -1,0 +1,110 @@
+#!/usr/bin/env ansible-playbook
+---
+# PhoenixStack Infrastructure Orchestration Playbook
+# Master playbook for deploying the complete PhoenixStack infrastructure
+#
+# OPTIMIZED DEPLOYMENT SEQUENCE:
+#   PHASE 0: Common Base Configuration (all 16 hosts in parallel)
+#   PHASE 1: BASTION01/02 - Control plane setup
+#   PHASE 2: DNS01/02 - DNS servers with PiHole
+#   PHASE 3+: Additional service tiers as needed
+#
+# Prerequisites:
+#   - All containers deployed via Terraform
+#   - SSH access configured for root user
+#   - Vault credentials prepared (if using vault files)
+#
+# RECOMMENDED USAGE - Full Stack (Optimized):
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml \
+#     -e @ansible/vault/onepassword.yml \
+#     -e @ansible/vault/github_runner.yml \
+#     -e @ansible/vault/pihole.yml \
+#     --vault-id @prompt
+#   (Runs Phase 0 for all hosts first, then service phases sequentially)
+#
+# ALTERNATIVE - Full Stack (Interactive):
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml \
+#     -e svc_ansible_password=<password> \
+#     -e github_runner_registration_token=<token> \
+#     -e pihole_admin_password=<password>
+#
+# USAGE - Deploy Only Specific Phases:
+#   # Just base configuration (all hosts in parallel)
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml --tags base
+#
+#   # Just bastion services (skip base config)
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml \
+#     --skip-tags base --tags bastion
+#
+#   # Just DNS services (skip base config)
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml \
+#     --skip-tags base --tags dns
+#
+#   # Add a new host (reuses base config if already deployed)
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml \
+#     -l newhost --skip-tags base
+#
+# Tags Available:
+#   - base          : Phase 0 - Common base configuration
+#   - bastion       : Phase 1 - Bastion servers deployment
+#   - dns           : Phase 2 - DNS servers deployment
+#   - dns_base      : Phase 2a - DNS base configuration only
+#   - pihole        : Phase 2b - PiHole deployment only
+#
+# TIME SAVINGS:
+#   Before optimization: ~80-160 min (base_config runs 16x sequentially)
+#   After optimization:  ~20-30 min (base_config runs 1x for all hosts in parallel)
+
+# ============================================================================
+# PHASE 0: COMMON BASE CONFIGURATION - All Hosts in Parallel
+# ============================================================================
+# Consolidates base system configuration (APT mirrors, packages, security, firewall)
+# This runs for all 16 hosts simultaneously, saving 75-87% of deployment time
+#
+- name: "PHASE 0: Common Base Configuration for All Hosts"
+  import_playbook: common_base_setup.yml
+
+# ============================================================================
+# PHASE 1: BASTION SERVERS - Control Plane Deployment
+# ============================================================================
+# Complete setup of all bastion servers including:
+#   - Base system configuration (users, packages, security, firewall)
+#   - 1Password CLI installation with service account
+#   - GitHub Actions self-hosted runner installation and registration
+#
+- name: "PHASE 1: Deploy BASTION Control Plane"
+  tags:
+    - bastion
+    - always
+  import_playbook: bastion_full_setup.yml
+
+# ============================================================================
+# PHASE 2: DNS SERVERS - Base Configuration
+# ============================================================================
+# Foundation setup for DNS01 and DNS02 including:
+#   - Base system configuration (users, packages, security, firewall)
+#   - DNS-specific firewall rules (port 53)
+#   - Ready for PiHole installation
+#
+- name: "PHASE 2: Configure DNS Server Base"
+  tags:
+    - dns
+    - dns_base
+    - always
+  import_playbook: dns_base.yml
+
+# ============================================================================
+# PHASE 3: PIHOLE - DNS/AD-Blocking Service Deployment
+# ============================================================================
+# PiHole installation and configuration for DNS01 and DNS02:
+#   - Docker installation
+#   - PiHole container deployment
+#   - Local DNS records configuration
+#   - Health checks and verification
+#
+- name: "PHASE 3: Deploy PiHole on DNS Servers"
+  tags:
+    - dns
+    - pihole
+    - always
+  import_playbook: dns_pihole.yml

@@ -1,0 +1,31 @@
+# Base Configuration Role Defaults
+
+---
+# Backup share mount point
+# This should be mounted from pve01 (Proxmox host) and passed through to the LXC
+# Set backup_share_enabled: false to skip mount point verification
+backup_share_enabled: true
+backup_share_server: "10.101.0.101"
+backup_share_base_path: "Backups"
+backup_share_mount_point: "/mnt/backups"
+
+# UFW Firewall Configuration
+# Enable UFW by default on all containers
+ufw_enabled: true
+
+# Default UFW rules (apply to all containers)
+# Incoming: Deny by default, Allow SSH for Ansible management
+# Outgoing: Allow by default
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
+
+# SSH port (always allowed for Ansible management)
+ufw_ssh_port: 22
+
+# Service-specific rules (override in playbook or host_vars)
+# Format: list of dicts with: rule (allow/deny), port, protocol (tcp/udp)
+ufw_service_rules: []
+# Example for DNS servers:
+# ufw_service_rules:
+#   - { rule: "allow", port: 53, protocol: "tcp" }
+#   - { rule: "allow", port: 53, protocol: "udp" }

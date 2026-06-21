@@ -1,0 +1,90 @@
+# Example Proxmox node config (pve01.conf.example)
+# Copy this to `pve01.conf` and edit values for each node.
+# - Strings must be quoted
+# - Leave optional values blank ("") or unset
+#
+# Sections: Identity | Networking | SSH | CIFS | Repos | Kernel | Firewall | IPMI
+
+# ---------------------------
+# Identity & run options (REQUIRED)
+# ---------------------------
+NODE_HOSTNAME="pve01"            # short hostname (no domain)
+NODE_DOMAIN="phoenix.stack"       # DNS domain (leave empty for single-label)
+TIMEZONE="America/Denver"         # timezone for timedatectl
+AUTO_REBOOT="no"                  # yes/no: reboot at end of automated runs
+SITE="primary"                    # site tag for inventory
+
+# ---------------------------
+# Networking (REQUIRED)
+# ---------------------------
+PRIMARY_IFACE="nic3"               # physical NIC name
+MGMT_BRIDGE="vmbr0"                # bridge to manage (vmbr0 typical)
+MGMT_VLAN=""                       # VLAN id or empty for untagged
+MGMT_IP_CIDR="10.101.0.1/16"       # management IPv4 in CIDR form
+MGMT_GW="10.101.0.254"               # default gateway IP
+DNS_SERVERS="1.1.1.1 1.0.0.1"      # space-separated list
+ENABLE_IPV6="no"                   # yes/no
+
+# ---------------------------
+# SSH / Access
+# ---------------------------
+# Option A: paste a public key here (takes precedence)
+#SSH_PUBLIC_KEY="ssh-ed25519 AAAA... user@host"
+
+# Option B: import keys from GitHub (script will prompt if empty in automated mode)
+SSH_IMPORT_GITHUB=""               # e.g. "your-github-user"
+
+SSH_PORT="22"
+DISABLE_ROOT_PASSWORD="yes"        # yes/no. Script ensures keys present before disabling
+
+# ---------------------------
+# CIFS / NAS Mounts (optional)
+# ---------------------------
+ENABLE_CIFS="yes"                  # yes/no
+SMB_SERVER="10.101.0.101"           # Unifi UNAS/Filer IP or FQDN
+SMB_USERNAME="svc_proxmox"         # account with rights to create/own directories
+# SMB_PASSWORD=""                  # optional; if blank the script prompts securely
+SMB_CREDENTIALS_PATH="/root/.smbcredentials"
+SMB_AUTOCREATE_DIRS="yes"          # yes/no: try to create Backups/<NODE> via smbclient
+SMB_DOMAIN=""                      # optional domain/workgroup for smbclient
+
+CIFS_UID="100000"                  # UID mapped for unprivileged LXC (maps to root/UID 0 inside container)
+CIFS_GID="101000"                  # GID mapped for unprivileged LXC (maps to svc_docker/GID 1000 inside container)
+CIFS_ENTRIES=(
+  "//${SMB_SERVER}/Backups/${NODE_HOSTNAME} /mnt/pve/cifs-backups cifs _netdev,x-systemd.automount,noatime,uid=${CIFS_UID},gid=${CIFS_GID},dir_mode=0770,file_mode=0770,credentials=${SMB_CREDENTIALS_PATH} 0 0"
+  "//${SMB_SERVER}/Software/ISO /mnt/pve/cifs-iso cifs _netdev,x-systemd.automount,noatime,uid=${CIFS_UID},gid=${CIFS_GID},dir_mode=0770,file_mode=0770,credentials=${SMB_CREDENTIALS_PATH} 0 0"
+)
+
+# If CIFS is enabled make sure Proxmox host can reach SMB_SERVER (routing / firewall)
+
+# ---------------------------
+# Repository & subscription
+# ---------------------------
+USE_NO_SUBSCRIPTION_REPO="yes"    # yes to enable pve-no-subscription
+DISABLE_SUBSCRIPTION_NAG="yes"     # yes to patch UI (best-effort)
+
+# ---------------------------
+# Kernel / tuning
+# ---------------------------
+ENABLE_L1TF_FLUSH_NOWARN="yes"     # yes/no: append l1tf=flush,nowarn
+
+# ---------------------------
+# Firewall & services
+# ---------------------------
+ENABLE_PVE_FIREWALL="yes"
+FIREWALL_LOG_LEVEL="info"          # info/debug/notice/etc.
+
+# ---------------------------
+# IPMI / iDRAC (optional)
+# ---------------------------
+CONFIGURE_IPMI_NETWORK="no"        # yes/no
+IPMI_IP=""                         # static IP for IPMI if configuring
+IPMI_NETMASK=""
+IPMI_GATEWAY=""
+
+# ---------------------------
+# Notes
+# - Required fields: NODE_HOSTNAME, MGMT_IP_CIDR, MGMT_GW, PRIMARY_IFACE
+# - If you enable CIFS, ensure SMB_SERVER is reachable and credentials are valid
+# - Use `--config <file>` to run the bootstrap with this file
+#   Example: ./proxmox-bootstrap.sh --config ./scripts/proxmox-configs/pve01.conf

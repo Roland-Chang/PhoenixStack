@@ -1,0 +1,62 @@
+---
+# DNS Base Configuration Playbook
+# Applies foundational system configuration to all DNS servers
+# This sets up the foundation for PiHole DNS server deployment
+#
+# Prerequisites:
+#   - DNS containers deployed via Terraform
+#   - DNS containers accessible via SSH on port 22 from orchestration machine
+#   - Ansible inventory updated with DNS host entries
+#
+# Usage:
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/dns_base.yml
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/dns_base.yml -l dns01
+
+- name: "DNS Base Configuration"
+  hosts: dns
+  remote_user: root
+  become: no
+
+  vars:
+    # DNS service firewall rules
+    ufw_service_rules:
+      - { rule: "allow", port: 53, protocol: "tcp" }    # DNS over TCP
+      - { rule: "allow", port: 53, protocol: "udp" }    # DNS over UDP
+      - { rule: "allow", port: 80, protocol: "tcp" }    # PiHole web interface
+      - { rule: "allow", port: 443, protocol: "tcp" }   # HTTPS (future)
+
+  pre_tasks:
+    - name: "Display deployment info"
+      debug:
+        msg: |
+          ╔════════════════════════════════════════╗
+          ║     DNS Base Configuration             ║
+          ║  {{ inventory_hostname | upper }}
+          ║  IP: {{ ansible_host }}                ║
+          ╚════════════════════════════════════════╝
+
+    - name: "Wait for SSH to be ready"
+      wait_for_connection:
+        delay: 5
+        timeout: 30
+
+    - name: "Gather facts"
+      setup:
+
+  roles:
+    # Apply base system configuration (security, packages, networking, UFW firewall)
+    # NOTE: This is now run as PHASE 0 (common_base_setup.yml) for all hosts!
+    # If Phase 0 already completed, use: --skip-tags base
+    - role: base_config
+      tags:
+        - base
+
+  post_tasks:
+    - name: "Verify DNS base configuration"
+      debug:
+        msg: |
+          ✓ {{ inventory_hostname }} base configuration complete
+          - Hostname: {{ inventory_hostname }}
+          - IP Address: {{ ansible_host }}
+          - Firewall: Enabled (DNS ports 53 TCP/UDP, HTTP 80, HTTPS 443 open)
+          - Ready for PiHole installation

@@ -1,0 +1,21 @@
+# 1Password CLI Client Installation Defaults
+
+---
+# 1Password repository configuration
+onepassword_repo_key_url: "https://downloads.1password.com/linux/keys/1password.asc"
+onepassword_repo_key_path: "/usr/share/keyrings/1password-archive-keyring.gpg"
+onepassword_repo_url: "https://downloads.1password.com/linux"
+
+# Service account token file location
+onepassword_token_dir: "/etc/phoenixstack"
+onepassword_token_file: "{{ onepassword_token_dir }}/1password_token"
+
+# 1Password service account token
+# IMPORTANT: Provide via -e flag or vault, never hardcode
+onepassword_service_account_token: ""
+
+# Whether to test connectivity after installation
+onepassword_test_connectivity: true
+
+# 1Password configuration files
+onepassword_config_dir: "/root/.config/1password-cli"

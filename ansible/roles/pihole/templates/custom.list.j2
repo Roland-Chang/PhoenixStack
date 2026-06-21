@@ -1,0 +1,12 @@
+# Local DNS Records for phoenix.stack infrastructure
+# Format: IP_ADDRESS HOSTNAME
+
+# Manual/External Infrastructure Records
+{% for record in (pihole_manual_records | default([])) %}
+{{ record.ip }} {{ record.hostname }}
+{% endfor %}
+
+# Terraform-managed Infrastructure Records
+{% for record in (pihole_local_records | default([])) %}
+{{ record.ip }} {{ record.hostname }}
+{% endfor %}

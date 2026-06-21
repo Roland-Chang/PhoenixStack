@@ -1,0 +1,22 @@
+# GitHub Actions Runner Role Handlers
+
+---
+- name: Restart github-runner service
+  systemd:
+    name: "{{ runner_systemd_service }}"
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  listen: restart github-runner
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+  listen: reload systemd
+
+- name: Start github-runner service
+  systemd:
+    name: "{{ runner_systemd_service }}"
+    state: started
+    enabled: yes
+  listen: start github-runner
