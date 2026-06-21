@@ -2,7 +2,7 @@
 
 # Terraform
 **/.terraform/
-**/.terraform.lock.hcl
+# .terraform.lock.hcl is NOT ignored - it should be committed to ensure consistent provider versions
 **/terraform.tfstate
 **/terraform.tfstate.backup
 **/terraform.tfstate.*.backup
