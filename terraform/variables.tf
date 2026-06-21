@@ -127,27 +127,8 @@ variable "service_mac_addresses" {
     vault02 = "02:aa:bb:cc:05:02"
     # Observability tier (Plex/Media) - 06
     plex01 = "02:aa:bb:cc:06:01"
-<<<<<<< HEAD
     plex02 = "02:aa:bb:cc:06:02"
-    # Database tier (PostgreSQL cluster) - 07:01-02
-    pgsql01 = "02:aa:bb:cc:07:01"
-    pgsql02 = "02:aa:bb:cc:07:02"
-    # Database tier (MySQL/MariaDB cluster) - 09:01-02
-    db01 = "02:aa:bb:cc:09:01"
-    db02 = "02:aa:bb:cc:09:02"
-    # Backup tier - 08
-    backup01 = "02:aa:bb:cc:08:01"
-    # Observability tier (Prometheus/Grafana) - 07:03-04
-    monitor01 = "02:aa:bb:cc:07:03"
-    monitor02 = "02:aa:bb:cc:07:04"
-    # Container tier (Docker) - 10
-    docker01 = "02:aa:bb:cc:10:01"
-    docker02 = "02:aa:bb:cc:10:02"
-    # Game servers tier (AMP) - 11
-    amp01 = "02:aa:bb:cc:11:01"
-    amp02 = "02:aa:bb:cc:11:02"
-=======
-    # Database tier (PostgreSQL cluster) - 07:01-02
+    # Database tier (PostgreSQL/SQL cluster) - 07:01-02
     sql01 = "02:aa:bb:cc:07:01"
     sql02 = "02:aa:bb:cc:07:02"
     # Database tier (MySQL/MariaDB cluster) - 07:03-04
@@ -161,6 +142,5 @@ variable "service_mac_addresses" {
     # Container tier (Docker) - 10
     docker01 = "02:aa:bb:cc:10:01"
     docker02 = "02:aa:bb:cc:10:02"
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072
   }
 }

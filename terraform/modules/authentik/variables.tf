@@ -10,10 +10,6 @@ variable "proxmox_node" {
 variable "instance_vmid" {
   description = "Unique VM ID for this instance"
   type        = number
-<<<<<<< HEAD:terraform/modules/authentik/variables.tf
-=======
-  default     = 103
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072:terraform/dns01/variables.tf
 }
 
 variable "instance_hostname" {

@@ -10,10 +10,7 @@ variable "proxmox_node" {
 variable "instance_vmid" {
   description = "Unique VM ID for this instance"
   type        = number
-<<<<<<< HEAD:terraform/modules/backup/variables.tf
-=======
-  default     = 105
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072:terraform/proxy01/variables.tf
+
 }
 
 variable "instance_hostname" {

@@ -10,10 +10,6 @@ variable "proxmox_node" {
 variable "instance_vmid" {
   description = "Unique VM ID for this bastion instance"
   type        = number
-<<<<<<< HEAD:terraform/modules/bastion/variables.tf
-=======
-  default     = 102 # Fixed VMID for BASTION02
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072:terraform/bastion02/variables.tf
 }
 
 variable "instance_hostname" {
@@ -60,10 +56,6 @@ variable "ostemplate" {
 variable "ip_address" {
   description = "IPv4 address (VLAN 10 Management)"
   type        = string
-<<<<<<< HEAD:terraform/modules/bastion/variables.tf
-=======
-  default     = "10.101.0.22" # Secondary bastion IP
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072:terraform/bastion02/variables.tf
 }
 
 variable "ip_cidr_suffix" {
