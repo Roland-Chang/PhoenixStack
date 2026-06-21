@@ -57,10 +57,6 @@ variable "ostemplate" {
 variable "ip_address" {
   description = "IPv4 address"
   type        = string
-<<<<<<< HEAD:terraform/modules/backup/variables.tf
-=======
-  default     = "10.101.0.31"
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072:terraform/proxy01/variables.tf
 }
 
 variable "ip_cidr_suffix" {
