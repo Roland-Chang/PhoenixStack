@@ -116,7 +116,7 @@ ssh_public_keys = ["ssh-ed25519 AAAA... your-key-comment"]
 # 103: DNS01 (DNS/PiHole server)
 # 104: DNS02 (DNS/PiHole server secondary)
 # 105: PROXY01 (Reverse proxy/Traefik)
-# 106: PROXY02 (Reverse proxy/Traefik secondary)
+# 106: [AVAILABLE]
 # 107: AUTHENTIK01 (Identity provider)
 # 108: AUTHENTIK02 (Identity provider secondary)
 # 109: DOCKER01 (Container host)

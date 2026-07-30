@@ -1,0 +1,136 @@
+#!/bin/bash
+# check-proxmox-backups.sh - Weekly health check for backup infrastructure
+# 
+# Verifies that:
+# - Backup jobs are running
+# - Snapshots exist and are recent
+# - Storage pool is not full
+# 
+# Run via cron: Monday 08:00 UTC
+# Log: /var/log/proxmox-backup-health.log
+
+set -euo pipefail
+
+# Configuration
+CONFIG_FILE="/etc/proxmox-backups.conf"
+LOG_FILE="/var/log/proxmox-backup-health.log"
+MIN_SNAPSHOTS=3
+MAX_STORAGE_PERCENT=90
+
+# ============================================================================
+# Log function
+# ============================================================================
+log() {
+    local level="$1"
+    shift
+    local message="$*"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[${timestamp}] [${level}] ${message}" | tee -a "$LOG_FILE"
+}
+
+# ============================================================================
+# Check storage usage
+# ============================================================================
+check_storage() {
+    log "INFO" "Checking storage pool usage..."
+    
+    local usage_percent=$(df /var/lib/vz | tail -1 | awk '{print $5}' | sed 's/%//')
+    
+    if [ "$usage_percent" -gt "$MAX_STORAGE_PERCENT" ]; then
+        log "ERROR" "🚨 Storage pool > ${MAX_STORAGE_PERCENT}%: ${usage_percent}% used"
+        return 1
+    else
+        log "INFO" "✅ Storage pool OK: ${usage_percent}% used"
+        return 0
+    fi
+}
+
+# ============================================================================
+# Check snapshot counts
+# ============================================================================
+check_snapshots() {
+    log "INFO" "Checking snapshot counts..."
+    
+    local error_count=0
+    
+    while IFS=':' read -r vmid hostname retention; do
+        # Skip comments and empty lines
+        [[ "$vmid" =~ ^# ]] && continue
+        [[ -z "$vmid" ]] && continue
+        
+        # Trim whitespace
+        vmid=$(echo "$vmid" | xargs)
+        hostname=$(echo "$hostname" | xargs)
+        retention=$(echo "$retention" | xargs)
+        
+        # Count snapshots
+        local snapshot_count=$(qm listsnapshot "$vmid" 2>/dev/null | grep -c "${hostname}-daily-" || echo 0)
+        
+        if [ "$snapshot_count" -lt "$MIN_SNAPSHOTS" ]; then
+            log "WARN" "⚠️  $hostname (VMID $vmid): Only $snapshot_count snapshots (expected >= $MIN_SNAPSHOTS)"
+            ((error_count++))
+        else
+            log "INFO" "✅ $hostname (VMID $vmid): $snapshot_count snapshots"
+        fi
+        
+    done < <(grep -v '^#' "$CONFIG_FILE" | grep -v '^$')
+    
+    return $([ "$error_count" -eq 0 ] && echo 0 || echo 1)
+}
+
+# ============================================================================
+# Check scheduler log
+# ============================================================================
+check_scheduler_log() {
+    log "INFO" "Checking scheduler log..."
+    
+    local scheduler_log="/var/log/proxmox-backup-scheduler.log"
+    
+    if [ ! -f "$scheduler_log" ]; then
+        log "WARN" "⚠️  Scheduler log not found: $scheduler_log"
+        return 1
+    fi
+    
+    # Check if scheduler ran in last 48 hours
+    local last_run=$(stat -c %Y "$scheduler_log" 2>/dev/null || echo 0)
+    local now=$(date +%s)
+    local age=$((now - last_run))
+    local max_age=$((48 * 3600))  # 48 hours in seconds
+    
+    if [ "$age" -gt "$max_age" ]; then
+        log "ERROR" "🚨 Scheduler has not run in $(($age / 3600)) hours"
+        return 1
+    else
+        log "INFO" "✅ Scheduler ran $(($age / 3600)) hours ago"
+        return 0
+    fi
+}
+
+# ============================================================================
+# Main execution
+# ============================================================================
+main() {
+    log "INFO" "=========================================="
+    log "INFO" "Weekly backup health check started"
+    log "INFO" "=========================================="
+    
+    local exit_code=0
+    
+    # Run checks
+    check_storage || ((exit_code++))
+    check_snapshots || ((exit_code++))
+    check_scheduler_log || ((exit_code++))
+    
+    log "INFO" "=========================================="
+    if [ "$exit_code" -eq 0 ]; then
+        log "INFO" "✅ All health checks PASSED"
+    else
+        log "WARN" "⚠️  Some health checks FAILED (see details above)"
+    fi
+    log "INFO" "=========================================="
+    
+    exit "$exit_code"
+}
+
+# Run main function
+main

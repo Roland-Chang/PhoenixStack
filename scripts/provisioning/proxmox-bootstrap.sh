@@ -142,8 +142,8 @@ SITE="primary"                     # primary or secondary
 PRIMARY_IFACE="nic1"               # Physical NIC (verify with: ip link)
 MGMT_BRIDGE="vmbr0"                # Bridge name
 MGMT_VLAN=""                       # Leave empty for untagged, or set VLAN ID
-MGMT_IP_CIDR="10.101.1.10/24"        # Node management IP (PHOENIX network)
-MGMT_GW="10.101.1.254"               # Gateway (UDM SE at primary)
+MGMT_IP_CIDR="10.101.0.10/24"      # Node management IP (VLAN 10 - Management)
+MGMT_GW="10.101.0.254"             # Gateway (UDM SE at primary)
 DNS_SERVERS="1.1.1.1 1.0.0.1"      # Space-separated (Pi-Holes when deployed)
 ENABLE_IPV6="no"                   # yes/no
 

@@ -8,7 +8,7 @@ This Terraform configuration requires the following storage pools to be availabl
 
 | Pool Name | Used By | Minimum Size | Type | Purpose |
 |-----------|---------|--------------|------|---------|
-| `ssd` | BASTION01, BASTION02, PROXY01, PROXY02, DNS01, DNS02, AUTHENTIK01, AUTHENTIK02, DOCKER01, DOCKER02, PLEX01 | 500GB+ | SSD/NVMe | General purpose container storage (must be SSD or LVM-thin) |
+| `ssd` | BASTION01, BASTION02, PROXY01, DNS01, DNS02, AUTHENTIK01, AUTHENTIK02, DOCKER01, DOCKER02, PLEX01 | 500GB+ | SSD/NVMe | General purpose container storage (must be SSD or LVM-thin) |
 
 ## Creating Storage Pools in Proxmox
 
@@ -108,7 +108,6 @@ BASTION02: ssd
 DNS01: ssd
 DNS02: ssd
 PROXY01: ssd
-PROXY02: ssd
 AUTHENTIK01: ssd
 AUTHENTIK02: ssd
 DOCKER01: ssd

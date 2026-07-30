@@ -19,7 +19,7 @@ cd /mount/Projects/repos/phoenixstack && ./scripts/setup/setup-environment.sh
 
 **From GitHub** (once pushed):
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/yourusername/phoenixstack/main/scripts/setup/setup-environment.sh)
+bash <(curl -s https://raw.githubusercontent.com/Roland-Chang/phoenixstack/main/scripts/setup/setup-environment.sh)
 ```
 
 ---
@@ -92,7 +92,7 @@ The script requires:
 ### First Time (New Machine)
 ```bash
 # 1. Clone repository
-git clone https://github.com/yourusername/phoenixstack.git
+git clone https://github.com/Roland-Chang/phoenixstack.git
 cd phoenixstack
 
 # 2. Run setup

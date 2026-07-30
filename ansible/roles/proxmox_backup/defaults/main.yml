@@ -1,0 +1,24 @@
+---
+# roles/proxmox_backup/defaults/main.yml
+# Default variables for proxmox_backup role
+
+# Backup schedule (cron)
+backup_schedule_hour: "2"           # UTC hour (02:00)
+backup_schedule_minute: "0"         # UTC minute
+
+# Health check schedule (cron)
+health_check_hour: "8"              # UTC hour (08:00)
+health_check_minute: "0"            # UTC minute
+health_check_weekday: "1"           # 1 = Monday
+
+# Log rotation
+log_rotation_days: "30"             # Keep 30 days of rotated logs
+log_dir: "/var/log"
+
+# Thresholds for health checks
+min_snapshots_required: "3"         # Warn if fewer than this many snapshots
+max_storage_percent: "90"           # Alert if storage > this percent
+
+# Backup retention policies (can be overridden)
+critical_retention_days: "14"       # DNS, PostgreSQL
+standard_retention_days: "7"        # Most services

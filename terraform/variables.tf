@@ -118,7 +118,6 @@ variable "service_mac_addresses" {
     dns02 = "02:aa:bb:cc:02:02"
     # Proxy tier (Traefik) - 03
     proxy01 = "02:aa:bb:cc:03:01"
-    proxy02 = "02:aa:bb:cc:03:02"
     # Identity tier (Authentik) - 04
     authentik01 = "02:aa:bb:cc:04:01"
     authentik02 = "02:aa:bb:cc:04:02"

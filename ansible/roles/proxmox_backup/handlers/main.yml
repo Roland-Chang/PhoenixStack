@@ -1,0 +1,10 @@
+---
+# roles/proxmox_backup/handlers/main.yml
+# Handlers for backup role
+
+- name: Log backup installation
+  debug:
+    msg: "Proxmox backup component installed/updated"
+  tags:
+    - proxmox_backup
+    - backup

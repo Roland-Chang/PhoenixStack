@@ -1,0 +1,84 @@
+# Proxmox LXC Backup Configuration ({{ ansible_date_time.iso8601 }})
+# Format: VMID:HOSTNAME:RETENTION_DAYS
+# 
+# RETENTION_DAYS determines snapshot history:
+# - 14 days: Critical services (databases, DNS)
+# - 7 days: Standard services (proxy, auth, bastion, control plane)
+# 
+# This file is managed by Ansible - do not edit manually.
+# Update via: ansible/roles/proxmox_backup/templates/proxmox-backups.conf.j2
+
+# ============================================================================
+# Control Plane Tier (Bastion)
+# ============================================================================
+# - Orchestration, GitHub Actions runners
+# - Retention: 7 days (standard)
+
+101:bastion01:7
+102:bastion02:7
+
+# ============================================================================
+# DNS/Edge Tier
+# ============================================================================
+# - Critical infrastructure dependency (all services rely on DNS)
+# - Retention: 14 days (critical)
+
+103:dns01:14
+104:dns02:14
+
+# ============================================================================
+# Proxy/Ingress Tier
+# ============================================================================
+# - Reverse proxy, Traefik, ingress routing
+# - Retention: 7 days (standard)
+
+105:proxy01:7
+
+# ============================================================================
+# Identity/Auth Tier
+# ============================================================================
+# - Authentik SSO, authentication provider
+# - Retention: 7 days (standard)
+
+107:authentik01:7
+108:authentik02:7
+
+# ============================================================================
+# Database Tier (Critical)
+# ============================================================================
+# - PostgreSQL cluster, critical for Authentik and other services
+# - Retention: 14 days (critical - longer recovery window)
+
+112:pgsql01:14
+113:pgsql02:14
+
+# ============================================================================
+# Compute/Workload Tier
+# ============================================================================
+# - Docker container hosts
+# - Retention: 7 days (standard)
+
+109:docker01:7
+110:docker02:7
+
+# ============================================================================
+# Media Tier
+# ============================================================================
+# - Plex media servers
+# - Retention: 7 days (standard)
+
+111:plex01:7
+
+# ============================================================================
+# GameServer Tier (Future)
+# ============================================================================
+# - Add AMP instances when deployed
+# - Retention: 7 days (standard)
+
+# 120:amp01:7
+# 121:amp02:7
+
+# ============================================================================
+# Reserved VMIDs (do not use for backups)
+# ============================================================================
+# 106: [Available for future use]

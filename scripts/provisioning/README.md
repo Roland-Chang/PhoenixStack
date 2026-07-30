@@ -260,7 +260,7 @@ Second run should skip most steps and report "Already configured."
 
 - [Management VLAN Implementation](../../docs/management-vlan-implementation.md)
 - [Known Issues & Troubleshooting](../../docs/known-issues.md)
-- [PVE01 Validation Commands](../../docs/pve01-validation-commands.md)
+- [PVE01 Validation Commands](../validation/) - Bash and PowerShell validation runbooks
 - [Proxmox VE Documentation](https://pve.proxmox.com/wiki/Main_Page)
 
 ## 📋 Checklist for New Deployments

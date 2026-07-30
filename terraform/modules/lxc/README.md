@@ -231,5 +231,5 @@ Verify:
 ## 📚 Related Documentation
 
 - [Terraform Setup Guide](../README.md) - Main Terraform documentation
-- [Mac Address Scheme](../docs/mac-address-scheme.md) - MAC addressing for containers
-- [Proxmox API Token Creation](../docs/proxmox-api-token-creation.md) - How to create Terraform token
+- [Infrastructure Design](../../docs/roadmap/INFRASTRUCTURE_DESIGN.md) - Comprehensive infrastructure design including MAC addressing
+- [Proxmox API Token Creation](../../docs/proxmox-api-token-creation.md) - How to create Terraform token

@@ -34,8 +34,6 @@ pihole_local_records:
   # Proxy/Ingress Tier
   - hostname: proxy01.phoenix.stack
     ip: 10.101.0.31
-  - hostname: proxy02.phoenix.stack
-    ip: 10.101.0.32
   
   # Authentication Tier
   - hostname: authentik01.phoenix.stack

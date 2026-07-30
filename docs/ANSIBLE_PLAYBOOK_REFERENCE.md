@@ -340,7 +340,7 @@ Reference for targeting specific hosts/groups:
 ```yaml
 bastion         # bastion01, bastion02
 dns             # dns01, dns02
-proxy           # proxy01, proxy02
+proxy           # proxy01
 sql             # pgsql01, pgsql02
 mariadb         # db01, db02
 monitoring      # monitor01, monitor02

@@ -32,9 +32,9 @@ provider "proxmox" {
 module "bastion01" {
   source = "./modules/bastion"
 
-  instance_vmid     = 101
+  instance_vmid     = 10101  # Service type 01 (bastion), instance 01
   instance_hostname = "bastion01"
-  ip_address        = "10.101.0.21"
+  ip_address        = "10.101.0.20"
   ssh_public_keys   = var.ssh_public_keys
   mac_address       = var.service_mac_addresses["bastion01"]
 }
@@ -42,9 +42,9 @@ module "bastion01" {
 module "bastion02" {
   source = "./modules/bastion"
 
-  instance_vmid     = 102
+  instance_vmid     = 10102  # Service type 01 (bastion), instance 02
   instance_hostname = "bastion02"
-  ip_address        = "10.101.0.22"
+  ip_address        = "10.101.0.21"
   ssh_public_keys   = var.ssh_public_keys
   mac_address       = var.service_mac_addresses["bastion02"]
 }
@@ -56,7 +56,7 @@ module "bastion02" {
 module "dns01" {
   source = "./modules/dns"
 
-  instance_vmid     = 103
+  instance_vmid     = 10201  # Service type 02 (dns), instance 01
   instance_hostname = "dns01"
   ip_address        = "10.101.0.201"
   ssh_public_keys   = var.ssh_public_keys
@@ -66,7 +66,7 @@ module "dns01" {
 module "dns02" {
   source = "./modules/dns"
 
-  instance_vmid     = 104
+  instance_vmid     = 10202  # Service type 02 (dns), instance 02
   instance_hostname = "dns02"
   ip_address        = "10.101.0.202"
   ssh_public_keys   = var.ssh_public_keys
@@ -80,21 +80,11 @@ module "dns02" {
 module "proxy01" {
   source = "./modules/proxy"
 
-  instance_vmid     = 105
+  instance_vmid     = 10301  # Service type 03 (proxy), instance 01
   instance_hostname = "proxy01"
   ip_address        = "10.101.0.31"
   ssh_public_keys   = var.ssh_public_keys
   mac_address       = var.service_mac_addresses["proxy01"]
-}
-
-module "proxy02" {
-  source = "./modules/proxy"
-
-  instance_vmid     = 106
-  instance_hostname = "proxy02"
-  ip_address        = "10.101.0.32"
-  ssh_public_keys   = var.ssh_public_keys
-  mac_address       = var.service_mac_addresses["proxy02"]
 }
 
 # ============================================================================
@@ -104,7 +94,7 @@ module "proxy02" {
 module "authentik01" {
   source = "./modules/authentik"
 
-  instance_vmid     = 107
+  instance_vmid     = 10401  # Service type 04 (authentik), instance 01
   instance_hostname = "authentik01"
   ip_address        = "10.101.0.41"
   ssh_public_keys   = var.ssh_public_keys
@@ -114,7 +104,7 @@ module "authentik01" {
 module "authentik02" {
   source = "./modules/authentik"
 
-  instance_vmid     = 108
+  instance_vmid     = 10402  # Service type 04 (authentik), instance 02
   instance_hostname = "authentik02"
   ip_address        = "10.101.0.42"
   ssh_public_keys   = var.ssh_public_keys
@@ -128,7 +118,7 @@ module "authentik02" {
 module "pgsql01" {
   source = "./modules/postgres"
 
-  instance_vmid     = 115
+  instance_vmid     = 10701  # Service type 07 (database), instance 01
   instance_hostname = "pgsql01"
   ip_address        = "10.101.0.71"
   ssh_public_keys   = var.ssh_public_keys
@@ -138,7 +128,7 @@ module "pgsql01" {
 module "pgsql02" {
   source = "./modules/postgres"
 
-  instance_vmid     = 116
+  instance_vmid     = 10702  # Service type 07 (database), instance 02
   instance_hostname = "pgsql02"
   ip_address        = "10.101.0.72"
   ssh_public_keys   = var.ssh_public_keys
@@ -152,7 +142,7 @@ module "pgsql02" {
 module "mariadb01" {
   source = "./modules/mariadb"
 
-  instance_vmid     = 117
+  instance_vmid     = 10703  # Service type 07 (database), instance 03
   instance_hostname = "db01"
   ip_address        = "10.101.0.75"
   ssh_public_keys   = var.ssh_public_keys
@@ -162,7 +152,7 @@ module "mariadb01" {
 module "mariadb02" {
   source = "./modules/mariadb"
 
-  instance_vmid     = 118
+  instance_vmid     = 10704  # Service type 07 (database), instance 04
   instance_hostname = "db02"
   ip_address        = "10.101.0.76"
   ssh_public_keys   = var.ssh_public_keys
@@ -176,7 +166,7 @@ module "mariadb02" {
 module "monitor01" {
   source = "./modules/monitor"
 
-  instance_vmid     = 119
+  instance_vmid     = 10801  # Service type 08 (monitor), instance 01
   instance_hostname = "monitor01"
   ip_address        = "10.101.0.91"
   ssh_public_keys   = var.ssh_public_keys
@@ -186,7 +176,7 @@ module "monitor01" {
 module "monitor02" {
   source = "./modules/monitor"
 
-  instance_vmid     = 120
+  instance_vmid     = 10802  # Service type 08 (monitor), instance 02
   instance_hostname = "monitor02"
   ip_address        = "10.101.0.92"
   ssh_public_keys   = var.ssh_public_keys
@@ -200,7 +190,7 @@ module "monitor02" {
 module "vault01" {
   source = "./modules/vault"
 
-  instance_vmid     = 121
+  instance_vmid     = 10901  # Service type 09 (vault), instance 01
   instance_hostname = "vault01"
   ip_address        = "10.101.0.81"
   ssh_public_keys   = var.ssh_public_keys
@@ -210,7 +200,7 @@ module "vault01" {
 module "vault02" {
   source = "./modules/vault"
 
-  instance_vmid     = 122
+  instance_vmid     = 10902  # Service type 09 (vault), instance 02
   instance_hostname = "vault02"
   ip_address        = "10.101.0.82"
   ssh_public_keys   = var.ssh_public_keys
@@ -224,7 +214,7 @@ module "vault02" {
 module "backup01" {
   source = "./modules/backup"
 
-  instance_vmid     = 123
+  instance_vmid     = 11101  # Service type 11 (backup), instance 01
   instance_hostname = "backup01"
   storage_size      = 64
   ip_address        = "10.101.0.98"
@@ -239,7 +229,7 @@ module "backup01" {
 module "docker01" {
   source = "./modules/docker"
 
-  instance_vmid     = 109
+  instance_vmid     = 11001  # Service type 10 (docker), instance 01
   instance_hostname = "docker01"
   cpu_cores         = 4
   memory_mb         = 4096
@@ -252,7 +242,7 @@ module "docker01" {
 module "docker02" {
   source = "./modules/docker"
 
-  instance_vmid     = 110
+  instance_vmid     = 11002  # Service type 10 (docker), instance 02
   instance_hostname = "docker02"
   cpu_cores         = 4
   memory_mb         = 4096
@@ -269,7 +259,7 @@ module "docker02" {
 module "plex01" {
   source = "./modules/plex"
 
-  instance_vmid     = 111
+  instance_vmid     = 10601  # Service type 06 (media/plex), instance 01
   instance_hostname = "plex01"
   cpu_cores         = 4
   memory_mb         = 4096
@@ -282,7 +272,7 @@ module "plex01" {
 module "plex02" {
   source = "./modules/plex"
 
-  instance_vmid     = 112
+  instance_vmid     = 10602  # Service type 06 (media/plex), instance 02
   instance_hostname = "plex02"
   cpu_cores         = 4
   memory_mb         = 4096
@@ -299,7 +289,7 @@ module "plex02" {
 module "amp01" {
   source = "./modules/amp"
 
-  instance_vmid     = 113
+  instance_vmid     = 10501  # Service type 05 (game server/amp), instance 01
   instance_hostname = "amp01"
   cpu_cores         = 4
   memory_mb         = 4096
@@ -312,7 +302,7 @@ module "amp01" {
 module "amp02" {
   source = "./modules/amp"
 
-  instance_vmid     = 114
+  instance_vmid     = 10502  # Service type 05 (game server/amp), instance 02
   instance_hostname = "amp02"
   cpu_cores         = 4
   memory_mb         = 4096

@@ -1,0 +1,85 @@
+---
+# Playbook: proxmox_backup_setup.yml
+# Purpose: Deploy infrastructure-wide backup system to Proxmox node
+# 
+# Deploys:
+# - Backup scripts (/usr/local/bin/backup-*.sh)
+# - Backup configuration (/etc/proxmox-backups.conf)
+# - Cron jobs (daily backup at 02:00 UTC, weekly health check)
+# - Log rotation configuration
+# - Health monitoring scripts
+# 
+# Usage:
+#   ansible-playbook -i ansible/inventory/hosts.yml \
+#     ansible/playbooks/proxmox_backup_setup.yml
+# 
+# Targets: Proxmox node (pve01)
+# Idempotent: Yes - safe to run multiple times
+# Tags: proxmox_backup, backup
+
+- name: "Deploy Proxmox Backup Infrastructure"
+  hosts: pve01
+  become: true
+  gather_facts: true
+  
+  pre_tasks:
+    - name: "Proxmox Backup Setup | Display playbook purpose"
+      debug:
+        msg: |
+          ╔════════════════════════════════════════════════════╗
+          ║      Proxmox Backup Infrastructure Deployment      ║
+          ╚════════════════════════════════════════════════════╝
+          
+          This playbook will deploy an infrastructure-wide backup
+          system that automatically backs up all PhoenixStack LXC
+          containers with configurable retention policies.
+          
+          Configuration:
+            - Config file: /etc/proxmox-backups.conf
+            - Scripts: /usr/local/bin/backup-*.sh
+            - Cron jobs: Daily (02:00 UTC), Weekly (Monday 08:00 UTC)
+            - Logs: /var/log/proxmox-backup-*.log
+          
+          Services backed up: 13 containers (7-14 day retention)
+      tags:
+        - always
+        - proxmox_backup
+
+  roles:
+    - role: proxmox_backup
+      tags:
+        - proxmox_backup
+        - backup
+
+  post_tasks:
+    - name: "Proxmox Backup Setup | Display completion summary"
+      debug:
+        msg: |
+          ╔════════════════════════════════════════════════════╗
+          ║     Backup Infrastructure Deployment Complete      ║
+          ╚════════════════════════════════════════════════════╝
+          
+          Next Steps:
+          
+          1. Verify configuration:
+             cat /etc/proxmox-backups.conf
+          
+          2. Test backup scripts (optional):
+             /usr/local/bin/backup-scheduler.sh
+          
+          3. Monitor logs:
+             tail -f /var/log/proxmox-backup-scheduler.log
+          
+          4. Weekly health checks will run automatically:
+             - Monday 08:00 UTC
+             - Check: tail -f /var/log/proxmox-backup-health.log
+          
+          Backup Schedule:
+          - Daily: 02:00 UTC (Master Scheduler)
+          - Weekly: Monday 08:00 UTC (Health Check)
+          
+          Documentation:
+          - See: docs/PROXMOX_BACKUP_INFRASTRUCTURE.md
+      tags:
+        - always
+        - proxmox_backup

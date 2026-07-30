@@ -1,0 +1,139 @@
+---
+# roles/proxmox_backup/tasks/main.yml
+# Deploy Proxmox backup infrastructure (scripts, config, cron, logrotate)
+
+- name: "Proxmox Backup | Ensure log directory exists"
+  file:
+    path: /var/log/proxmox-backups
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Copy backup-lxc.sh script"
+  copy:
+    src: backup-lxc.sh
+    dest: /usr/local/bin/backup-lxc.sh
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Log backup installation
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Copy backup-scheduler.sh script"
+  copy:
+    src: backup-scheduler.sh
+    dest: /usr/local/bin/backup-scheduler.sh
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Log backup installation
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Generate proxmox-backups.conf from template"
+  template:
+    src: proxmox-backups.conf.j2
+    dest: /etc/proxmox-backups.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Log backup installation
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Configure logrotate for backup logs"
+  template:
+    src: logrotate-proxmox-backups.j2
+    dest: /etc/logrotate.d/proxmox-backups
+    owner: root
+    group: root
+    mode: '0644'
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Schedule backup job via cron (daily at 02:00 UTC)"
+  cron:
+    name: "Proxmox LXC Backup - Master Scheduler"
+    minute: "0"
+    hour: "2"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    job: "/usr/local/bin/backup-scheduler.sh >> /var/log/proxmox-backup-scheduler.log 2>&1"
+    user: root
+    cron_file: proxmox-backups
+    state: present
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Create monitoring cron for weekly health check (Monday 08:00 UTC)"
+  cron:
+    name: "Proxmox Backup - Weekly Health Check"
+    minute: "0"
+    hour: "8"
+    day: "*"
+    month: "*"
+    weekday: "1"  # Monday
+    job: "/usr/local/bin/check-proxmox-backups.sh >> /var/log/proxmox-backup-health.log 2>&1"
+    user: root
+    cron_file: proxmox-backups
+    state: present
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Create backup health check script"
+  template:
+    src: check-proxmox-backups.sh.j2
+    dest: /usr/local/bin/check-proxmox-backups.sh
+    owner: root
+    group: root
+    mode: '0755'
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Verify backup script functionality (dry run - lists config)"
+  command: "grep -c ':' /etc/proxmox-backups.conf"
+  register: backup_config_check
+  changed_when: false
+  failed_when: backup_config_check.stdout | int < 1
+  tags:
+    - proxmox_backup
+    - backup
+
+- name: "Proxmox Backup | Display backup configuration summary"
+  debug:
+    msg: |
+      ✅ Proxmox Backup Infrastructure Deployed Successfully
+      
+      Configuration:
+        - Config file: /etc/proxmox-backups.conf
+        - Main script: /usr/local/bin/backup-scheduler.sh
+        - Service script: /usr/local/bin/backup-lxc.sh
+        - Health check: /usr/local/bin/check-proxmox-backups.sh
+      
+      Scheduled Jobs:
+        - Daily backup: 02:00 UTC (Master Scheduler)
+        - Weekly health check: Monday 08:00 UTC
+      
+      Services to backup: {{ backup_config_check.stdout }} (from config file)
+      
+      Next Steps:
+        1. Verify config: cat /etc/proxmox-backups.conf
+        2. Test scripts: /usr/local/bin/backup-scheduler.sh
+        3. Monitor logs: tail -f /var/log/proxmox-backup-scheduler.log
+  tags:
+    - proxmox_backup
+    - backup

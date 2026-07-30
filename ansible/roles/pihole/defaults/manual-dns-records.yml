@@ -14,7 +14,7 @@ pihole_manual_records:
   
   # Proxmox iDRAC (out-of-band management)
   - hostname: ipmi-pve01.phoenix.stack
-    ip: 10.101.0.11
+    ip: 10.101.0.1
   
   # Network Attached Storage
   - hostname: unas01.phoenix.stack

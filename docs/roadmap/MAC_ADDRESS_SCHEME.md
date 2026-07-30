@@ -45,17 +45,13 @@ Format: 02:AA:BB:CC:XX:YY
 | DNS | 02 | Domain name resolution, PiHole/Unbound |
 | Proxy | 03 | Reverse proxy, load balancing |
 | Authentik | 04 | Authentication, authorization, OIDC |
-<<<<<<< HEAD
 | Game Server (AMP) | 05 | Game server hosting, AMP by CubeCoders |
 | Media | 06 | Media servers (Plex, etc.) |
+| Database | 07 | PostgreSQL/MariaDB database clusters |
+| Monitor | 08 | Monitoring, logging, observability |
+| Vault | 09 | Secrets management (HashiCorp Vault) |
 | Docker | 10 | Workloads, container services |
-| Reserved | 07-09, 11-FF | Future services |
-=======
-| Database | 07 | PostgreSQL database cluster |
-| Monitor | 06 | Monitoring, logging, observability |
-| Workload | 10 | Workloads, container services (Docker) |
-| Reserved | 08-0F, 11-FF | Future services |
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072
+| Reserved | 11-FF | Future services |
 
 ## Assigned MAC Addresses
 
@@ -75,7 +71,7 @@ Format: 02:AA:BB:CC:XX:YY
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
 | Proxy Primary | proxy01 | 105 | `02:aa:bb:cc:03:01` | 10.101.0.31 | 🔄 Planned |
-| Proxy Secondary | proxy02 | 106 | `02:aa:bb:cc:03:02` | 10.101.0.32 | 🔄 Planned |
+| [AVAILABLE] | [reserved for future] | 106 | `[available]` | [available] | - |
 
 ### Identity & Authentication Tier
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
@@ -86,7 +82,6 @@ Format: 02:AA:BB:CC:XX:YY
 ### Workload Tier
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
-<<<<<<< HEAD
 | Docker Primary | docker01 | 109 | `02:aa:bb:cc:10:01` | 10.101.0.51 | ✅ Active |
 | Docker Secondary | docker02 | 110 | `02:aa:bb:cc:10:02` | 10.101.0.52 | ✅ Active |
 
@@ -94,31 +89,28 @@ Format: 02:AA:BB:CC:XX:YY
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
 | Media Server Primary | plex01 | 111 | `02:aa:bb:cc:06:01` | 10.101.0.61 | 🔄 Planned |
-| Media Server Secondary | plex02 | 112 | `02:aa:bb:cc:06:02` | 10.101.0.62 | 🔄 Planned |
 
 ### Game Server Tier (AMP by CubeCoders)
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
 | Game Server Primary | amp01 | 113 | `02:aa:bb:cc:05:01` | 10.101.0.81 | 🔄 Planned |
-| Game Server Secondary | amp02 | 114 | `02:aa:bb:cc:05:02` | 10.101.0.82 | 🔄 Planned |
 
-### Database Tier (PostgreSQL - Authentik Backend)
+### Database Tier
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
-| Database Primary | pgsql01 | 115 | `02:aa:bb:cc:07:01` | 10.101.0.71 | 🔄 Planned |
-| Database Secondary | pgsql02 | 116 | `02:aa:bb:cc:07:02` | 10.101.0.72 | 🔄 Planned |
-=======
-| Docker Primary | docker01 | 109 | `02:aa:bb:cc:10:01` | 10.101.0.51 | 🔄 Planned |
-| Docker Secondary | docker02 | 110 | `02:aa:bb:cc:10:02` | 10.101.0.52 | 🔄 Planned |
-| Media Server | plex01 | 111 | `02:aa:bb:cc:06:01` | 10.101.0.61 | 🔄 Planned |
+| PostgreSQL Primary | pgsql01 | 112 | `02:aa:bb:cc:07:01` | 10.101.0.71 | 🔄 Planned |
+| PostgreSQL Secondary | pgsql02 | 113 | `02:aa:bb:cc:07:02` | 10.101.0.72 | 🔄 Planned |
+| MariaDB Primary | mariadb01 | 114 | `02:aa:bb:cc:07:03` | 10.101.0.73 | 🔄 Planned |
 
-### Database Tier (NEW)
+### Monitoring Tier
 | Container | Hostname | VMID | MAC Address | IP Address | Status |
 |---|---|---|---|---|---|
-| Database Primary | sql01 | 112 | `02:aa:bb:cc:07:01` | 10.101.0.71 | 📋 Planned |
-| Database Standby | sql02 | 113 | `02:aa:bb:cc:07:02` | 10.101.0.72 | 📋 Planned |
-| Database VIP (Keepalived) | - | - | - | 10.101.0.70 | 📋 Planned |
->>>>>>> 33549d8e5ca7b898273e4356d0bf3f3af5081072
+| Monitor Primary | monitor01 | 115 | `02:aa:bb:cc:08:01` | 10.101.0.91 | 🔄 Planned |
+
+### Secrets Management Tier
+| Container | Hostname | VMID | MAC Address | IP Address | Status |
+|---|---|---|---|---|---|
+| Vault Primary | vault01 | 116 | `02:aa:bb:cc:09:01` | 10.101.0.81 | 🔄 Planned |
 
 ## Usage in Terraform
 

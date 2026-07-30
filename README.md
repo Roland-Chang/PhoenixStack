@@ -18,20 +18,66 @@ PhoenixStack is designed to:
 4. Centralized documentation with clear decision records. "If it's not written down, it never happened!"
 5. No plaintext secrets in repository content.
 
-## Current Repository Layout
+## Quick Start - Ansible Deployment
 
-- Prompt.txt
-- Scripts/proxmox/deploy_proxmox_bootstrap.sh
-- Scripts/proxmox/proxmox-bootstrap.sh
-- Scripts/proxmox/configs/pve01.conf
-- Scripts/proxmox/configs/pve999.conf.example
-- Scripts/proxmox/configs/README.md
-- Instructions.md
-- docs/pve01-validation-commands.md
-- docs/pve01-validation-commands.ps1
-- docs/pve01-validation-report-template.md
-- docs/decision-management-vlan.md
-- docs/management-vlan-implementation.md
+### Prerequisites
+- Ansible (installed system-wide on control node)
+- Git
+- SSH access to infrastructure (key-based authentication)
+- 1Password CLI (for secrets management)
+
+### Deploy Infrastructure
+
+```bash
+# Run from the ansible/ directory to use ansible.cfg role paths:
+cd ansible
+
+# Deploy backup infrastructure
+ansible-playbook -i inventory/hosts.yml \
+  playbooks/proxmox_backup_setup.yml
+
+# Deploy DNS infrastructure
+ansible-playbook -i inventory/hosts.yml \
+  playbooks/dns_pihole.yml
+
+# Run full site deployment (all services)
+ansible-playbook -i inventory/hosts.yml \
+  playbooks/site.yml
+```
+
+### Documentation
+
+See [docs/README.md](docs/README.md) for complete documentation index.
+
+**Key References**:
+- [INFRASTRUCTURE_DESIGN.md](docs/roadmap/INFRASTRUCTURE_DESIGN.md) - Complete infrastructure design and standards
+- [PROXMOX_BACKUP_INFRASTRUCTURE.md](docs/PROXMOX_BACKUP_INFRASTRUCTURE.md) - Backup strategy and automation
+- [DNS_INTEGRATION.md](docs/DNS_INTEGRATION.md) - DNS architecture and records
+- [1PASSWORD_INTEGRATION.md](docs/1PASSWORD_INTEGRATION.md) - Secrets management setup
+
+## Repository Structure
+
+```
+PhoenixStack/
+├── ansible/                    # Ansible playbooks and roles
+│   ├── inventory/             # Inventory and host definitions
+│   ├── playbooks/             # Orchestration playbooks
+│   ├── roles/                 # Reusable Ansible roles
+│   └── vault/                 # Encrypted secrets (examples)
+├── docs/                      # Operational documentation
+│   └── roadmap/               # Planning and design docs
+├── scripts/                   # Automation scripts
+│   ├── backup/                # Backup scripts
+│   ├── deployment/            # Deployment automation
+│   ├── provisioning/          # Proxmox bootstrap
+│   ├── setup/                 # Environment setup
+│   └── validation/            # Validation scripts
+├── terraform/                 # Terraform modules and configs
+│   ├── modules/               # Reusable LXC modules
+│   └── providers/             # Provider configurations
+├── Instructions.md            # Project standards and workflow
+└── README.md                  # This file
+```
 
 ## Environment Snapshot
 
@@ -42,16 +88,26 @@ PhoenixStack is designed to:
 - Network family: 10.100.0.0/16 to 10.103.0.0/16
 - DNS/edge dependencies: Cloudflare, Namecheap, Microsoft 365 MX
 
-## Planned Service Rollout (Initial)
+## Service Deployment Status
 
-1. BASTION01 (Ansible orchestration, GitHub Actions runner, jump box)
-2. DNS01
-3. PROXY01
-4. AUTHENTIK01
-5. DOCKER01
-6. PLEX01
+**Phase 1 - Foundation** ✅ Complete
+1. ✅ **BASTION01, BASTION02** - Ansible orchestration, GitHub Actions runner
+2. ✅ **DNS01, DNS02** - PiHole + Unbound DNS (active-active)
+3. ✅ **DOCKER01, DOCKER02** - Container workload hosts
+4. ✅ **PGSQL01, PGSQL02** - PostgreSQL databases
 
-This order favors automation and control first, then internal DNS stability, then edge control, followed by identity and service expansion.
+**Phase 2 - DNS Stability** 🔄 In Progress
+- DNS infrastructure deployed and operational
+- Automated record generation from Terraform
+- Documentation consolidated
+
+**Phase 3 - Edge Services** 📅 Planned
+5. 📅 **PROXY01** - Traefik reverse proxy
+
+**Phase 4 - Identity & Applications** 📅 Planned
+6. 📅 **AUTHENTIK01** - Authentication and OAuth
+7. 📅 **PLEX01** - Media server
+8. 📅 **AMP01** - Game servers
 
 ## Work Model
 
@@ -62,23 +118,38 @@ For each change:
 4. Validate in safe mode first.
 5. Document and commit.
 
-## Near-Term Roadmap
+## Project Status
 
-### Step 1: Network Infrastructure and Baseline Validation
-- Configure management VLAN (VLAN 10, 10.101.0.0/24) on network infrastructure.
-- Validate active PVE01 state against bootstrap configuration and script assumptions.
-- Migrate PVE01 to management VLAN with proper safeguards.
-- Produce drift report and validate migration success.
+**Current Phase**: Phase 2 - DNS Stability (In Progress)  
+**Last Updated**: 2026-07-29
 
-### Step 2: Docs Foundation
-- Establish a simple top-level docs folder.
-- Add command-ready validation templates (including fstab formatting standard).
+### Completed Milestones ✅
 
-### Step 3: Automation Control Plane
-- Design and deploy BASTION01 (renamed from ANSIBLE01).
-- Define first Ansible inventories and baseline hardening roles.
-- Set up GitHub Actions self-hosted runner on BASTION01.
-- Configure BASTION01 as bastion/jump host to other infrastructure.
+**Phase 1: Foundation & Baseline Validation**
+- ✅ Management VLAN configured (VLAN 10, 10.101.0.0/24)
+- ✅ PVE01 validated against bootstrap configuration
+- ✅ PVE01 migrated to management VLAN successfully
+- ✅ Drift report produced ([PVE01_DRIFT_SUMMARY.md](docs/PVE01_DRIFT_SUMMARY.md))
+- ✅ Documentation infrastructure established
+- ✅ BASTION01/02 deployed with GitHub Actions runners
+- ✅ DNS01/02 deployed (PiHole + Unbound)
+- ✅ DOCKER01/02 deployed
+- ✅ PGSQL01/02 deployed
+- ✅ Backup automation deployed ([PROXMOX_BACKUP_INFRASTRUCTURE.md](docs/PROXMOX_BACKUP_INFRASTRUCTURE.md))
+
+### Current Focus 🔄
+
+**Phase 2: DNS Stability**
+- 🔄 DNS infrastructure operational validation
+- 🔄 Automated DNS record generation refinement
+- 🔄 Documentation consolidation (completed 2026-07-29)
+
+### Next Steps 📅
+
+**Phase 3: Edge Services**
+- Deploy PROXY01 (Traefik reverse proxy)
+- Configure CloudFlare integration
+- Implement Let's Encrypt certificate automation
 
 ## Security Notes
 
@@ -90,39 +161,53 @@ For each change:
 
 ## Related Documentation
 
-- Project instructions and guardrails: [Instructions.md](Instructions.md)
-- Proxmox config guidance: [Scripts/proxmox/configs/README.md](Scripts/proxmox/configs/README.md)
-- PVE01 validation (Bash): [docs/pve01-validation-commands.md](docs/pve01-validation-commands.md)
-- PVE01 validation (PowerShell): [docs/pve01-validation-commands.ps1](docs/pve01-validation-commands.ps1)
-- Validation report template: [docs/pve01-validation-report-template.md](docs/pve01-validation-report-template.md)
-- Management VLAN design: [docs/decision-management-vlan.md](docs/decision-management-vlan.md)
-- Management VLAN implementation: [docs/management-vlan-implementation.md](docs/management-vlan-implementation.md)
+### Core Documentation
+- **Project Standards**: [Instructions.md](Instructions.md) - Project guardrails and workflow
+- **Documentation Index**: [docs/README.md](docs/README.md) - Complete documentation catalog
+- **Known Issues**: [docs/known-issues.md](docs/known-issues.md) - Troubleshooting reference
 
-## Status
+### Infrastructure & Architecture
+- **Infrastructure Design**: [docs/roadmap/INFRASTRUCTURE_DESIGN.md](docs/roadmap/INFRASTRUCTURE_DESIGN.md) - Comprehensive infrastructure design, hardware specs, network architecture, and standards
+- **HA Strategy**: [docs/roadmap/HA_REDUNDANCY_STRATEGY.md](docs/roadmap/HA_REDUNDANCY_STRATEGY.md) - High availability planning
 
-Project is in foundation phase. The next actionable milestone is validation of the existing Proxmox node alignment before deploying new resources.
+### Operations
+- **Backup Infrastructure**: [docs/PROXMOX_BACKUP_INFRASTRUCTURE.md](docs/PROXMOX_BACKUP_INFRASTRUCTURE.md) - Backup strategy and automation
+- **DNS Integration**: [docs/DNS_INTEGRATION.md](docs/DNS_INTEGRATION.md) - DNS architecture and records
+- **1Password Integration**: [docs/1PASSWORD_INTEGRATION.md](docs/1PASSWORD_INTEGRATION.md) - Secrets management
+- **Ansible Playbooks**: [docs/ANSIBLE_PLAYBOOK_GUIDE.md](docs/ANSIBLE_PLAYBOOK_GUIDE.md) - Playbook execution guide
 
-## IaC Pipeline Decision
+### Reference
+- **Proxmox Bootstrap**: [scripts/provisioning/README.md](scripts/provisioning/README.md) - Hypervisor setup
+- **Validation Scripts**: [scripts/validation/](scripts/validation/) - Infrastructure validation tools
+- **Roadmap**: [docs/roadmap/README.md](docs/roadmap/README.md) - Future planning and architecture
 
-- Current default: GitHub Actions
-- Future option to re-evaluate: Terraform Cloud
+## Infrastructure as Code
+
+**Provisioning**: Terraform (resource lifecycle management)  
+**Configuration**: Ansible (service configuration and orchestration)  
+**CI/CD**: GitHub Actions (self-hosted runners on bastion01/02)  
+**Secrets**: 1Password (secrets management and rotation)  
+**Source Control**: GitHub (Roland-Chang/PhoenixStack)
 
 ## Network Architecture
 
-- Management VLAN: 10.101.0.0/24 (VLAN 10) - Hypervisor management, IPMI, infrastructure admin
-- Workload Network: 10.101.1.0/24 (VLAN 100) - VMs, LXC containers, application services
-- Secondary Site: 10.102.0.0/16
-- Tertiary Site: 10.103.0.0/16
-- Future Cloud: 10.100.0.0/16
-# Updated
-# Integration test: Mon Jun  8 12:35:07 PM MDT 2026
-# Test run 2: Mon Jun  8 12:39:53 PM MDT 2026
+**Site**: PHOENIX-PRIMARY  
+**Internal Domain**: phoenix.stack  
+**External Domain**: phoenixstack.net
 
-## GitHub Actions Runner Status
+**Network Segmentation**:
+- Management VLAN: 10.101.0.0/24 (VLAN 10) - Hypervisor, IPMI, infrastructure admin
+- Workload Network: 10.101.1.0/24 (VLAN 100) - LXC containers, application services
+- Reserved Sites:
+  - PHOENIX-SECONDARY: 10.102.0.0/16
+  - PHOENIX-TERTIARY: 10.103.0.0/16
+  - Cloud Integration: 10.100.0.0/16
 
-**Bastion01 Self-Hosted Runner:** Active ✓
-- Runner: bastion01-runner
-- Labels: self-hosted,bastion01,infrastructure,proxmox
-- Status: Ready for CI/CD workflows
-- Last verified: 2026-06-15
+**External Services**:
+- DNS Provider: CloudFlare (1.1.1.1, 1.0.0.1)
+- DNS Registrar: Namecheap
+- CDN/Proxy: CloudFlare (Orange Cloud)
+- Email: Microsoft 365 (MX records)
+
+For complete network design, see [INFRASTRUCTURE_DESIGN.md](docs/roadmap/INFRASTRUCTURE_DESIGN.md).
 

@@ -9,7 +9,7 @@ PhoenixStack is a hybrid homelab plus personal-production environment focused on
 - Practical, reliable services for family and friends
 - Security-first operations
 
-Work should be incremental, testable, documentable, and reversible.
+Work should be incremental, testable, documentable, idempotent, and reversible.
 
 ## 2. Non-Negotiable Guardrails
 

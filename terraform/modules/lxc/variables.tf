@@ -99,7 +99,7 @@ variable "gateway" {
 variable "nameserver" {
   description = "DNS nameserver (space-separated list)"
   type        = string
-  default     = "10.101.0.1"
+  default     = "10.1.1.254"
 }
 
 variable "search_domain" {

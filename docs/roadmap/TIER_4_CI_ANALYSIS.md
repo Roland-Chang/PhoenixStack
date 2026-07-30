@@ -1,8 +1,9 @@
 # Tier 4: Advanced Automation - Detailed Analysis
 
-**Status**: Research & Planning Phase
-**Decision Required**: Choose CI/CD platform based on learning goals and use cases
-**Timeline**: After Tier 1-3 stabilization (estimated Week 8+)
+**Status**: Phase 1 Complete (GitHub Actions) | Future Planning (Local CI/CD)
+**Last Updated**: 2026-07-29
+**Current State**: GitHub Actions runners deployed on bastion01/02
+**Future Options**: Local Jenkins/GitLab/Drone for advanced workflows
 
 ---
 
@@ -10,7 +11,9 @@
 
 Tier 4 adds advanced automation capabilities to PhoenixStack. Unlike Tier 1-3 which focus on observability, security, and resilience, Tier 4 focuses on **automation, CI/CD, and development workflow**.
 
-> **Note**: Tier 4 is optional. Only deploy if you have specific CI/CD workflows or learning objectives.
+**Current Implementation**: ✅ GitHub Actions self-hosted runners on bastion01/02 (Phase 1 complete)
+
+**Future Expansion**: 📅 Local CI/CD platform (Jenkins/GitLab/Drone) for advanced workflows (optional)
 
 ---
 
@@ -82,19 +85,23 @@ K8S Cluster (future, not in scope)
 
 ---
 
-### Option 3: GitHub Actions Self-Hosted Runners (Already Using)
+### Option 3: GitHub Actions Self-Hosted Runners ✅ DEPLOYED
 
-**What**: You're already using this! GitHub runners on BASTION01/02
+**What**: Self-hosted GitHub Actions runners on your infrastructure
 
-**Current State**:
-- ✅ Two GitHub-hosted runners on BASTION containers
-- ✅ Workflows execute on your infrastructure
-- ✅ Free for GitHub repos
+**Current State** (Phase 1 Complete):
+- ✅ Two self-hosted runners deployed on BASTION01/02 containers
+- ✅ Workflows execute on your infrastructure (not GitHub-hosted)
+- ✅ Free for private and public repos
+- ✅ Integrated with 1Password for secrets management
+- ✅ Dynamic runner token generation via GitHub API
 
-**Why Tier 4 CI Complements This**:
-- GitHub Actions is great for **public repos** and **standard workflows**
-- Local CI (Jenkins) is great for **private builds**, **custom tools**, **faster iteration**
-- They work together: GitHub Actions for CI gates, local runner for advanced testing
+**Documentation**: See [GITHUB_RUNNER_SETUP.md](GITHUB_RUNNER_SETUP.md) for complete setup guide
+
+**Why Local CI (Jenkins/Drone) Would Complement This**:
+- GitHub Actions is great for **repo-triggered workflows** and **GitHub integration**
+- Local CI (Jenkins) is great for **scheduled jobs**, **custom tools**, **non-GitHub workflows**
+- They work together: GitHub Actions for PR checks, local CI for nightly builds/deployments
 
 ---
 
@@ -140,19 +147,25 @@ CI01 Container
 
 ---
 
-## Recommended Path for Your Homelab
+## Recommended Path for PhoenixStack
 
-### Phase 1: GitHub Actions (Current) ✅
-You're already using this on BASTION01/02. Perfect for:
-- Running tests
-- Deploying to your infrastructure
-- Automating GitHub workflows
+### Phase 1: GitHub Actions ✅ COMPLETE
+Deployed on BASTION01/02. Currently used for:
+- ✅ Running infrastructure validation tests
+- ✅ Terraform plan/apply automation
+- ✅ Ansible playbook execution
+- ✅ GitHub-triggered workflows
 
-### Phase 2: Local Jenkins (Recommended Next)
-Adds capability for:
-- Building Docker images for DOCKER01/02
-- Custom build scripts (not limited to GitHub Actions format)
+**Status**: Operational and meeting current CI/CD needs
+
+### Phase 2: Local Jenkins (Future Optional Expansion)
+Would add capability for:
+- Building Docker images for DOCKER01/02 (scheduled builds)
+- Custom build scripts not tied to GitHub events
+- Scheduled maintenance jobs (backups, cleanup, reporting)
 - **Learning Jenkins, a standard enterprise tool**
+
+**Decision Point**: Only deploy if you have specific use cases GitHub Actions doesn't cover
 
 **Infrastructure**:
 ```

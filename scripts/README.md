@@ -9,6 +9,7 @@ scripts/
 ├── deployment/          ← Infrastructure deployment & management
 ├── provisioning/        ← Host provisioning & bootstrap
 ├── setup/              ← Configuration & setup utilities
+├── validation/         ← Infrastructure validation & verification
 └── README.md           ← This file
 ```
 
@@ -76,6 +77,19 @@ This script auto-detects your shell and adds all Phoenix Stack aliases to:
 - `~/.bashrc` (Linux/WSL)
 - `~/.bash_profile` (macOS Bash)
 - `~/.zshrc` (macOS Zsh)
+
+---
+
+## ✅ Validation Scripts
+
+For verifying infrastructure state and compliance.
+
+**Location**: `scripts/validation/`
+
+- **pve01-validation-commands.ps1** - PowerShell validation script for PVE01 state verification (Windows workflow)
+  - Bash/Linux equivalent: [bash-validation-commands.md](validation/bash-validation-commands.md)
+
+See [Validation Scripts README](validation/README.md) for detailed usage.
 
 ---
 
