@@ -24,7 +24,7 @@ To verify:
 # Via SSH: pvesh get /storage | grep -A5 ssd
 ```
 
-If missing, see [README_STORAGE_POOLS.md](README_STORAGE_POOLS.md) to create it.
+If missing, see [PROXMOX_STORAGE_POOLS.md](../docs/PROXMOX_STORAGE_POOLS.md) to create it.
 
 ### 2. Proxmox API Token
 An API token must be created with appropriate permissions:
