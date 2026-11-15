@@ -17,7 +17,9 @@
 #   system     timezone, NTP, DNS, sysctl, journald, SSH hardening
 #   network    bond0 + VLAN-aware vmbr0 (auto-rollback unless confirmed)
 #   kernel     IOMMU cmdline, vfio GPU binding, ZFS ARC cap
-#   storage    guest/backup ZFS pools, datasets, PVE storage, NAS mounts
+#   nas        NAS SMB mounts + PVE dir storages (before storage, so backups
+#              can be checked before any disk is wiped)
+#   storage    guest/backup ZFS pools, datasets, PVE storage
 #   access     admins group/users, roles, service accounts + API tokens
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
 #   acme       Let's Encrypt cert via Cloudflare DNS-01 (only if ACME_ENABLE=yes)
@@ -35,7 +37,7 @@ set -Eeuo pipefail
 umask 022
 
 readonly VERSION="2026.11.0"
-readonly ALL_STAGES=(preflight repos system network kernel storage access firewall acme verify)
+readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
@@ -145,7 +147,7 @@ json_keys() { perl -MJSON::PP -0777 -ne 'my $d=decode_json($_); print "$_\n" for
 physical_ifaces() {
   local n
   for n in /sys/class/net/*; do
-    [[ -e $n/device ]] && basename "$n"
+    if [[ -e $n/device ]]; then basename "$n"; fi
   done | sort -V
 }
 
@@ -234,7 +236,9 @@ stage_preflight() {
 stage_repos() {
   section "repos"
   local codename f
-  codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+  # Parse, don't source: os-release sets VERSION, which is readonly in this script.
+  codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
+  [[ -n $codename ]] || die "could not read VERSION_CODENAME from /etc/os-release"
 
   for f in /etc/apt/sources.list.d/*.sources; do
     [[ -f $f ]] || continue
@@ -503,6 +507,7 @@ stage_kernel() {
   # Kernel command line: systemd-boot (/etc/kernel/cmdline) or GRUB
   if [[ -f /etc/kernel/cmdline ]]; then
     cur=$(</etc/kernel/cmdline); new=$cur
+    read -r new <<<"$new"              # trim: the installer leaves a trailing space
     for p in $KERNEL_CMDLINE_ADD; do [[ " $new " == *" $p "* ]] || new+=" $p"; done
     ensure_file /etc/kernel/cmdline 0644 <<<"$new"
     if [[ $FILE_CHANGED == yes ]]; then refresh_boot="yes"; fi
@@ -675,12 +680,14 @@ stage_storage() {
     else change "add storage ${id} (zfspool ${pool}: ${content})"
       run pvesm add zfspool "$id" --pool "$pool" --content "$content" --sparse 1; fi
   done
-
-  stage_storage_nas
 }
 
-stage_storage_nas() {
-  [[ -n ${NAS_SERVER:-} && ${#NAS_MOUNTS[@]} -gt 0 ]] || return 0
+# ----------------------------------------------------------------------------
+# Stage: nas
+# ----------------------------------------------------------------------------
+stage_nas() {
+  section "nas"
+  if [[ -z ${NAS_SERVER:-} || ${#NAS_MOUNTS[@]} -eq 0 ]]; then info "no NAS configured — skipped"; return 0; fi
   local cred="${STATE_DIR}/nas-smb.cred"
 
   # Credentials file (root-only). Only prompts when missing or user changed.

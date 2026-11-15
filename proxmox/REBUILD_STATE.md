@@ -12,9 +12,11 @@ changed from that runbook.
 | Guest backups | **Exist on the NAS** in `Backups/pve01` (mounted as `/mnt/nas/nas-dump` once the bootstrap has run). Phase 7 restores from them. |
 | Node config | [config/pve01.conf](config/pve01.conf) is complete: no `REPLACE_ME` outside comments. |
 | ASUS Hyper M.2 + Samsung 990 Pro | **Not installed now.** The `data` pool, `data/models` dataset and `data` storage stay commented out in the config. Nothing in the ISO or bootstrap depends on them. |
-| Unattended installer ISO | **Built** on the Linux Mint workstation: `/home/ayoung/iso/pve01-auto.iso` (owner `ayoung`, mode `600`). Not in git. |
-| Podman container used for the build | Exited (it was run with `--rm`, so it's gone). |
-| Next step | Phase 4 (BIOS/PERC), then boot `pve01-auto.iso` |
+| Install (Phases 4–5) | **Done.** Checked 2026-11-14: FQDN, timezone, keyboard, root mail, IP/gateway, NIC pinning (`nic0` = 4C:D9:8F:0C:15:3E), rpool mirror of the 2 Intel SSDs (ashift 12, lz4), ARC 24 GiB and root SSH key all match the config. PVE 9.2.2, kernel 7.0.2-6-pve. |
+| Unattended installer ISO | Contains the root password hash. **Delete every copy** (`/home/ayoung/iso/pve01-auto.iso` on the Mint workstation, and any copy on the NAS). |
+| Old `nvme` / `ssd` pools | Still on their disks (importable, not imported). Wiped by `storage --destroy-data`. |
+| Bootstrap plan | Runs clean with no `--apply` (42 changes pending). The disk paths in all three pool layouts match the real disks. |
+| Next step | Phase 6: bootstrap stages, starting with `repos` |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
@@ -80,7 +82,8 @@ $B                                   # full plan: read it end to end
 `ZFS_POOL_nvme_LAYOUT`, `ZFS_POOL_ssd_LAYOUT` and `ZFS_POOL_backup_LAYOUT` exists. The PERC Non-RAID
 conversion changes how the backplane disk names look. Fix the config first if any path is missing.
 
-Then run the stages in order: `repos`, `system`, `network`, `kernel` (reboot), `storage --destroy-data`,
+Then run the stages in order: `repos`, `system`, `network`, `kernel` (reboot), `nas`, then **check the
+guest archives on `/mnt/nas/nas-dump` and mark them Protected**, then `storage --destroy-data`,
 `access`, `firewall`, `verify`. The README has the exact commands and prompts.
 
 ### 6. Restore guests, README Phase 7

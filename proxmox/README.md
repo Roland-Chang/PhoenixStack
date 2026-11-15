@@ -135,12 +135,18 @@ $B --apply --stage repos             # then reboot if told to
 $B --apply --stage system
 $B --apply --stage network           # type "keep" when asked
 $B --apply --stage kernel && reboot
+$B --apply --stage nas               # SMB password prompted; mounts the NAS
+ls -lt /mnt/nas/nas-dump/dump/ | head -20   # STOP unless every guest's archive is here
 $B --apply --stage storage --destroy-data   # type "destroy-<pool>" for each pool
 $B --apply --stage access            # store each token in 1Password when shown
 $B --apply --stage firewall          # test GUI + a NEW ssh session, then type "keep"
 $B --apply --stage verify
 $B                                   # re-plan: should report 0 changes pending
 ```
+
+Before `storage --destroy-data`: the old `nvme`/`ssd` pools are the last copy of the guests
+besides the NAS. After the `nas` stage, check that an archive for every guest is listed, and
+mark them **Protected** (GUI: nas-dump → Backups) so the `keep-daily=7` prune can't remove them.
 
 After the `access` stage:
 
