@@ -27,7 +27,8 @@ changed from that runbook.
 | Test restore | **Passed 2026-11-14.** lxc-100's archive restored to scratch VMID 990 on `ssd` (`--unique`): 26 GiB read, no errors, at about 24 MiB/s (so a full restore of all guests from the NAS takes hours). Then destroyed. |
 | Alerts (`notify`) | **Applied 2026-11-14.** SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS) to accounts@phoenixstack.net; matchers `phoenix-alerts` (warning, error) and `phoenix-backups` (all backup results). The first attempt failed with 535 (wrong key); after the key was updated the test was accepted by Brevo. |
 | Open | **`accounts@phoenixstack.net` doesn't exist yet**: it's to be added as an alias in Exchange. Until then alerts are accepted by Brevo but not delivered. After adding it, re-test: `pvesh create /cluster/notifications/targets/brevo/test`. NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
-| Next step | L4: PBS on `backup/pbs`, the nightly PBS (01:00) and NAS vzdump (03:30) jobs. Alerts are ready for them. |
+| PBS + backup jobs | **Applied 2026-11-14.** PBS 4.2 on the host, datastore `pve01-local` on `backup/pbs` (prune 04:00: 14d/8w/6m; GC 04:30; verify Sat 05:00). PVE storage `pbs-local` (127.0.0.1, pinned fingerprint) with token `pve01@pbs!backup`, which has only Datastore.Backup. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 (zstd), all guests, snapshot mode. PBS GUI on :8007 from the admin LAN only. `verify` passes 22/22. |
+| Next step | Test-run `nightly-pbs` now; check the first scheduled runs and their alert emails tomorrow. Then: PBS TOTP, PBS notifications → Brevo (after the Exchange alias), unprotect the old archives once the new backups have a few weeks' history. |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
