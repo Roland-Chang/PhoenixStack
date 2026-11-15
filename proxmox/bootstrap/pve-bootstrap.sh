@@ -1073,7 +1073,9 @@ EOF
         proxmox-backup-manager user delete-token "$PBS_USER" "$PBS_TOKEN" >/dev/null
       fi
       local secret fp
-      secret=$(pbs_json user generate-token "$PBS_USER" "$PBS_TOKEN" | perl -MJSON::PP -0777 -ne 'print decode_json($_)->{value}')
+      # generate-token has no --output-format; it prints "Result: {json}".
+      secret=$(proxmox-backup-manager user generate-token "$PBS_USER" "$PBS_TOKEN" \
+        | perl -MJSON::PP -0777 -ne 's/^\s*Result:\s*//; print decode_json($_)->{value}')
       [[ -n $secret ]] || die "could not create token ${auth}"
       proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
       ok "token ${auth} created with DatastoreBackup on /datastore/${ds}"
