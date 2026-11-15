@@ -21,10 +21,11 @@ changed from that runbook.
 | Guest archives | Checked 2026-11-14. The archives to restore are **Protected**: `lxc-100-2026_11_12-19_32_20`, `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. |
 | Bootstrap applied (cont.) | `storage --destroy-data`: nvme (mirror, 860G), ssd (mirror, 231G), backup (RAIDZ1 + special mirror, 3.07T; `backup/pbs`). `access`: aaron@pve (admins), terraform and claude-audit tokens (privsep; the audit secret is in 1Password `(Proxmox) Claude API`). `firewall`: default DROP, `management` ipset. |
 | **Host baseline (L0–L3)** | **Done 2026-11-14.** `verify` passes all 16 checks; a fresh plan shows **0 changes pending**. |
-| Open | TOTP for `aaron@pve` and `root@pam` not yet confirmed. NAS is 77% full: check after the first week of nightly backups. Delete every copy of `pve01-auto.iso`. |
+| Close-out items done (2026-11-14) | TOTP enrolled for `aaron@pve` and `root@pam`. Every copy of `pve01-auto.iso` deleted. Old host SMB credentials retired. Branch pushed to GitHub. |
 | Guests restored (Phase 7) | **Done 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190, panel :8080 up). docker-temp (lxc 999, `nvme`, 10.101.0.166; `mp0`/`mp1` removed, Media and Porter mounted read-write, 20 containers up, Immich healthy). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111, guest agent OK, GPU01 mapping attached, `nvidia-smi` sees the P2000, Plex :32400 answers). |
 | Network fix | **Applied 2026-11-14.** Host `10.101.0.11/23` (matches UniFi `10.101.0.0/23`); guests are on-link. Admin allowlist = `10.101.0.11` (via the `local_network` alias) + `10.1.1.0/24`. Checked: from docker-temp, host ports 22/8006/3128 and ping are blocked; guests still reach the internet and the NAS; the workstation reaches the GUI. |
-| Next step | Phase 8 close-out: test restore to a spare VMID, delete ISO copies, TOTP, rotate the old SMB credentials, push the branch. |
+| Open | Test restore (in progress). NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
+| Next step | Finish the test restore, then L4: PBS on `backup/pbs`, nightly NAS vzdump job, alerts (SMTP service to choose) |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
