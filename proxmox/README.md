@@ -202,7 +202,7 @@ mark them **Protected** (GUI: nas-dump → Backups) so the `keep-daily=7` prune 
 After the `access` stage:
 
 - Log in as your admin user and enroll **TOTP** for it and for `root@pam`. Do this in the GUI: Datacenter → Permissions → Two Factor.
-- Update 1Password `infrastructure/Proxmox-Audit` with the new `claude-audit@pve!discovery` token.
+- Update 1Password `infrastructure/(Proxmox) Claude API` (field `credential`) with the new `claude-audit@pve!discovery` token.
 
 ### Phase 7: Restore guests
 
