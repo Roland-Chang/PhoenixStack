@@ -22,7 +22,9 @@ changed from that runbook.
 | Bootstrap applied (cont.) | `storage --destroy-data`: nvme (mirror, 860G), ssd (mirror, 231G), backup (RAIDZ1 + special mirror, 3.07T; `backup/pbs`). `access`: aaron@pve (admins), terraform and claude-audit tokens (privsep; the audit secret is in 1Password `(Proxmox) Claude API`). `firewall`: default DROP, `management` ipset. |
 | **Host baseline (L0–L3)** | **Done 2026-11-14.** `verify` passes all 16 checks; a fresh plan shows **0 changes pending**. |
 | Open | TOTP for `aaron@pve` and `root@pam` not yet confirmed. NAS is 77% full: check after the first week of nightly backups. Delete every copy of `pve01-auto.iso`. |
-| Next step | Phase 7: restore lxc-100 and lxc-999, then qemu-9999 (check disk sizes against the pools first) |
+| Guests restored (Phase 7) | **Done 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190, panel :8080 up). docker-temp (lxc 999, `nvme`, 10.101.0.166; `mp0`/`mp1` removed, Media and Porter mounted read-write, 20 containers up, Immich healthy). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111, guest agent OK, GPU01 mapping attached, `nvidia-smi` sees the P2000, Plex :32400 answers). |
+| Network fix | UniFi mgmt network is `10.101.0.0/23`. Prepared and planned, **not yet applied**: `firewall` first (allowlist = workstation LAN + `local_network` alias pinned to the host's /32, so guests can't reach the host's admin ports), then `network` (host `/23`). |
+| Next step | Apply `firewall`, then `network` (iDRAC/tmux). Then Phase 8 close-out: test restore, ISO copies, TOTP, rotate the old SMB credentials. |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
