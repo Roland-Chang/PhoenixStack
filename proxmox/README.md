@@ -131,7 +131,7 @@ Then fill every `REPLACE_ME` in `config/pve01.conf` using `host-inventory.txt` f
 - `ROOT_SSH_KEYS`, `ROOT_EMAIL`, admin user email.
 - Check that every `/dev/disk/by-id/...` path in the pool layouts appears in the capture.
 - Check `/var/lib/vz` in the capture. **It is wiped.** Copy off anything you want to keep.
-- If docker-temp needs its media and porter shares, take the share names from `fstab.redacted` and uncomment those `NAS_MOUNTS` lines.
+- docker-temp's media and porter bind mounts come from the NAS shares `Media` and `Porter` (`NAS_MOUNTS`, mounted by the `nas` stage).
 
 ### Phase 2: Build the installer ISO (on the old pve01)
 
@@ -224,7 +224,7 @@ pct restore 999 /mnt/nas/nas-dump/dump/vzdump-lxc-999-<ts>.tar.zst --storage nvm
 ```bash
 pct set 999 --delete mp0,mp1                                  # drop backups + ISO shares (security)
 pct set 999 --mp2 /mnt/nas/media,mp=/mnt/pve/cifs-media       # same in-container path
-pct set 999 --mp3 /mnt/nas/porter,mp=/mnt/pve/cifs-porter     # if those NAS_MOUNTS are enabled
+pct set 999 --mp3 /mnt/nas/porter,mp=/mnt/pve/cifs-porter     # same in-container path
 ```
 
 Start each guest and check it works. MAC addresses are kept, so DHCP leases don't change. Guests stay untagged on `vmbr0` (VLAN 10) for now. Moving them to VLAN 100 is a later step.
