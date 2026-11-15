@@ -208,13 +208,13 @@ After the `access` stage:
 
 Backups are on `nas-dump` (the same NAS folder as before, mounted at `/mnt/nas/nas-dump`).
 
-> **Check sizes first.** `ssd` is now a single mirror (~238G usable, was ~500G). Before restoring FTP01, INTEL01 and AMP-TEMP to `ssd`, check their disk sizes in the backup (`ls -lh` on the archives is a lower bound; the GUI's restore dialog shows the configured disk sizes). Anything that won't fit with room to spare goes to `nvme` instead.
+> **Check sizes first.** `ssd` is now a single mirror (~238G usable, was ~500G). Before restoring AMP-TEMP to `ssd`, check its disk size in the backup (`ls -lh` on the archives is a lower bound; the GUI's restore dialog shows the configured disk sizes). If it won't fit with room to spare, it goes to `nvme` instead.
+>
+> FTP01 (9000) and INTEL01 (9001) are **retired** (decision 2026-11-14). They aren't restored. INTEL01 had no VM backup.
 
 ```bash
 ls -lt /mnt/nas/nas-dump/dump/*.zst | head
 qmrestore /mnt/nas/nas-dump/dump/vzdump-qemu-9999-<ts>.vma.zst 9999 --storage nvme   # PLEX-TEMP
-qmrestore /mnt/nas/nas-dump/dump/vzdump-qemu-9000-<ts>.vma.zst 9000 --storage ssd    # FTP01
-qmrestore /mnt/nas/nas-dump/dump/vzdump-qemu-9001-<ts>.vma.zst 9001 --storage ssd    # INTEL01
 pct restore 100 /mnt/nas/nas-dump/dump/vzdump-lxc-100-<ts>.tar.zst --storage ssd     # AMP-TEMP
 pct restore 999 /mnt/nas/nas-dump/dump/vzdump-lxc-999-<ts>.tar.zst --storage nvme    # docker-temp
 ```

@@ -17,7 +17,9 @@ changed from that runbook.
 | Old `nvme` / `ssd` pools | Still on their disks (importable, not imported). Wiped by `storage --destroy-data`. |
 | Bootstrap plan | Runs clean with no `--apply`. The disk paths in all three pool layouts match the real disks. |
 | Bootstrap applied | `repos` (PVE 9.2.27, kernel 7.0.14-29), `system`, `network` (bond0 + VLAN-aware vmbr0, 10 Gb/s), `kernel` (IOMMU on, P2000 on vfio-pci). All verified 2026-11-14. `kernel` will be re-run once for `l1tf=flush,nowarn`. |
-| Next step | Re-run `kernel` + reboot, then `nas`. **Check the guest archives** before `storage --destroy-data` |
+| Bootstrap applied (cont.) | `kernel` re-run with `l1tf=flush,nowarn` (warning gone, mitigation unchanged). `nas`: both shares mounted, `nas-iso` and `nas-dump` storages added. |
+| Guest archives | Checked 2026-11-14. Newest of lxc-100, lxc-999 and qemu-9999 to be marked Protected. |
+| Next step | Protect the 3 archives, then `storage --destroy-data` |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
@@ -90,7 +92,9 @@ guest archives on `/mnt/nas/nas-dump` and mark them Protected**, then `storage -
 ### 6. Restore guests, README Phase 7
 
 - **First**, mark the pre-rebuild archives **Protected** in the GUI (nas-dump → Backups), or `keep-daily=7` deletes them after a week.
-- `ssd` holds only about 238G. Check the disk sizes of FTP01, INTEL01 and AMP-TEMP before restoring them there. Use `nvme` if one doesn't fit with room to spare.
+- Restore only the three production guests: AMP-TEMP (lxc 100, from the **2026-11-12 19:32** archive; it's smaller because files were removed on purpose), docker-temp (lxc 999), PLEX-TEMP (qemu 9999). FTP01 and INTEL01 are retired and not restored.
+- **Watch the VMIDs:** `nas-dump` also has archives from older guests that reused these IDs (`qemu-100`, `lxc-9999`, …). Pick archives by type and ID: `vzdump-lxc-100-…`, `vzdump-lxc-999-…`, `vzdump-qemu-9999-…`.
+- `ssd` holds only about 238G. Check AMP-TEMP's disk size before restoring it there. Use `nvme` if it doesn't fit with room to spare.
 - docker-temp (999): `pct set 999 --delete mp0,mp1`, then point `mp2`/`mp3` at the `/mnt/nas/...` mounts before starting it.
 
 ### 7. Close-out, README Phase 8
