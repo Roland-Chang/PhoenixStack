@@ -26,7 +26,7 @@ changed from that runbook.
 | Network fix | **Applied 2026-11-14.** Host `10.101.0.11/23` (matches UniFi `10.101.0.0/23`); guests are on-link. Admin allowlist = `10.101.0.11` (via the `local_network` alias) + `10.1.1.0/24`. Checked: from docker-temp, host ports 22/8006/3128 and ping are blocked; guests still reach the internet and the NAS; the workstation reaches the GUI. |
 | Test restore | **Passed 2026-11-14.** lxc-100's archive restored to scratch VMID 990 on `ssd` (`--unique`): 26 GiB read, no errors, at about 24 MiB/s (so a full restore of all guests from the NAS takes hours). Then destroyed. |
 | Alerts (`notify`) | **Applied 2026-11-14.** SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS) to accounts@phoenixstack.net; matchers `phoenix-alerts` (warning, error) and `phoenix-backups` (all backup results). The first attempt failed with 535 (wrong key); after the key was updated the test was accepted by Brevo. |
-| Open | NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
+| Open | **`accounts@phoenixstack.net` doesn't exist yet**: it's to be added as an alias in Exchange. Until then alerts are accepted by Brevo but not delivered. After adding it, re-test: `pvesh create /cluster/notifications/targets/brevo/test`. NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
 | Next step | L4: PBS on `backup/pbs`, the nightly PBS (01:00) and NAS vzdump (03:30) jobs. Alerts are ready for them. |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
