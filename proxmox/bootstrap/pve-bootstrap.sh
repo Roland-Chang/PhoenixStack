@@ -250,13 +250,10 @@ stage_preflight() {
 # ----------------------------------------------------------------------------
 # Stage: repos
 # ----------------------------------------------------------------------------
-stage_repos() {
-  section "repos"
-  local codename f
-  # Parse, don't source: os-release sets VERSION, which is readonly in this script.
-  codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
-  [[ -n $codename ]] || die "could not read VERSION_CODENAME from /etc/os-release"
-
+# disable_enterprise_repos — the Proxmox enterprise repos need a subscription; installing
+# PVE or PBS packages can add them (enabled). Used by the repos and pbs stages.
+disable_enterprise_repos() {
+  local f
   for f in /etc/apt/sources.list.d/*.sources; do
     [[ -f $f ]] || continue
     grep -q 'enterprise.proxmox.com' "$f" || continue
@@ -271,6 +268,16 @@ stage_repos() {
       fi
     fi
   done
+}
+
+stage_repos() {
+  section "repos"
+  local codename f
+  # Parse, don't source: os-release sets VERSION, which is readonly in this script.
+  codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
+  [[ -n $codename ]] || die "could not read VERSION_CODENAME from /etc/os-release"
+
+  disable_enterprise_repos
 
   ensure_file /etc/apt/sources.list.d/proxmox.sources 0644 <<EOF
 # Managed by PhoenixStack pve-bootstrap.sh
@@ -1017,6 +1024,7 @@ EOF
       installed="yes"
     fi
   fi
+  disable_enterprise_repos               # the package adds pbs-enterprise.sources
   if [[ $installed != yes ]]; then
     info "(plan) once installed: datastore ${ds} on ${PBS_DATASTORE_PATH}, prune/GC/verify jobs, ${auth}, PVE storage ${PBS_PVE_STORAGE}"
     return 0
