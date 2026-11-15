@@ -76,6 +76,14 @@ So no microcode or BIOS update can close these. The only fixes left take perform
   sources, because that's the control actually doing the work here.
 - Leaving this unmitigated doesn't affect stability or correctness. It's a confidentiality risk only.
 
+**Boot warning for R2 turned off.** On every boot, KVM logged `L1TF CPU bug present and SMT on, data
+leak possible`. Because R2 is an accepted, documented decision, the kernel option `l1tf=flush,nowarn` (in
+`KERNEL_CMDLINE_ADD`) turns that warning off. Protection stays exactly the same: `flush` is the kernel's
+default L1TF mitigation, and `nowarn` only silences the message. The risk stays visible in
+`/sys/devices/system/cpu/vulnerabilities/l1tf` ("SMT vulnerable") and in the recheck below. **If R2 is
+reopened, remove `l1tf=flush,nowarn` from the config and from `/etc/kernel/cmdline` on the host, then run
+`proxmox-boot-tool refresh` and reboot.** The bootstrap only adds kernel options, never removes them.
+
 **Look at this again if:**
 
 - any guest runs code we don't control: a VM for a friend, a public CI runner, untrusted

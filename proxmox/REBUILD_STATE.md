@@ -15,8 +15,9 @@ changed from that runbook.
 | Install (Phases 4–5) | **Done.** Checked 2026-11-14: FQDN, timezone, keyboard, root mail, IP/gateway, NIC pinning (`nic0` = 4C:D9:8F:0C:15:3E), rpool mirror of the 2 Intel SSDs (ashift 12, lz4), ARC 24 GiB and root SSH key all match the config. PVE 9.2.2, kernel 7.0.2-6-pve. |
 | Unattended installer ISO | Contains the root password hash. **Delete every copy** (`/home/ayoung/iso/pve01-auto.iso` on the Mint workstation, and any copy on the NAS). |
 | Old `nvme` / `ssd` pools | Still on their disks (importable, not imported). Wiped by `storage --destroy-data`. |
-| Bootstrap plan | Runs clean with no `--apply` (42 changes pending). The disk paths in all three pool layouts match the real disks. |
-| Next step | Phase 6: bootstrap stages, starting with `repos` |
+| Bootstrap plan | Runs clean with no `--apply`. The disk paths in all three pool layouts match the real disks. |
+| Bootstrap applied | `repos` (PVE 9.2.27, kernel 7.0.14-29), `system`, `network` (bond0 + VLAN-aware vmbr0, 10 Gb/s), `kernel` (IOMMU on, P2000 on vfio-pci). All verified 2026-11-14. `kernel` will be re-run once for `l1tf=flush,nowarn`. |
+| Next step | Re-run `kernel` + reboot, then `nas`. **Check the guest archives** before `storage --destroy-data` |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
