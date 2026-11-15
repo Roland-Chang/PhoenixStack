@@ -63,7 +63,7 @@ Then power off. If the output differs, fix `INSTALL_DISK_FILTER` / `UPLINK_MACS`
 2. Boot it (UEFI). It picks *Automated Installation* by itself, installs in about 10 minutes, and reboots.
 3. Unmount it, then **delete every copy** of `pve01-auto.iso`.
 
-What the ISO installs: `pve01.int.phoenixstack.net`, `10.101.0.11/24`, gateway and DNS `10.101.0.254`,
+What the ISO installs: `pve01.int.phoenixstack.net`, `10.101.0.11/24` (corrected to `/23` on 2026-11-14 to match the UniFi network), gateway and DNS `10.101.0.254`,
 ZFS RAID1 on the 2 Intel SSDs (ashift 12, lz4, ARC max 24 GiB), the uplink NIC selected by MAC with
 pinned interface names, and the root SSH key from the config.
 

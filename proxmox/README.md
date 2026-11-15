@@ -25,7 +25,7 @@ host → network → storage → access. Services (DNS, proxy, identity, apps) c
 | Data tier (future) | `data`: 2× mirrors of 4× Samsung 990 Pro 1TB on the ASUS Hyper M.2 card (slot 3, CPU 1) → `data/models` | LLM models and general storage, kept apart from VM disk I/O. Same CPU as the 3070. Added after the rebuild (see Operating notes). |
 | Boot pool use | OS only. `local-zfs` removed, `/var/lib/vz` capped at 32G | 257G of unknown data had filled the old boot pool. |
 | Network | Onboard 10GBASE-T port 1, found by MAC → `bond0` → **VLAN-aware** `vmbr0` | Guests pick a VLAN by tag. Adding onboard port 2 / LACP later is a config change. The GPU kit's external fans block every PCIe slot's rear opening except slot 4, so only a slot-4 card can be cabled. |
-| Mgmt VLAN | Host IP untagged on `vmbr0` (VLAN 10 native on the switch) | No switch change needed for the rebuild. `MGMT_VLAN=10` switches it to tagged. |
+| Mgmt VLAN | Host IP `10.101.0.11/23`, untagged on `vmbr0` (VLAN 10 native on the switch). The UniFi network is `10.101.0.0/23`, and its DHCP also serves the restored guests. | No switch change needed for the rebuild. `MGMT_VLAN=10` switches it to tagged. The mask must match UniFi, or host-to-guest traffic routes asymmetrically through the gateway. |
 | Domain | `int.phoenixstack.net` (was `phoenix.stack`) | Real domain, so real TLS via Cloudflare DNS-01. Resolves internally only. |
 | Firewall | Datacenter `policy_in: DROP`; GUI/SSH/SPICE/ping only from the `management` ipset | The old firewall was enabled but accepted everything. |
 | Admin sources | `10.101.0.0/24` (mgmt), `10.1.1.0/24` (workstation LAN) | The admin workstation is not on the mgmt VLAN. |
