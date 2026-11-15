@@ -23,6 +23,9 @@
 #   access     admins group/users, roles, service accounts + API tokens
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
 #   notify     SMTP notification target + alert/backup matchers (only if NOTIFY_SMTP_ENABLE=yes)
+#   pbs        Proxmox Backup Server on this host: datastore, prune/GC/verify jobs,
+#              backup user + token, PVE storage (only if PBS_ENABLE=yes)
+#   backups    PVE backup jobs (BACKUP_JOBS): nightly to PBS and to the NAS
 #   acme       Let's Encrypt cert via Cloudflare DNS-01 (only if ACME_ENABLE=yes)
 #   verify     read-only health report
 #
@@ -41,7 +44,7 @@ umask 022
 export LC_COLLATE=C
 
 readonly VERSION="2026.11.0"
-readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify acme verify)
+readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
@@ -890,7 +893,10 @@ stage_firewall() {
     echo "IN ACCEPT -source +management -p tcp -dport 8006 -log nolog # web GUI/API"
     echo "IN SSH(ACCEPT) -source +management -log nolog"
     echo "IN ACCEPT -source +management -p tcp -dport 3128 -log nolog # SPICE proxy"
-    echo "IN Ping(ACCEPT) -source +management -log nolog")
+    echo "IN Ping(ACCEPT) -source +management -log nolog"
+    if [[ ${PBS_ENABLE:-no} == yes ]]; then
+      echo "IN ACCEPT -source +management -p tcp -dport 8007 -log nolog # Proxmox Backup Server GUI/API"
+    fi)
   if [[ $FILE_CHANGED == yes ]]; then changed="yes"; fi
 
   ensure_file "$hfw" 0640 <<'EOF'
@@ -977,6 +983,131 @@ stage_notify() {
 }
 
 # ----------------------------------------------------------------------------
+# Stage: pbs (optional) — Proxmox Backup Server on this host
+# ----------------------------------------------------------------------------
+pbs_json() { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
+pbs_has() {  # pbs_has <json-key> <value> <list-subcommand...>
+  local key=$1 val=$2; shift 2
+  pbs_json "$@" | perl -MJSON::PP -0777 -ne 'BEGIN { ($k, $v) = splice(@ARGV, 0, 2) } exit((grep { ($_->{$k} // "") eq $v } @{decode_json($_)}) ? 0 : 1)' "$key" "$val"
+}
+
+stage_pbs() {
+  section "pbs"
+  if [[ ${PBS_ENABLE:-no} != yes ]]; then info "PBS_ENABLE=no — skipped"; return 0; fi
+  local ds=$PBS_DATASTORE auth="${PBS_USER}!${PBS_TOKEN}" installed="no"
+
+  ensure_file /etc/apt/sources.list.d/pbs.sources 0644 <<EOF
+# Managed by PhoenixStack pve-bootstrap.sh
+Types: deb
+URIs: http://download.proxmox.com/debian/pbs
+Suites: $(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
+Components: pbs-no-subscription
+Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+EOF
+  if dpkg-query -W -f='${Status}' proxmox-backup-server 2>/dev/null | grep -q 'install ok installed'; then
+    ok "proxmox-backup-server installed"; installed="yes"
+  else
+    change "install proxmox-backup-server"
+    if is_apply; then
+      apt-get update -q
+      DEBIAN_FRONTEND=noninteractive apt-get -y -q install proxmox-backup-server
+      installed="yes"
+    fi
+  fi
+  if [[ $installed != yes ]]; then
+    info "(plan) once installed: datastore ${ds} on ${PBS_DATASTORE_PATH}, prune/GC/verify jobs, ${auth}, PVE storage ${PBS_PVE_STORAGE}"
+    return 0
+  fi
+
+  # Datastore
+  if pbs_has name "$ds" datastore list; then ok "datastore ${ds}"
+  else
+    [[ -d $PBS_DATASTORE_PATH ]] || die "datastore path ${PBS_DATASTORE_PATH} missing (run the storage stage)"
+    [[ -z $(ls -A "$PBS_DATASTORE_PATH") ]] || die "datastore path ${PBS_DATASTORE_PATH} is not empty — refusing"
+    change "create datastore ${ds} on ${PBS_DATASTORE_PATH} (GC ${PBS_GC_SCHEDULE})"
+    run proxmox-backup-manager datastore create "$ds" "$PBS_DATASTORE_PATH" \
+      --gc-schedule "$PBS_GC_SCHEDULE" --comment "pve01 local backups (managed by pve-bootstrap)"
+  fi
+
+  # Prune and verify jobs (server-side; the backup token can't delete)
+  if pbs_has id "${ds}-prune" prune-job list; then ok "prune job ${ds}-prune"
+  else
+    local -a keep=() kv
+    for kv in ${PBS_KEEP//,/ }; do keep+=("--${kv%%=*}" "${kv#*=}"); done
+    change "add prune job ${ds}-prune (${PBS_PRUNE_SCHEDULE}: ${PBS_KEEP})"
+    run proxmox-backup-manager prune-job create "${ds}-prune" --store "$ds" --schedule "$PBS_PRUNE_SCHEDULE" "${keep[@]}"
+  fi
+  if pbs_has id "${ds}-verify" verify-job list; then ok "verify job ${ds}-verify"
+  else
+    change "add verify job ${ds}-verify (${PBS_VERIFY_SCHEDULE}, re-verify after ${PBS_VERIFY_OUTDATED_DAYS} days)"
+    run proxmox-backup-manager verify-job create "${ds}-verify" --store "$ds" --schedule "$PBS_VERIFY_SCHEDULE" \
+      --ignore-verified true --outdated-after "$PBS_VERIFY_OUTDATED_DAYS"
+  fi
+
+  # Backup user (token permissions = user ACL ∩ token ACL)
+  if pbs_has userid "$PBS_USER" user list; then ok "PBS user ${PBS_USER}"
+  else change "create PBS user ${PBS_USER}"; run proxmox-backup-manager user create "$PBS_USER" --comment "PVE backups (managed by pve-bootstrap)"; fi
+  local id
+  for id in "$PBS_USER" "$auth"; do
+    if pbs_json acl list | perl -MJSON::PP -0777 -ne 'BEGIN { ($p, $u) = splice(@ARGV, 0, 2) } exit((grep { $_->{path} eq $p && $_->{ugid} eq $u && $_->{roleid} eq "DatastoreBackup" } @{decode_json($_)}) ? 0 : 1)' "/datastore/${ds}" "$id"; then
+      ok "acl /datastore/${ds} ${id} DatastoreBackup"
+    else
+      change "acl /datastore/${ds} ${id} -> DatastoreBackup"
+      run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$id"
+    fi
+  done
+
+  # PVE storage. The token secret goes straight from PBS into PVE (/etc/pve/priv) and is never shown.
+  if storage_exists "$PBS_PVE_STORAGE"; then ok "storage ${PBS_PVE_STORAGE}"
+  else
+    change "add PVE storage ${PBS_PVE_STORAGE} (pbs: 127.0.0.1 ${ds}, ${auth}, keep-all: PBS prunes)"
+    if is_apply; then
+      if pbs_json user list-tokens "$PBS_USER" | grep -q "\"${auth}\""; then
+        warn "token ${auth} exists but its secret is unknown — regenerating"
+        proxmox-backup-manager user delete-token "$PBS_USER" "$PBS_TOKEN" >/dev/null
+      fi
+      local secret fp
+      secret=$(pbs_json user generate-token "$PBS_USER" "$PBS_TOKEN" | perl -MJSON::PP -0777 -ne 'print decode_json($_)->{value}')
+      [[ -n $secret ]] || die "could not create token ${auth}"
+      fp=$(proxmox-backup-manager cert info | awk '/Fingerprint/{print $NF}')
+      [[ -n $fp ]] || die "could not read the PBS certificate fingerprint"
+      pvesm add pbs "$PBS_PVE_STORAGE" --server 127.0.0.1 --datastore "$ds" --username "$auth" \
+        --password "$secret" --fingerprint "$fp" --content backup --prune-backups keep-all=1
+      unset secret
+      ok "storage ${PBS_PVE_STORAGE} added (fingerprint ${fp})"
+    fi
+  fi
+}
+
+# ----------------------------------------------------------------------------
+# Stage: backups — PVE backup jobs (all guests)
+# ----------------------------------------------------------------------------
+stage_backups() {
+  section "backups"
+  local entry id sched store extra comment cur
+  for entry in "${BACKUP_JOBS[@]}"; do
+    IFS='|' read -r id sched store extra comment <<<"$entry"
+    if ! storage_exists "$store"; then
+      if is_apply; then warn "backup job ${id}: storage ${store} missing — skipped"; continue; fi
+      info "(storage ${store} does not exist yet — created by an earlier stage)"
+    fi
+    if cur=$(pvesh get "/cluster/backup/${id}" --output-format json 2>/dev/null); then
+      if perl -MJSON::PP -0777 -e 'my $j=decode_json(<STDIN>); exit(($j->{schedule} eq $ARGV[0] && $j->{storage} eq $ARGV[1]) ? 0 : 1)' "$sched" "$store" <<<"$cur"; then
+        ok "backup job ${id} (${sched} -> ${store})"
+      else
+        change "update backup job ${id} -> ${sched} -> ${store}"
+        run pvesh set "/cluster/backup/${id}" --schedule "$sched" --storage "$store"
+      fi
+    else
+      change "add backup job ${id}: all guests, ${sched} -> ${store} ${extra}"
+      # shellcheck disable=SC2086  # $extra holds option pairs from config
+      run pvesh create /cluster/backup --id "$id" --schedule "$sched" --storage "$store" --all 1 \
+        --mode snapshot --enabled 1 --notification-mode notification-system --comment "$comment" $extra
+    fi
+  done
+}
+
+# ----------------------------------------------------------------------------
 # Stage: acme (optional)
 # ----------------------------------------------------------------------------
 stage_acme() {
@@ -1024,7 +1155,9 @@ stage_verify() {
   check "rpool mirrored"                  sh -c 'zpool status rpool | grep -qE "^\s+mirror-"'
   check "all pools healthy"               sh -c '[ "$(zpool status -x)" = "all pools are healthy" ]'
   local p; for p in ${ZFS_POOLS:-}; do check "pool ${p} imported" zpool list -H "$p"; done
-  check "all PVE storages active"         sh -c '! pvesm status 2>/dev/null | awk "NR>1 && \$3!=\"active\"" | grep -q .'
+  local bad
+  bad=$(pvesm status 2>/dev/null | awk 'NR>1 && $3!="active"{print $1"("$3")"}' | paste -sd' ' -)
+  if [[ -z $bad ]]; then ok "all PVE storages active"; else warn "FAIL: PVE storages not active: ${bad}"; fi
   check "vmbr0 VLAN-aware"                sh -c '[ "$(cat /sys/class/net/vmbr0/bridge/vlan_filtering)" = 1 ]'
   check "gateway ${MGMT_GATEWAY} reachable" ping -c 1 -W 2 "$MGMT_GATEWAY"
   check "IOMMU groups present"            sh -c 'ls /sys/kernel/iommu_groups | grep -q .'
@@ -1043,6 +1176,15 @@ stage_verify() {
   if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
     check "SMTP notification target ${NOTIFY_SMTP_NAME}" pvesh get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
   fi
+  if [[ ${PBS_ENABLE:-no} == yes ]]; then
+    check "PBS running" systemctl is-active --quiet proxmox-backup-proxy
+    check "PBS datastore ${PBS_DATASTORE}" pbs_has name "$PBS_DATASTORE" datastore list
+  fi
+  local entry id
+  for entry in "${BACKUP_JOBS[@]}"; do
+    id=${entry%%|*}
+    check "backup job ${id}" pvesh get "/cluster/backup/${id}"
+  done
 }
 
 # ----------------------------------------------------------------------------
