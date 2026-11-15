@@ -24,8 +24,10 @@ changed from that runbook.
 | Close-out items done (2026-11-14) | TOTP enrolled for `aaron@pve` and `root@pam`. Every copy of `pve01-auto.iso` deleted. Old host SMB credentials retired. Branch pushed to GitHub. |
 | Guests restored (Phase 7) | **Done 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190, panel :8080 up). docker-temp (lxc 999, `nvme`, 10.101.0.166; `mp0`/`mp1` removed, Media and Porter mounted read-write, 20 containers up, Immich healthy). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111, guest agent OK, GPU01 mapping attached, `nvidia-smi` sees the P2000, Plex :32400 answers). |
 | Network fix | **Applied 2026-11-14.** Host `10.101.0.11/23` (matches UniFi `10.101.0.0/23`); guests are on-link. Admin allowlist = `10.101.0.11` (via the `local_network` alias) + `10.1.1.0/24`. Checked: from docker-temp, host ports 22/8006/3128 and ping are blocked; guests still reach the internet and the NAS; the workstation reaches the GUI. |
-| Open | Test restore (in progress). NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
-| Next step | Finish the test restore, then L4: PBS on `backup/pbs`, nightly NAS vzdump job, alerts (SMTP service to choose) |
+| Test restore | **Passed 2026-11-14.** lxc-100's archive restored to scratch VMID 990 on `ssd` (`--unique`): 26 GiB read, no errors, at about 24 MiB/s (so a full restore of all guests from the NAS takes hours). Then destroyed. |
+| Alerts (`notify`) | **Applied 2026-11-14.** SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS) to accounts@phoenixstack.net; matchers `phoenix-alerts` (warning, error) and `phoenix-backups` (all backup results). The first attempt failed with 535 (wrong key); after the key was updated the test was accepted by Brevo. |
+| Open | NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
+| Next step | L4: PBS on `backup/pbs`, the nightly PBS (01:00) and NAS vzdump (03:30) jobs. Alerts are ready for them. |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).

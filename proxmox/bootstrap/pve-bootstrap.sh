@@ -958,7 +958,9 @@ stage_notify() {
       if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then
         ok "test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"
       else
-        warn "test notification failed — check login, key and From address (Datacenter → Notifications)"
+        warn "test notification failed. Re-running this stage won't ask again. A 535 error means a wrong login or key (Brevo: use the SMTP key, xsmtpsib-…, not the API key). Fix:"
+        info "read -rs -p 'SMTP key: ' K; echo; pvesh set /cluster/notifications/endpoints/smtp/${n} --password \"\$K\"; unset K"
+        info "pvesh create /cluster/notifications/targets/${n}/test   (or GUI: Datacenter → Notifications)"
       fi
     fi
   fi
