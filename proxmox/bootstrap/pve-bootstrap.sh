@@ -16,7 +16,7 @@
 #   repos      no-subscription repo, disable enterprise, full upgrade, packages
 #   system     timezone, NTP, DNS, sysctl, journald, SSH hardening
 #   network    bond0 + VLAN-aware vmbr0 (auto-rollback unless confirmed)
-#   kernel     IOMMU cmdline, vfio GPU binding, ZFS ARC cap
+#   kernel     IOMMU cmdline, vfio GPU binding, GPU resource mapping, ZFS ARC cap
 #   nas        NAS SMB mounts + PVE dir storages (before storage, so backups
 #              can be checked before any disk is wiped)
 #   storage    guest/backup ZFS pools, datasets, PVE storage
@@ -551,6 +551,27 @@ blacklist nvidia
 blacklist nvidiafb
 EOF
     if [[ $FILE_CHANGED == yes ]]; then rebuild_initramfs="yes"; fi
+
+    # Cluster PCI resource mapping, so guests reference the GPU by name
+    # (hostpci0: mapping=<id>) instead of a host-specific PCI address.
+    if [[ -n ${GPU_MAPPING_ID:-} ]]; then
+      if pvesh get "/cluster/mapping/pci/${GPU_MAPPING_ID}" >/dev/null 2>&1; then
+        ok "PCI mapping ${GPU_MAPPING_ID}"
+      else
+        local dev="/sys/bus/pci/devices/${GPU_PCI_ADDR}.0" vid did svid sdid grp
+        vid=$(<"$dev/vendor"); did=$(<"$dev/device")
+        svid=$(<"$dev/subsystem_vendor"); sdid=$(<"$dev/subsystem_device")
+        grp=$(basename "$(readlink -f "$dev/iommu_group" 2>/dev/null)" 2>/dev/null || true)
+        if [[ -z $grp || $grp == . ]]; then
+          warn "PCI mapping ${GPU_MAPPING_ID}: no IOMMU group yet — reboot after this stage, then re-run it"
+        else
+          local map="node=${NODE_NAME},path=${GPU_PCI_ADDR},id=${vid#0x}:${did#0x},subsystem-id=${svid#0x}:${sdid#0x},iommugroup=${grp}"
+          change "create PCI mapping ${GPU_MAPPING_ID}: ${map}"
+          run pvesh create /cluster/mapping/pci --id "$GPU_MAPPING_ID" \
+            --description "GPU ${GPU_PCI_ADDR} (all functions), managed by pve-bootstrap" --map "$map"
+        fi
+      fi
+    fi
   fi
 
   # ZFS ARC cap
@@ -938,6 +959,9 @@ stage_verify() {
   check "IOMMU groups present"            sh -c 'ls /sys/kernel/iommu_groups | grep -q .'
   if [[ -n ${GPU_PCI_ADDR:-} ]]; then
     check "GPU ${GPU_PCI_ADDR} bound to vfio-pci" sh -c "lspci -nnk -s ${GPU_PCI_ADDR}.0 | grep -q 'in use: vfio-pci'"
+    if [[ -n ${GPU_MAPPING_ID:-} ]]; then
+      check "PCI mapping ${GPU_MAPPING_ID} exists" pvesh get "/cluster/mapping/pci/${GPU_MAPPING_ID}"
+    fi
   fi
   check "ZFS ARC max ${ZFS_ARC_MAX_GIB} GiB" sh -c "[ \"\$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = $((ZFS_ARC_MAX_GIB * 1024 * 1024 * 1024)) ]"
   check "firewall enabled/running"        sh -c 'pve-firewall status | grep -q "enabled/running"'
