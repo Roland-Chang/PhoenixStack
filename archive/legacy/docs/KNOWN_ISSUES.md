@@ -81,7 +81,7 @@ Update [terraform.tfvars](terraform.tfvars):
 ```hcl
 proxmox_api_url          = "https://10.101.0.11:8006/api2/json"
 proxmox_api_token_id     = "root@pam!terraform-token"
-proxmox_api_token_secret = "d5cfc85d-5f72-41c6-ac2c-670bbb6c1839"
+proxmox_api_token_secret = "<redacted: token retired with the old pve01>"
 ```
 
 **Why This Works**:
