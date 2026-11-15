@@ -33,6 +33,7 @@ host → network → storage → access. Services (DNS, proxy, identity, apps) c
 | GPU | Quadro P2000 bound to `vfio-pci` at boot; IOMMU passthrough | Reserved for the Plex VM. The host never loads NVIDIA drivers. |
 | IPv6 | No RA or autoconfiguration on the host (the stack stays loaded) | Follows the "IPv6 off unless needed" guardrail without breaking PVE daemons. |
 | Secrets | Prompted at run time, or read from env vars, then stored root-only on the host. Never in git or logs. | Repo guardrail. |
+| CPU side channels | Microcode kept current (`intel-microcode` + Dell BIOS). Downfall left unmitigated; SMT (Hyper-Threading) left on. | All guests are trusted. The fixes would cost AVX or half the threads. See "Accepted risks". |
 
 ### Backup design
 
@@ -49,6 +50,48 @@ Two independent copies, made by two different tools, on two devices:
 - **NAS space:** about 7× the compressed size of all guests. Check after the first week.
 - **Pre-rebuild archives:** mark them **Protected** in the GUI (nas-dump → Backups) before the first nightly job runs, or `keep-daily=7` will prune them after a week.
 - PBS itself is set up after the host baseline (L4+). These jobs are created then; the bootstrap only sets the `nas-dump` retention.
+
+### Accepted risks
+
+Recorded 2026-11-14. Accepted by Aaron Young. Each risk depends on one assumption: **every guest
+and every workload on pve01 is ours and trusted.** If that stops being true, look at these again first.
+
+The CPUs are 2× Xeon Gold 5118 (Skylake-SP, 2017). Intel no longer supports them: microcode `0x2007006`
+is the last release, and it's already loaded (`intel-microcode` 3.20251111 and BIOS 2.29.2 are both current).
+So no microcode or BIOS update can close these. The only fixes left take performance away.
+
+| # | Risk | Kernel reports | What an attacker could do | Fix we're not taking, and its cost |
+| --- | --- | --- | --- | --- |
+| R1 | **Downfall** (GDS, CVE-2022-40982) | `gather_data_sampling: Vulnerable` | Code running in one guest or process reads data from another one running on the **same physical core**. That data can include keys and passwords, because it leaks through AVX registers, which crypto code uses heavily. | Kernel option `gather_data_sampling=force` turns **AVX off**. ZFS checksums and RAIDZ parity, compression, TLS, media transcoding and AI workloads would all slow down noticeably. |
+| R2 | **Leaks between Hyper-Threads** (L1TF, MDS, MMIO Stale Data, TAA) | `Mitigation: …; SMT vulnerable` | The same kind of leak between the two Hyper-Threads of one core. A guest on one thread can read another guest's data on its sibling thread. The other paths are already mitigated. | Kernel option `nosmt` (or Hyper-Threading off in the BIOS) halves the threads, **48 → 24**. |
+
+**What accepting them means**
+
+- An attacker first has to **run code on this host**: a compromised guest, a malicious container image or
+  package, or a hostile tenant. These flaws don't make the host reachable from the network. They make an
+  intrusion that has already happened worse, because one compromised guest becomes a way to read the others' data.
+- The guests most worth protecting from that are the ones holding credentials: identity, secrets
+  management, the password-manager integration, and the backup server. Planned services like these are exactly what
+  a compromised neighbour would read. Keep containers' and guests' software up to date and from trusted
+  sources, because that's the control actually doing the work here.
+- Leaving this unmitigated doesn't affect stability or correctness. It's a confidentiality risk only.
+
+**Look at this again if:**
+
+- any guest runs code we don't control: a VM for a friend, a public CI runner, untrusted
+  containers or images, a sandbox for testing malware;
+- a guest holds data where a breach would be serious enough to justify the performance cost;
+- the CPUs are replaced. A newer generation may fix these in hardware, so remove the entries that no longer apply.
+
+**Recheck after any kernel or BIOS change:**
+
+```bash
+grep -H . /sys/devices/system/cpu/vulnerabilities/* | sed 's|.*/||'
+journalctl -k -b | grep -i microcode
+```
+
+R1 and R2 should be the **only** lines that aren't `Not affected` or fully mitigated. Anything new is a
+new decision to make, not something already covered by this one.
 
 ---
 
