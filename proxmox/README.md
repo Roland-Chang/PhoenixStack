@@ -33,6 +33,7 @@ host → network → storage → access. Services (DNS, proxy, identity, apps) c
 | GPU | Quadro P2000 bound to `vfio-pci` at boot; IOMMU passthrough | Reserved for the Plex VM. The host never loads NVIDIA drivers. |
 | IPv6 | No RA or autoconfiguration on the host (the stack stays loaded) | Follows the "IPv6 off unless needed" guardrail without breaking PVE daemons. |
 | Secrets | Prompted at run time, or read from env vars, then stored root-only on the host. Never in git or logs. | Repo guardrail. |
+| Alerts | PVE notification system → SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS) → `accounts@phoenixstack.net`. Matchers: `phoenix-alerts` (warning + error) and `phoenix-backups` (every backup result, for the first weeks). | A silent failure (disk, ZFS, backup) is the main risk to a single host. The SMTP login, From address and key aren't stored in this public repo: they're entered when the `notify` stage runs. |
 | CPU side channels | Microcode kept current (`intel-microcode` + Dell BIOS). Downfall left unmitigated; SMT (Hyper-Threading) left on. | All guests are trusted. The fixes would cost AVX or half the threads. See "Accepted risks". |
 
 ### Backup design

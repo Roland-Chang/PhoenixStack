@@ -22,6 +22,7 @@
 #   storage    guest/backup ZFS pools, datasets, PVE storage
 #   access     admins group/users, roles, service accounts + API tokens
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
+#   notify     SMTP notification target + alert/backup matchers (only if NOTIFY_SMTP_ENABLE=yes)
 #   acme       Let's Encrypt cert via Cloudflare DNS-01 (only if ACME_ENABLE=yes)
 #   verify     read-only health report
 #
@@ -40,7 +41,7 @@ umask 022
 export LC_COLLATE=C
 
 readonly VERSION="2026.11.0"
-readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall acme verify)
+readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
@@ -90,6 +91,16 @@ confirm() {
   printf '\n  %s%s%s\n  Type "%s" to continue: ' "$C_Y" "$msg" "$C_0" "$word"
   read -r reply </dev/tty || true
   [[ $reply == "$word" ]]
+}
+
+# read_value <var> <prompt> — from env var of the same name, else visible prompt.
+# For values that are private but not secret (kept out of the public repo).
+read_value() {
+  local __var=$1 prompt=$2 v=""
+  if [[ -n ${!__var:-} ]]; then return 0; fi
+  read -r -p "    ${prompt}: " v </dev/tty
+  [[ -n $v ]] || die "${prompt}: empty"
+  printf -v "$__var" '%s' "$v"
 }
 
 # read_secret <var> <prompt> — from env var of the same name, else silent prompt.
@@ -912,6 +923,58 @@ EOF
 }
 
 # ----------------------------------------------------------------------------
+# Stage: notify (optional) — PVE notification system → SMTP relay
+# ----------------------------------------------------------------------------
+# ensure_matcher <name> <description> <match args...> — create if missing (target = SMTP target)
+ensure_matcher() {
+  local name=$1 desc=$2; shift 2
+  if pve_exists "/cluster/notifications/matchers/${name}"; then ok "matcher ${name}"; return 0; fi
+  change "add matcher ${name}: ${desc} -> ${NOTIFY_SMTP_NAME}"
+  run pvesh create /cluster/notifications/matchers --name "$name" --target "$NOTIFY_SMTP_NAME" \
+    --comment "Managed by pve-bootstrap: ${desc}" "$@"
+}
+
+stage_notify() {
+  section "notify"
+  if [[ ${NOTIFY_SMTP_ENABLE:-no} != yes ]]; then info "NOTIFY_SMTP_ENABLE=no — skipped"; return 0; fi
+  local n=$NOTIFY_SMTP_NAME
+
+  # SMTP target. Login, From address and key are not in git (public repo): prompted or env.
+  if pve_exists "/cluster/notifications/endpoints/smtp/${n}"; then ok "SMTP target ${n}"
+  else
+    change "add SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} (${NOTIFY_SMTP_MODE}) -> ${NOTIFY_MAILTO} (login, From and key prompted)"
+    if is_apply; then
+      read_value  NOTIFY_SMTP_USER     "SMTP login"
+      read_value  NOTIFY_SMTP_FROM     "From address (a verified sender at the relay)"
+      read_secret NOTIFY_SMTP_PASSWORD "SMTP key for ${NOTIFY_SMTP_USER}"
+      # Not via run(): never print the key.
+      pvesh create /cluster/notifications/endpoints/smtp --name "$n" \
+        --server "$NOTIFY_SMTP_SERVER" --port "$NOTIFY_SMTP_PORT" --mode "$NOTIFY_SMTP_MODE" \
+        --username "$NOTIFY_SMTP_USER" --password "$NOTIFY_SMTP_PASSWORD" \
+        --from-address "$NOTIFY_SMTP_FROM" --mailto "$NOTIFY_MAILTO" \
+        --comment "Managed by pve-bootstrap" >/dev/null
+      unset NOTIFY_SMTP_PASSWORD
+      ok "SMTP target ${n} created"
+      if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then
+        ok "test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"
+      else
+        warn "test notification failed — check login, key and From address (Datacenter → Notifications)"
+      fi
+    fi
+  fi
+
+  local -a sev=() sv
+  for sv in ${NOTIFY_SEVERITIES//,/ }; do sev+=(--match-severity "$sv"); done
+  ensure_matcher phoenix-alerts "severity ${NOTIFY_SEVERITIES}" "${sev[@]}"
+  if [[ ${NOTIFY_ALL_BACKUP_JOBS:-no} == yes ]]; then
+    ensure_matcher phoenix-backups "every backup job result" --match-field "exact:type=vzdump"
+  elif pve_exists "/cluster/notifications/matchers/phoenix-backups"; then
+    change "remove matcher phoenix-backups (NOTIFY_ALL_BACKUP_JOBS=no; failures still match phoenix-alerts)"
+    run pvesh delete /cluster/notifications/matchers/phoenix-backups
+  fi
+}
+
+# ----------------------------------------------------------------------------
 # Stage: acme (optional)
 # ----------------------------------------------------------------------------
 stage_acme() {
@@ -975,6 +1038,9 @@ stage_verify() {
   check "no enterprise repo enabled"      sh -c '! grep -l enterprise.proxmox.com /etc/apt/sources.list.d/*.sources 2>/dev/null | xargs -r grep -LiE "^Enabled:[[:space:]]*(no|false)" | grep -q .'
   check "running newest installed kernel" sh -c '[ "$(uname -r)" = "$(ls /lib/modules | sort -V | tail -1)" ]'
   check "time synchronized"               sh -c 'timedatectl show -p NTPSynchronized --value | grep -qx yes'
+  if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
+    check "SMTP notification target ${NOTIFY_SMTP_NAME}" pvesh get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
+  fi
 }
 
 # ----------------------------------------------------------------------------
