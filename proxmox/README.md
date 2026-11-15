@@ -112,7 +112,7 @@ new decision to make, not something already covered by this one.
   - new root password
   - `svc_proxmox` SMB credentials
   - empty items to receive the new API tokens later
-- [ ] Download the latest **Proxmox VE 9.x ISO** to the NAS `Software/ISO` share.
+- [ ] Download the latest **Proxmox VE 9.x ISO** to the NAS: share `Media`, folder `Software/ISO/template/iso` (PVE looks for ISOs in `template/iso` under the storage path).
 - [ ] Add a DNS record on the UDM: `pve01.int.phoenixstack.net → 10.101.0.11`.
 
 ### Phase 1: Capture and rehearse (on the old pve01, no downtime)
