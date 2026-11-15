@@ -23,8 +23,8 @@ changed from that runbook.
 | **Host baseline (L0–L3)** | **Done 2026-11-14.** `verify` passes all 16 checks; a fresh plan shows **0 changes pending**. |
 | Open | TOTP for `aaron@pve` and `root@pam` not yet confirmed. NAS is 77% full: check after the first week of nightly backups. Delete every copy of `pve01-auto.iso`. |
 | Guests restored (Phase 7) | **Done 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190, panel :8080 up). docker-temp (lxc 999, `nvme`, 10.101.0.166; `mp0`/`mp1` removed, Media and Porter mounted read-write, 20 containers up, Immich healthy). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111, guest agent OK, GPU01 mapping attached, `nvidia-smi` sees the P2000, Plex :32400 answers). |
-| Network fix | UniFi mgmt network is `10.101.0.0/23`. Prepared and planned, **not yet applied**: `firewall` first (allowlist = workstation LAN + `local_network` alias pinned to the host's /32, so guests can't reach the host's admin ports), then `network` (host `/23`). |
-| Next step | Apply `firewall`, then `network` (iDRAC/tmux). Then Phase 8 close-out: test restore, ISO copies, TOTP, rotate the old SMB credentials. |
+| Network fix | **Applied 2026-11-14.** Host `10.101.0.11/23` (matches UniFi `10.101.0.0/23`); guests are on-link. Admin allowlist = `10.101.0.11` (via the `local_network` alias) + `10.1.1.0/24`. Checked: from docker-temp, host ports 22/8006/3128 and ping are blocked; guests still reach the internet and the NAS; the workstation reaches the GUI. |
+| Next step | Phase 8 close-out: test restore to a spare VMID, delete ISO copies, TOTP, rotate the old SMB credentials, push the branch. |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).
