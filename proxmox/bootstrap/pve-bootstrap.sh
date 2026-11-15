@@ -1095,6 +1095,66 @@ EOF
       ok "storage ${PBS_PVE_STORAGE} added (fingerprint ${fp})"
     fi
   fi
+
+  pbs_notifications
+}
+
+# pve_notify_value <target> <key> [file] — one value from PVE's notification config section
+pve_notify_value() {
+  awk -v sec="smtp: $1" -v key="$2" '
+    /^[a-z]+: / { insec = ($0 == sec) }
+    insec && $1 == key { sub(/^[ \t]*[^ \t]+[ \t]+/, ""); print; exit }' "${3:-/etc/pve/notifications.cfg}"
+}
+
+# PBS has its own notification system (prune, GC, verify, sync). Same SMTP relay as PVE.
+pbs_notifications() {
+  [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]] || return 0
+  local n=$NOTIFY_SMTP_NAME
+  if pbs_has name "$n" notification endpoint smtp list; then ok "PBS SMTP target ${n}"
+  else
+    change "add PBS SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} -> ${NOTIFY_MAILTO} (login, From and key copied from PVE's target, else prompted)"
+    if is_apply; then
+      local user from pw
+      user=$(pve_notify_value "$n" username); from=$(pve_notify_value "$n" from-address)
+      pw=$(pve_notify_value "$n" password /etc/pve/priv/notifications.cfg 2>/dev/null || true)
+      if [[ -z $user || -z $from || -z $pw ]]; then
+        info "PVE target ${n} not found or incomplete — asking instead"
+        read_value  NOTIFY_SMTP_USER     "SMTP login";                                   user=$NOTIFY_SMTP_USER
+        read_value  NOTIFY_SMTP_FROM     "From address (a verified sender at the relay)"; from=$NOTIFY_SMTP_FROM
+        read_secret NOTIFY_SMTP_PASSWORD "SMTP key for ${user}";                         pw=$NOTIFY_SMTP_PASSWORD
+        unset NOTIFY_SMTP_PASSWORD
+      fi
+      # Not via run(): never print the key.
+      proxmox-backup-manager notification endpoint smtp create "$n" \
+        --server "$NOTIFY_SMTP_SERVER" --port "$NOTIFY_SMTP_PORT" --mode "$NOTIFY_SMTP_MODE" \
+        --username "$user" --password "$pw" --from-address "$from" --mailto "$NOTIFY_MAILTO" \
+        --comment "Managed by pve-bootstrap"
+      unset pw
+      ok "PBS SMTP target ${n} created"
+      if proxmox-backup-manager notification target test "$n" >/dev/null; then
+        ok "PBS test notification sent — check ${NOTIFY_MAILTO}"
+      else
+        warn "PBS test notification failed — check the target in the PBS GUI (Configuration → Notifications)"
+      fi
+    fi
+  fi
+
+  if pbs_has name phoenix-alerts notification matcher list; then ok "PBS matcher phoenix-alerts"
+  else
+    local -a sev=() sv
+    for sv in ${NOTIFY_SEVERITIES//,/ }; do sev+=(--match-severity "$sv"); done
+    change "add PBS matcher phoenix-alerts: severity ${NOTIFY_SEVERITIES} -> ${n}"
+    run proxmox-backup-manager notification matcher create phoenix-alerts --target "$n" "${sev[@]}" \
+      --comment "Managed by pve-bootstrap: severity ${NOTIFY_SEVERITIES}"
+  fi
+
+  # Datastore must use the notification system (the default), not legacy sendmail.
+  if pbs_json datastore show "$PBS_DATASTORE" | perl -MJSON::PP -0777 -ne 'exit(((decode_json($_)->{"notification-mode"} // "notification-system") eq "notification-system") ? 0 : 1)'; then
+    ok "datastore ${PBS_DATASTORE} uses the notification system"
+  else
+    change "datastore ${PBS_DATASTORE} notification-mode -> notification-system"
+    run proxmox-backup-manager datastore update "$PBS_DATASTORE" --notification-mode notification-system
+  fi
 }
 
 # ----------------------------------------------------------------------------
@@ -1197,6 +1257,9 @@ stage_verify() {
   if [[ ${PBS_ENABLE:-no} == yes ]]; then
     check "PBS running" systemctl is-active --quiet proxmox-backup-proxy
     check "PBS datastore ${PBS_DATASTORE}" pbs_has name "$PBS_DATASTORE" datastore list
+    if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
+      check "PBS SMTP notification target ${NOTIFY_SMTP_NAME}" pbs_has name "$NOTIFY_SMTP_NAME" notification endpoint smtp list
+    fi
   fi
   local entry id
   for entry in "${BACKUP_JOBS[@]}"; do
