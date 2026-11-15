@@ -18,8 +18,11 @@ changed from that runbook.
 | Bootstrap plan | Runs clean with no `--apply`. The disk paths in all three pool layouts match the real disks. |
 | Bootstrap applied | `repos` (PVE 9.2.27, kernel 7.0.14-29), `system`, `network` (bond0 + VLAN-aware vmbr0, 10 Gb/s), `kernel` (IOMMU on, P2000 on vfio-pci). All verified 2026-11-14. `kernel` will be re-run once for `l1tf=flush,nowarn`. |
 | Bootstrap applied (cont.) | `kernel` re-run with `l1tf=flush,nowarn` (warning gone, mitigation unchanged). `nas`: both shares mounted, `nas-iso` and `nas-dump` storages added. |
-| Guest archives | Checked 2026-11-14. Newest of lxc-100, lxc-999 and qemu-9999 to be marked Protected. |
-| Next step | Protect the 3 archives, then `storage --destroy-data` |
+| Guest archives | Checked 2026-11-14. The archives to restore are **Protected**: `lxc-100-2026_11_12-19_32_20`, `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. |
+| Bootstrap applied (cont.) | `storage --destroy-data`: nvme (mirror, 860G), ssd (mirror, 231G), backup (RAIDZ1 + special mirror, 3.07T; `backup/pbs`). `access`: aaron@pve (admins), terraform and claude-audit tokens (privsep; the audit secret is in 1Password `(Proxmox) Claude API`). `firewall`: default DROP, `management` ipset. |
+| **Host baseline (L0–L3)** | **Done 2026-11-14.** `verify` passes all 16 checks; a fresh plan shows **0 changes pending**. |
+| Open | TOTP for `aaron@pve` and `root@pam` not yet confirmed. NAS is 77% full: check after the first week of nightly backups. Delete every copy of `pve01-auto.iso`. |
+| Next step | Phase 7: restore lxc-100 and lxc-999, then qemu-9999 (check disk sizes against the pools first) |
 
 > **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
 > after the install. The password itself is in 1Password (`infrastructure` vault).

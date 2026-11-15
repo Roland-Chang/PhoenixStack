@@ -35,6 +35,9 @@
 # =============================================================================
 set -Eeuo pipefail
 umask 022
+# Byte-order sorting everywhere, so `sort` matches Perl's `sort keys` (json_keys). Under a
+# UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
+export LC_COLLATE=C
 
 readonly VERSION="2026.11.0"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall acme verify)

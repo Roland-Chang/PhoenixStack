@@ -9,8 +9,8 @@ The stack is being rebuilt from the ground up, one layer at a time:
 
 | Layer | What | State |
 | --- | --- | --- |
-| L0–L3 | Proxmox host pve01: install, network, storage, access, firewall | **In progress.** See [proxmox/REBUILD_STATE.md](proxmox/REBUILD_STATE.md) |
-| L4 | Backups (PBS + NAS), restore of the existing guests | Next |
+| L0–L3 | Proxmox host pve01: install, network, storage, access, firewall | **Done 2026-11-14.** See [proxmox/REBUILD_STATE.md](proxmox/REBUILD_STATE.md) |
+| L4 | Backups (PBS + NAS), restore of the existing guests | **In progress:** guest restores next |
 | L5+ | Guest provisioning and configuration (IaC), services | Not started. Designed after L4 is done |
 
 The previous design is kept, unmaintained, in [archive/](archive/README.md).
