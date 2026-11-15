@@ -986,6 +986,9 @@ stage_notify() {
 # Stage: pbs (optional) — Proxmox Backup Server on this host
 # ----------------------------------------------------------------------------
 pbs_json() { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
+pbs_acl_ok() {  # pbs_acl_ok <path> <auth-id> <role>
+  pbs_json acl list | perl -MJSON::PP -0777 -ne 'BEGIN { ($p, $u, $r) = splice(@ARGV, 0, 3) } exit((grep { $_->{path} eq $p && $_->{ugid} eq $u && $_->{roleid} eq $r } @{decode_json($_)}) ? 0 : 1)' "$1" "$2" "$3"
+}
 pbs_has() {  # pbs_has <json-key> <value> <list-subcommand...>
   local key=$1 val=$2; shift 2
   pbs_json "$@" | perl -MJSON::PP -0777 -ne 'BEGIN { ($k, $v) = splice(@ARGV, 0, 2) } exit((grep { ($_->{$k} // "") eq $v } @{decode_json($_)}) ? 0 : 1)' "$key" "$val"
@@ -1047,20 +1050,23 @@ EOF
   # Backup user (token permissions = user ACL ∩ token ACL)
   if pbs_has userid "$PBS_USER" user list; then ok "PBS user ${PBS_USER}"
   else change "create PBS user ${PBS_USER}"; run proxmox-backup-manager user create "$PBS_USER" --comment "PVE backups (managed by pve-bootstrap)"; fi
-  local id
-  for id in "$PBS_USER" "$auth"; do
-    if pbs_json acl list | perl -MJSON::PP -0777 -ne 'BEGIN { ($p, $u) = splice(@ARGV, 0, 2) } exit((grep { $_->{path} eq $p && $_->{ugid} eq $u && $_->{roleid} eq "DatastoreBackup" } @{decode_json($_)}) ? 0 : 1)' "/datastore/${ds}" "$id"; then
-      ok "acl /datastore/${ds} ${id} DatastoreBackup"
-    else
-      change "acl /datastore/${ds} ${id} -> DatastoreBackup"
-      run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$id"
-    fi
-  done
+  if pbs_acl_ok "/datastore/${ds}" "$PBS_USER" DatastoreBackup; then ok "acl /datastore/${ds} ${PBS_USER} DatastoreBackup"
+  else
+    change "acl /datastore/${ds} ${PBS_USER} -> DatastoreBackup"
+    run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$PBS_USER"
+  fi
 
   # PVE storage. The token secret goes straight from PBS into PVE (/etc/pve/priv) and is never shown.
-  if storage_exists "$PBS_PVE_STORAGE"; then ok "storage ${PBS_PVE_STORAGE}"
+  # A token can only get an ACL after it exists, so it's created, granted and handed to PVE together.
+  if storage_exists "$PBS_PVE_STORAGE"; then
+    ok "storage ${PBS_PVE_STORAGE}"
+    if pbs_acl_ok "/datastore/${ds}" "$auth" DatastoreBackup; then ok "acl /datastore/${ds} ${auth} DatastoreBackup"
+    else
+      change "acl /datastore/${ds} ${auth} -> DatastoreBackup"
+      run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
+    fi
   else
-    change "add PVE storage ${PBS_PVE_STORAGE} (pbs: 127.0.0.1 ${ds}, ${auth}, keep-all: PBS prunes)"
+    change "create token ${auth}, acl /datastore/${ds} -> DatastoreBackup, add PVE storage ${PBS_PVE_STORAGE} (127.0.0.1, keep-all: PBS prunes)"
     if is_apply; then
       if pbs_json user list-tokens "$PBS_USER" | grep -q "\"${auth}\""; then
         warn "token ${auth} exists but its secret is unknown — regenerating"
@@ -1069,6 +1075,8 @@ EOF
       local secret fp
       secret=$(pbs_json user generate-token "$PBS_USER" "$PBS_TOKEN" | perl -MJSON::PP -0777 -ne 'print decode_json($_)->{value}')
       [[ -n $secret ]] || die "could not create token ${auth}"
+      proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
+      ok "token ${auth} created with DatastoreBackup on /datastore/${ds}"
       fp=$(proxmox-backup-manager cert info | awk '/Fingerprint/{print $NF}')
       [[ -n $fp ]] || die "could not read the PBS certificate fingerprint"
       pvesm add pbs "$PBS_PVE_STORAGE" --server 127.0.0.1 --datastore "$ds" --username "$auth" \
