@@ -863,6 +863,12 @@ stage_firewall() {
     echo "policy_in: DROP"
     echo "policy_out: ACCEPT"
     echo
+    # PVE adds the auto-detected local network (the host's whole subnet) to the
+    # management ipset. Guests share that subnet via DHCP, so pin it to the host
+    # itself: only ADMIN_SOURCES reach the admin ports. (Single node, no corosync.)
+    echo "[ALIASES]"
+    echo "local_network ${MGMT_CIDR%/*}/32 # host only, overrides auto-detected subnet"
+    echo
     echo "[IPSET management] # admin networks: GUI, SSH, SPICE"
     for entry in "${ADMIN_SOURCES[@]}"; do
       IFS='|' read -r cidr comment <<<"$entry"

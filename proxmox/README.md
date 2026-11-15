@@ -28,7 +28,7 @@ host → network → storage → access. Services (DNS, proxy, identity, apps) c
 | Mgmt VLAN | Host IP `10.101.0.11/23`, untagged on `vmbr0` (VLAN 10 native on the switch). The UniFi network is `10.101.0.0/23`, and its DHCP also serves the restored guests. | No switch change needed for the rebuild. `MGMT_VLAN=10` switches it to tagged. The mask must match UniFi, or host-to-guest traffic routes asymmetrically through the gateway. |
 | Domain | `int.phoenixstack.net` (was `phoenix.stack`) | Real domain, so real TLS via Cloudflare DNS-01. Resolves internally only. |
 | Firewall | Datacenter `policy_in: DROP`; GUI/SSH/SPICE/ping only from the `management` ipset | The old firewall was enabled but accepted everything. |
-| Admin sources | `10.101.0.0/24` (mgmt), `10.1.1.0/24` (workstation LAN) | The admin workstation is not on the mgmt VLAN. |
+| Admin sources | `10.1.1.0/24` (workstation LAN) only | The admin workstation isn't on the mgmt VLAN. The mgmt subnet was removed on 2026-11-14 because UniFi DHCP puts guests on it (docker-temp got 10.101.0.166), and guests must not reach the host's SSH or GUI. The iDRAC console is the fallback. Future admin hosts (e.g. a bastion) get a `/32` entry. |
 | Access | Personal admin users in an `admins` group, with TOTP. Root for break-glass only. Service accounts get privilege-separated tokens. | Named accounts, least privilege. |
 | GPU | Quadro P2000 bound to `vfio-pci` at boot; IOMMU passthrough | Reserved for the Plex VM. The host never loads NVIDIA drivers. |
 | IPv6 | No RA or autoconfiguration on the host (the stack stays loaded) | Follows the "IPv6 off unless needed" guardrail without breaking PVE daemons. |
