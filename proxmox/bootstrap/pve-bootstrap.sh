@@ -22,7 +22,8 @@
 #   storage    guest/backup ZFS pools, datasets, PVE storage
 #   access     admins group/users, roles, service accounts + API tokens
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
-#   notify     SMTP notification target + alert/backup matchers (only if NOTIFY_SMTP_ENABLE=yes)
+#   notify     root@pam email; SMTP notification target + alert/backup matchers
+#              (the SMTP part only if NOTIFY_SMTP_ENABLE=yes)
 #   pbs        Proxmox Backup Server on this host: datastore, prune/GC/verify jobs,
 #              backup user + token, PVE storage (only if PBS_ENABLE=yes)
 #   backups    PVE backup jobs (BACKUP_JOBS): nightly to PBS and to the NAS
@@ -947,13 +948,70 @@ ensure_matcher() {
     --comment "Managed by pve-bootstrap: ${desc}" "$@"
 }
 
+# json_mailto — the "mailto" list of a notification target (JSON on stdin), sorted, comma-separated.
+# Prints nothing if the input isn't JSON (target missing).
+json_mailto() { perl -MJSON::PP -0777 -ne 'my $m = (eval { decode_json($_) } // {})->{mailto} // []; print join(",", sort(ref $m ? @$m : $m))'; }
+pve_smtp_mailto() { { pvesh get "/cluster/notifications/endpoints/smtp/$1" --output-format json 2>/dev/null || true; } | json_mailto; }
+pbs_smtp_mailto() { { pbs_json notification endpoint smtp show "$1" || true; } | json_mailto; }
+pbs_smtp_from()   { { pbs_json notification endpoint smtp show "$1" || true; } | perl -MJSON::PP -0777 -ne 'print((eval { decode_json($_) } // {})->{"from-address"} // "")'; }
+pbs_root_email() {
+  { pbs_json user list || true; } | perl -MJSON::PP -0777 -ne '
+    my $l = eval { decode_json($_) }; $l = [] unless ref $l eq "ARRAY";
+    for my $u (@$l) { if (($u->{userid} // "") eq "root\@pam") { print($u->{email} // ""); last } }'
+}
+# json_disabled — exit 0 if the JSON object on stdin has a true "disable"
+json_disabled() { perl -MJSON::PP -0777 -ne 'my $d = eval { decode_json($_) }; exit((ref $d eq "HASH" && $d->{disable}) ? 0 : 1)'; }
+pve_mail_to_root_disabled() { { pvesh get /cluster/notifications/endpoints/sendmail/mail-to-root --output-format json 2>/dev/null || true; } | json_disabled; }
+pbs_mail_to_root_disabled() { { pbs_json notification endpoint sendmail show mail-to-root || true; } | json_disabled; }
+pve_root_email() {
+  { pvesh get /access/users/root@pam --output-format json 2>/dev/null || true; } \
+    | perl -MJSON::PP -0777 -ne 'print((eval { decode_json($_) } // {})->{email} // "")'
+}
+
 stage_notify() {
   section "notify"
+
+  # root@pam's address: where the built-in mail-to-root target and the host's own root mail
+  # (ZFS events, smartd, cron) are forwarded. Set by the installer; kept in step with the config here.
+  local cur
+  cur=$(pve_root_email)
+  if [[ $cur == "$ROOT_EMAIL" ]]; then ok "root@pam email ${ROOT_EMAIL}"
+  else
+    change "root@pam email -> ${ROOT_EMAIL}; was: ${cur:-none}"
+    run pveum user modify root@pam --email "$ROOT_EMAIL"
+  fi
+
   if [[ ${NOTIFY_SMTP_ENABLE:-no} != yes ]]; then info "NOTIFY_SMTP_ENABLE=no — skipped"; return 0; fi
   local n=$NOTIFY_SMTP_NAME
 
   # SMTP target. Login, From address and key are not in git (public repo): prompted or env.
-  if pve_exists "/cluster/notifications/endpoints/smtp/${n}"; then ok "SMTP target ${n}"
+  if pve_exists "/cluster/notifications/endpoints/smtp/${n}"; then
+    local retest="no"
+    cur=$(pve_smtp_mailto "$n")
+    if [[ $cur == "$NOTIFY_MAILTO" ]]; then ok "SMTP target ${n} -> ${NOTIFY_MAILTO}"
+    else
+      change "SMTP target ${n} recipient -> ${NOTIFY_MAILTO}; was: ${cur:-none}"
+      run pvesh set "/cluster/notifications/endpoints/smtp/${n}" --mailto "$NOTIFY_MAILTO"
+      retest="yes"
+    fi
+    # From address: not in git. Only checked when given in env NOTIFY_SMTP_FROM
+    # (use it when the verified sender at the relay changes).
+    if [[ -n ${NOTIFY_SMTP_FROM:-} ]]; then
+      cur=$(pve_notify_value "$n" from-address)
+      if [[ $cur == "$NOTIFY_SMTP_FROM" ]]; then ok "SMTP target ${n} From address matches NOTIFY_SMTP_FROM"
+      else
+        change "SMTP target ${n} From address -> ${NOTIFY_SMTP_FROM}; was: ${cur:-none}"
+        run pvesh set "/cluster/notifications/endpoints/smtp/${n}" --from-address "$NOTIFY_SMTP_FROM"
+        retest="yes"
+      fi
+    fi
+    if [[ $retest == yes ]] && is_apply; then
+      if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then
+        ok "test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"
+      else
+        warn "test notification failed — check the target (GUI: Datacenter → Notifications)"
+      fi
+    fi
   else
     change "add SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} (${NOTIFY_SMTP_MODE}) -> ${NOTIFY_MAILTO} (login, From and key prompted)"
     if is_apply; then
@@ -986,6 +1044,21 @@ stage_notify() {
   elif pve_exists "/cluster/notifications/matchers/phoenix-backups"; then
     change "remove matcher phoenix-backups (NOTIFY_ALL_BACKUP_JOBS=no; failures still match phoenix-alerts)"
     run pvesh delete /cluster/notifications/matchers/phoenix-backups
+  fi
+
+  # Mail the host's daemons send to root (ZFS events, smartd, cron) enters the notification
+  # system as type "system-mail" with no severity, so phoenix-alerts doesn't match it.
+  ensure_matcher phoenix-system-mail "mail sent to root by host daemons (ZFS events, smartd, cron)" \
+    --match-field "exact:type=system-mail"
+
+  # The built-in mail-to-root target sends through the host's local mail system, which
+  # can't deliver off-host here (tested 2026-11-16). Off, so nothing is queued or bounced.
+  if [[ ${NOTIFY_MAIL_TO_ROOT:-on} == off ]]; then
+    if pve_mail_to_root_disabled; then ok "built-in target mail-to-root disabled"
+    else
+      change "disable built-in target mail-to-root (local mail can't deliver off-host; ${n} carries the alerts)"
+      run pvesh set /cluster/notifications/endpoints/sendmail/mail-to-root --disable 1
+    fi
   fi
 }
 
@@ -1108,9 +1181,43 @@ pve_notify_value() {
 
 # PBS has its own notification system (prune, GC, verify, sync). Same SMTP relay as PVE.
 pbs_notifications() {
+  # PBS keeps its own root@pam record (separate from PVE's). Its built-in mail-to-root target,
+  # fed by the default matcher, sends to this address; empty means those mails go nowhere.
+  local root_cur
+  root_cur=$(pbs_root_email)
+  if [[ $root_cur == "$ROOT_EMAIL" ]]; then ok "PBS root@pam email ${ROOT_EMAIL}"
+  else
+    change "PBS root@pam email -> ${ROOT_EMAIL}; was: ${root_cur:-none}"
+    run proxmox-backup-manager user update root@pam --email "$ROOT_EMAIL"
+  fi
+
   [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]] || return 0
   local n=$NOTIFY_SMTP_NAME
-  if pbs_has name "$n" notification endpoint smtp list; then ok "PBS SMTP target ${n}"
+  if pbs_has name "$n" notification endpoint smtp list; then
+    local cur want retest="no"
+    cur=$(pbs_smtp_mailto "$n")
+    if [[ $cur == "$NOTIFY_MAILTO" ]]; then ok "PBS SMTP target ${n} -> ${NOTIFY_MAILTO}"
+    else
+      change "PBS SMTP target ${n} recipient -> ${NOTIFY_MAILTO}; was: ${cur:-none}"
+      run proxmox-backup-manager notification endpoint smtp update "$n" --mailto "$NOTIFY_MAILTO"
+      retest="yes"
+    fi
+    # From address follows PVE's target (or env NOTIFY_SMTP_FROM, which the notify stage applies to PVE).
+    want=${NOTIFY_SMTP_FROM:-$(pve_notify_value "$n" from-address 2>/dev/null || true)}
+    cur=$(pbs_smtp_from "$n")
+    if [[ -z $want || $cur == "$want" ]]; then ok "PBS SMTP target ${n} From address matches PVE's"
+    else
+      change "PBS SMTP target ${n} From address -> ${want}; was: ${cur:-none}"
+      run proxmox-backup-manager notification endpoint smtp update "$n" --from-address "$want"
+      retest="yes"
+    fi
+    if [[ $retest == yes ]] && is_apply; then
+      if proxmox-backup-manager notification target test "$n" >/dev/null; then
+        ok "PBS test notification sent — check ${NOTIFY_MAILTO}"
+      else
+        warn "PBS test notification failed — check the target in the PBS GUI (Configuration → Notifications)"
+      fi
+    fi
   else
     change "add PBS SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} -> ${NOTIFY_MAILTO} (login, From and key copied from PVE's target, else prompted)"
     if is_apply; then
@@ -1146,6 +1253,14 @@ pbs_notifications() {
     change "add PBS matcher phoenix-alerts: severity ${NOTIFY_SEVERITIES} -> ${n}"
     run proxmox-backup-manager notification matcher create phoenix-alerts --target "$n" "${sev[@]}" \
       --comment "Managed by pve-bootstrap: severity ${NOTIFY_SEVERITIES}"
+  fi
+
+  if [[ ${NOTIFY_MAIL_TO_ROOT:-on} == off ]]; then
+    if pbs_mail_to_root_disabled; then ok "PBS built-in target mail-to-root disabled"
+    else
+      change "disable PBS built-in target mail-to-root (local mail can't deliver off-host; ${n} carries the alerts)"
+      run proxmox-backup-manager notification endpoint sendmail update mail-to-root --disable true
+    fi
   fi
 
   # Datastore must use the notification system (the default), not legacy sendmail.
@@ -1253,12 +1368,17 @@ stage_verify() {
   check "time synchronized"               sh -c 'timedatectl show -p NTPSynchronized --value | grep -qx yes'
   if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
     check "SMTP notification target ${NOTIFY_SMTP_NAME}" pvesh get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
+    check "alerts go to ${NOTIFY_MAILTO} (PVE target, root@pam)" \
+      eval '[[ $(pve_smtp_mailto "$NOTIFY_SMTP_NAME") == "$NOTIFY_MAILTO" && $(pve_root_email) == "$ROOT_EMAIL" ]]'
+    check "root mail (ZFS events, smartd, cron) routed to ${NOTIFY_SMTP_NAME}" pvesh get /cluster/notifications/matchers/phoenix-system-mail
   fi
   if [[ ${PBS_ENABLE:-no} == yes ]]; then
     check "PBS running" systemctl is-active --quiet proxmox-backup-proxy
     check "PBS datastore ${PBS_DATASTORE}" pbs_has name "$PBS_DATASTORE" datastore list
+    check "PBS root@pam email ${ROOT_EMAIL}" eval '[[ $(pbs_root_email) == "$ROOT_EMAIL" ]]'
     if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
       check "PBS SMTP notification target ${NOTIFY_SMTP_NAME}" pbs_has name "$NOTIFY_SMTP_NAME" notification endpoint smtp list
+      check "PBS alerts go to ${NOTIFY_MAILTO}" eval '[[ $(pbs_smtp_mailto "$NOTIFY_SMTP_NAME") == "$NOTIFY_MAILTO" ]]'
     fi
   fi
   local entry id
