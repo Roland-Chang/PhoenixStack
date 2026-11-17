@@ -907,13 +907,15 @@ stage_firewall() {
     fi)
   if [[ $FILE_CHANGED == yes ]]; then changed="yes"; fi
 
-  ensure_file "$hfw" 0640 <<'EOF'
+  # log_level_in: dropped/rejected inbound packets go to /var/log/pve-firewall.log
+  # (rate-limited by PVE: 1 line/second with a burst of 5, and rotated).
+  ensure_file "$hfw" 0640 <<EOF
 # Managed by PhoenixStack pve-bootstrap.sh
 [OPTIONS]
 enable: 1
 nosmurfs: 1
 tcpflags: 1
-log_level_in: nolog
+log_level_in: ${FIREWALL_LOG_LEVEL_IN:-nolog}
 EOF
   if [[ $FILE_CHANGED == yes ]]; then changed="yes"; fi
 
@@ -1050,6 +1052,21 @@ stage_notify() {
   # system as type "system-mail" with no severity, so phoenix-alerts doesn't match it.
   ensure_matcher phoenix-system-mail "mail sent to root by host daemons (ZFS events, smartd, cron)" \
     --match-field "exact:type=system-mail"
+
+  # "Updates available" notices. The daily update job (pve-daily-update.timer) only sends
+  # them on hosts without a subscription when notify package-updates=always, and they are
+  # severity info, so they need their own matcher.
+  if [[ ${NOTIFY_PACKAGE_UPDATES:-no} == yes ]]; then
+    ensure_matcher phoenix-updates "new package updates available" --match-field "exact:type=package-updates"
+    local dc=/etc/pve/datacenter.cfg
+    if grep -qE '^notify:.*package-updates=always' "$dc" 2>/dev/null; then ok "daily update job announces new updates (package-updates=always)"
+    elif grep -E '^notify:' "$dc" 2>/dev/null | grep -qvE '^notify:[[:space:]]*package-updates=[a-z]+[[:space:]]*$'; then
+      warn "datacenter.cfg has other 'notify' settings — set package-updates=always by hand (Datacenter → Options)"
+    else
+      change "daily update job announces new updates: notify package-updates=always"
+      run pvesh set /cluster/options --notify package-updates=always
+    fi
+  fi
 
   # The built-in mail-to-root target sends through the host's local mail system, which
   # can't deliver off-host here (tested 2026-11-16). Off, so nothing is queued or bounced.
@@ -1366,11 +1383,21 @@ stage_verify() {
   check "no enterprise repo enabled"      sh -c '! grep -l enterprise.proxmox.com /etc/apt/sources.list.d/*.sources 2>/dev/null | xargs -r grep -LiE "^Enabled:[[:space:]]*(no|false)" | grep -q .'
   check "running newest installed kernel" sh -c '[ "$(uname -r)" = "$(ls /lib/modules | sort -V | tail -1)" ]'
   check "time synchronized"               sh -c 'timedatectl show -p NTPSynchronized --value | grep -qx yes'
+  check "daily update check scheduled"    systemctl is-active --quiet pve-daily-update.timer
+  check "package lists refreshed in the last 2 days" sh -c 'find /var/cache/apt/pkgcache.bin -mtime -2 | grep -q .'
+  local pending
+  pending=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst' || true)
+  if [[ ${pending:-0} == 0 ]]; then ok "no package updates pending"
+  else info "${pending} package update(s) pending — apply in the next patch window (apt update && apt dist-upgrade)"; fi
   if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
     check "SMTP notification target ${NOTIFY_SMTP_NAME}" pvesh get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
     check "alerts go to ${NOTIFY_MAILTO} (PVE target, root@pam)" \
       eval '[[ $(pve_smtp_mailto "$NOTIFY_SMTP_NAME") == "$NOTIFY_MAILTO" && $(pve_root_email) == "$ROOT_EMAIL" ]]'
     check "root mail (ZFS events, smartd, cron) routed to ${NOTIFY_SMTP_NAME}" pvesh get /cluster/notifications/matchers/phoenix-system-mail
+    if [[ ${NOTIFY_PACKAGE_UPDATES:-no} == yes ]]; then
+      check "update notices routed to ${NOTIFY_SMTP_NAME}" \
+        sh -c 'pvesh get /cluster/notifications/matchers/phoenix-updates >/dev/null && grep -qE "^notify:.*package-updates=always" /etc/pve/datacenter.cfg'
+    fi
   fi
   if [[ ${PBS_ENABLE:-no} == yes ]]; then
     check "PBS running" systemctl is-active --quiet proxmox-backup-proxy
