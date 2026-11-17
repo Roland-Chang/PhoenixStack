@@ -14,21 +14,21 @@ How things got here is in the git history (`git log -- proxmox/`).
 | Admin allowlist | `10.1.1.0/24` (Young LAN), `10.2.1.0/24` (Porter LAN), `192.168.2.0/24` (WireGuard VPN clients). Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
 | Guests | **Restored 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190). docker-temp (lxc 999, `nvme`, 10.101.0.166; NAS shares Media and Porter bind-mounted read-write). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111; GPU01 attached). FTP01 (9000) and INTEL01 (9001) are retired. |
 | Backups (L4) | **Done.** PBS 4.2 on the host, datastore `pve01-local`. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 have run successfully every night since 2026-11-14 (reported by Aaron 2026-11-16). First PBS run: 256 GiB in 29 minutes. Test restore from the NAS passed, at about 24 MiB/s, so restoring every guest from the NAS takes hours. |
-| Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled. |
+| Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled, and the postfix queue is empty (the undeliverable mail from before the fix was deleted 2026-11-16). |
 | Patching and logging | **Applied 2026-11-16.** New package updates are emailed (matcher `phoenix-updates`, `notify package-updates=always`). Dropped inbound packets are logged to `/var/log/pve-firewall.log`. Updates are installed weekly, by hand. |
-| Last full plan | 2026-11-16, script version 2026.11.1: **0 changes pending**, all 30 `verify` checks passed, 10 package updates pending. |
+| Last full plan | 2026-11-16, script version 2026.11.1: **0 changes pending**, all 30 `verify` checks passed. |
+| TLS | **Applied 2026-11-16.** Let's Encrypt certificate for `pve01.int.phoenixstack.net` on the PVE GUI (port 8006), issued through Cloudflare DNS-01; valid until 2027-02-15 and renewed by PVE's daily job. Checked from a VPN client: the chain and host name verify. |
+| Last patch run | **2026-11-16**: 10 updates installed with `apt dist-upgrade`. Afterwards `verify` showed no updates pending, 0 warnings, and the running kernel is the newest installed, so no reboot was needed. Next run due around 2026-11-23. |
 
 ## Open items
 
-1. First weekly patch run: 10 updates were pending on 2026-11-16 ("Weekly patch window" in the README).
-2. Clear the 10 undeliverable messages left in the postfix queue from before the alert fix:
-   `postsuper -d ALL deferred`. Otherwise each one bounces to root, and so to `alerts@`, after 5 days.
-3. TLS certificate for the GUI: the `acme` stage, which needs a Cloudflare token.
-4. NAS space: it was 77% full before the nightly archives started. Check around 2026-11-21.
-5. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
+1. Name resolution over VPN: the UDM now has the local record `pve01.int.phoenixstack.net → 10.101.0.11` (added 2026-11-16; checked: the GUI answers by name with a valid certificate when the UDM is asked). VPN clients still use public DNS, where the zone's wildcard record answers instead: the WiFiman app builds the tunnel with `8.8.8.8` for all lookups and recreates it on every connect, so editing the tunnel's settings doesn't last. Until VPN DNS is solved properly (worth doing at L5, when there are more names), a client needs a hosts entry: `10.101.0.11 pve01.int.phoenixstack.net` (done on Aaron's laptop 2026-11-16; the GUI opens by name over VPN with a valid certificate).
+2. The PBS GUI (port 8007) still has its self-signed certificate.
+3. NAS space: it was 77% full before the nightly archives started. Check around 2026-11-21.
+4. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
    `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups
    have a few weeks of history.
-6. Set `NOTIFY_ALL_BACKUP_JOBS="no"` once the nightly jobs have proven themselves, so only failures are emailed.
+5. Set `NOTIFY_ALL_BACKUP_JOBS="no"` once the nightly jobs have proven themselves, so only failures are emailed.
 
 ## For the L5 design
 
