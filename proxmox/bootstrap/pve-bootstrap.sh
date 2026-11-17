@@ -44,7 +44,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.0"
+readonly VERSION="2026.11.1"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -156,8 +156,39 @@ words() { tr -s ' \t\n' '\n' <<<"$1" | sed '/^$/d'; }
 # sort_csv "b,a,c" -> "a,b,c"
 sort_csv() { tr ',' '\n' <<<"$1" | sed '/^$/d' | sort | paste -sd, -; }
 
-# JSON helpers (perl JSON::PP is always present on PVE; jq may not be yet)
+# JSON helpers (perl JSON::PP is always present on PVE; jq may not be yet). All read JSON on
+# stdin. json_get and json_find print nothing when the input isn't JSON (the object is missing).
 json_keys() { perl -MJSON::PP -0777 -ne 'my $d=decode_json($_); print "$_\n" for sort keys %$d'; }
+# json_get <key> — a top-level value: a list is sorted and comma-joined, true/false print as 1/0
+json_get() {
+  perl -MJSON::PP -0777 -ne 'BEGIN { $k = shift @ARGV }
+    my $d = eval { decode_json($_) }; exit 0 unless ref $d eq "HASH";
+    my $v = $d->{$k}; print ref $v eq "ARRAY" ? join(",", sort @$v) : ($v // "")' "$1"
+}
+# json_find <print-key> <key=value>... — in a JSON list, print <print-key> of the first element
+# matching every key=value pair. Exit status 1 when none matches.
+json_find() {
+  perl -MJSON::PP -0777 -ne 'BEGIN { $p = shift @ARGV; @c = map { [split /=/, $_, 2] } splice @ARGV }
+    my $l = eval { decode_json($_) }; exit 1 unless ref $l eq "ARRAY";
+    for my $e (@$l) {
+      next if grep { ($e->{$_->[0]} // "") ne $_->[1] } @c;
+      print $e->{$p} // ""; exit 0;
+    }
+    exit 1' "$@"
+}
+
+# PVE and PBS API readers. *_json fails when the object doesn't exist; *_get prints one value or nothing.
+pve_json()   { pvesh get "$1" --output-format json 2>/dev/null; }
+pve_exists() { pve_json "$1" >/dev/null; }
+pve_get()    { { pve_json "$1" || true; } | json_get "$2"; }                      # pve_get <path> <key>
+pbs_json()   { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
+pbs_get()    { { pbs_json "${@:2}" || true; } | json_get "$1"; }                  # pbs_get <key> <subcommand...>
+pbs_has()    { pbs_json "${@:3}" | json_find "$1" "$1=$2" >/dev/null; }           # pbs_has <key> <value> <list-subcommand...>
+
+os_codename()     { sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"'; }   # parsed, not sourced: os-release sets VERSION
+pkg_installed()   { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'; }
+newest_kernel()   { find /lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -1; }
+pending_updates() { apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst' || true; }
 
 # ----------------------------------------------------------------------------
 # Discovery helpers
@@ -207,7 +238,6 @@ storage_prop() {
 # ----------------------------------------------------------------------------
 stage_preflight() {
   section "preflight"
-  [[ $EUID -eq 0 ]] || die "must run as root"
   command -v pveversion >/dev/null || die "pveversion not found — is this a Proxmox VE host?"
 
   local pvever
@@ -271,32 +301,30 @@ disable_enterprise_repos() {
   done
 }
 
-stage_repos() {
-  section "repos"
-  local codename f
-  # Parse, don't source: os-release sets VERSION, which is readonly in this script.
-  codename=$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
+# ensure_proxmox_repo <file> <pve|pbs> — the no-subscription repo for that product
+ensure_proxmox_repo() {
+  local codename
+  codename=$(os_codename)
   [[ -n $codename ]] || die "could not read VERSION_CODENAME from /etc/os-release"
-
-  disable_enterprise_repos
-
-  ensure_file /etc/apt/sources.list.d/proxmox.sources 0644 <<EOF
+  ensure_file "/etc/apt/sources.list.d/$1" 0644 <<EOF
 # Managed by PhoenixStack pve-bootstrap.sh
 Types: deb
-URIs: http://download.proxmox.com/debian/pve
+URIs: http://download.proxmox.com/debian/$2
 Suites: ${codename}
-Components: pve-no-subscription
+Components: $2-no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
 EOF
+}
+
+stage_repos() {
+  section "repos"
+  disable_enterprise_repos
+  ensure_proxmox_repo proxmox.sources pve
 
   run apt-get update -q
   local -a missing=()
   local pkg
-  for pkg in $EXTRA_PACKAGES; do
-    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'install ok installed'; then
-      missing+=("$pkg")
-    fi
-  done
+  for pkg in $EXTRA_PACKAGES; do pkg_installed "$pkg" || missing+=("$pkg"); done
 
   if is_apply; then
     DEBIAN_FRONTEND=noninteractive apt-get -y -q \
@@ -306,12 +334,12 @@ EOF
       DEBIAN_FRONTEND=noninteractive apt-get -y -q install "${missing[@]}"
     fi
   else
-    info "upgradable now (from current lists): $(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst' || true) package(s)"
+    info "upgradable now (from current lists): $(pending_updates) package(s)"
     if ((${#missing[@]})); then change "install: ${missing[*]}"; else ok "extra packages present"; fi
   fi
 
   local newest
-  newest=$(find /lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -1)
+  newest=$(newest_kernel)
   if [[ $newest != "$(uname -r)" ]]; then
     REBOOT_REQUIRED="yes"; info "kernel ${newest} installed, running $(uname -r) — reboot required"
   fi
@@ -577,7 +605,7 @@ EOF
     # Cluster PCI resource mapping, so guests reference the GPU by name
     # (hostpci0: mapping=<id>) instead of a host-specific PCI address.
     if [[ -n ${GPU_MAPPING_ID:-} ]]; then
-      if pvesh get "/cluster/mapping/pci/${GPU_MAPPING_ID}" >/dev/null 2>&1; then
+      if pve_exists "/cluster/mapping/pci/${GPU_MAPPING_ID}"; then
         ok "PCI mapping ${GPU_MAPPING_ID}"
       else
         local dev="/sys/bus/pci/devices/${GPU_PCI_ADDR}.0" vid did svid sdid grp
@@ -785,16 +813,11 @@ stage_nas() {
 # ----------------------------------------------------------------------------
 # Stage: access
 # ----------------------------------------------------------------------------
-pve_exists() { pvesh get "$1" --output-format json >/dev/null 2>&1; }
-acl_has() {  # acl_has <path> <type:user|group|token> <ugid> <role>
-  pvesh get /access/acl --output-format json \
-    | A_PATH=$1 A_TYPE=$2 A_UGID=$3 A_ROLE=$4 perl -MJSON::PP -0777 -ne '
-        exit((grep { $_->{path} eq $ENV{A_PATH} && $_->{type} eq $ENV{A_TYPE}
-                  && $_->{ugid} eq $ENV{A_UGID} && $_->{roleid} eq $ENV{A_ROLE} } @{decode_json($_)}) ? 0 : 1)'
-}
 ensure_acl() {  # ensure_acl <path> <user|group|token> <ugid> <role>
   local path=$1 type=$2 ugid=$3 role=$4
-  if acl_has "$path" "$type" "$ugid" "$role"; then ok "acl ${path} ${ugid} ${role}"; return 0; fi
+  if pve_json /access/acl | json_find path "path=$path" "type=$type" "ugid=$ugid" "roleid=$role" >/dev/null; then
+    ok "acl ${path} ${ugid} ${role}"; return 0
+  fi
   change "acl ${path} ${type} ${ugid} -> ${role}"
   run pveum acl modify "$path" "--${type}s" "$ugid" --roles "$role"
 }
@@ -822,7 +845,7 @@ stage_access() {
 
   # Custom roles (drop privileges this PVE version doesn't know)
   local -a valid
-  mapfile -t valid < <(pvesh get /access/roles/Administrator --output-format json | json_keys)
+  mapfile -t valid < <(pve_json /access/roles/Administrator | json_keys)
   local name privs priv kept cur
   for entry in "${PVE_ROLES[@]}"; do
     IFS='|' read -r name privs <<<"$entry"
@@ -832,8 +855,8 @@ stage_access() {
       else warn "role ${name}: privilege '${priv}' unknown on this PVE — dropped"; fi
     done
     if pve_exists "/access/roles/${name}"; then
-      cur=$(pvesh get "/access/roles/${name}" --output-format json | json_keys | paste -sd, -)
-      if [[ $cur == "$(tr ',' '\n' <<<"$kept" | sort | paste -sd, -)" ]]; then ok "role ${name}"
+      cur=$(pve_json "/access/roles/${name}" | json_keys | paste -sd, -)
+      if [[ $cur == "$(sort_csv "$kept")" ]]; then ok "role ${name}"
       else change "update role ${name}"; run pveum role modify "$name" --privs "$kept"; fi
     else
       change "create role ${name}"; run pveum role add "$name" --privs "$kept"
@@ -854,7 +877,7 @@ stage_access() {
       change "create token ${userid}!${token} (secret shown once)"
       if is_apply; then
         out=$(pveum user token add "$userid" "$token" --privsep 1 --comment "$comment" --output-format json)
-        secret=$(perl -MJSON::PP -0777 -ne 'print decode_json($_)->{value}' <<<"$out")
+        secret=$(json_get value <<<"$out")
         printf '\n    %s┌─ STORE IN 1PASSWORD NOW — shown only once ─────────────%s\n' "$C_Y" "$C_0" >/dev/tty
         printf '    %s│%s token id: %s!%s\n' "$C_Y" "$C_0" "$userid" "$token" >/dev/tty
         printf '    %s│%s secret:   %s\n' "$C_Y" "$C_0" "$secret" >/dev/tty
@@ -950,24 +973,24 @@ ensure_matcher() {
     --comment "Managed by pve-bootstrap: ${desc}" "$@"
 }
 
-# json_mailto — the "mailto" list of a notification target (JSON on stdin), sorted, comma-separated.
-# Prints nothing if the input isn't JSON (target missing).
-json_mailto() { perl -MJSON::PP -0777 -ne 'my $m = (eval { decode_json($_) } // {})->{mailto} // []; print join(",", sort(ref $m ? @$m : $m))'; }
-pve_smtp_mailto() { { pvesh get "/cluster/notifications/endpoints/smtp/$1" --output-format json 2>/dev/null || true; } | json_mailto; }
-pbs_smtp_mailto() { { pbs_json notification endpoint smtp show "$1" || true; } | json_mailto; }
-pbs_smtp_from()   { { pbs_json notification endpoint smtp show "$1" || true; } | perl -MJSON::PP -0777 -ne 'print((eval { decode_json($_) } // {})->{"from-address"} // "")'; }
-pbs_root_email() {
-  { pbs_json user list || true; } | perl -MJSON::PP -0777 -ne '
-    my $l = eval { decode_json($_) }; $l = [] unless ref $l eq "ARRAY";
-    for my $u (@$l) { if (($u->{userid} // "") eq "root\@pam") { print($u->{email} // ""); last } }'
+# pve_notify_value <target> <key> [file] — one value from PVE's notification config section
+# (the SMTP key is only in /etc/pve/priv/notifications.cfg, which the API never returns)
+pve_notify_value() {
+  awk -v sec="smtp: $1" -v key="$2" '
+    /^[a-z]+: / { insec = ($0 == sec) }
+    insec && $1 == key { sub(/^[ \t]*[^ \t]+[ \t]+/, ""); print; exit }' "${3:-/etc/pve/notifications.cfg}"
 }
-# json_disabled — exit 0 if the JSON object on stdin has a true "disable"
-json_disabled() { perl -MJSON::PP -0777 -ne 'my $d = eval { decode_json($_) }; exit((ref $d eq "HASH" && $d->{disable}) ? 0 : 1)'; }
-pve_mail_to_root_disabled() { { pvesh get /cluster/notifications/endpoints/sendmail/mail-to-root --output-format json 2>/dev/null || true; } | json_disabled; }
-pbs_mail_to_root_disabled() { { pbs_json notification endpoint sendmail show mail-to-root || true; } | json_disabled; }
-pve_root_email() {
-  { pvesh get /access/users/root@pam --output-format json 2>/dev/null || true; } \
-    | perl -MJSON::PP -0777 -ne 'print((eval { decode_json($_) } // {})->{email} // "")'
+
+# notify_test <pve|pbs> — send a test through the SMTP target
+notify_test() {
+  local n=$NOTIFY_SMTP_NAME sent="no"
+  case $1 in
+    pve) if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then sent="yes"; fi ;;
+    pbs) if proxmox-backup-manager notification target test "$n" >/dev/null; then sent="yes"; fi ;;
+  esac
+  if [[ $sent == yes ]]; then ok "${1^^} test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"; return 0; fi
+  warn "${1^^} test notification failed. A 535 error means a wrong login or key (Brevo: the SMTP key, xsmtpsib-…, not the API key)."
+  info "This stage won't ask for the key again: fix it in the ${1^^} GUI (Notifications → ${n} → Edit), then use Test there."
 }
 
 stage_notify() {
@@ -976,7 +999,7 @@ stage_notify() {
   # root@pam's address: where the built-in mail-to-root target and the host's own root mail
   # (ZFS events, smartd, cron) are forwarded. Set by the installer; kept in step with the config here.
   local cur
-  cur=$(pve_root_email)
+  cur=$(pve_get /access/users/root@pam email)
   if [[ $cur == "$ROOT_EMAIL" ]]; then ok "root@pam email ${ROOT_EMAIL}"
   else
     change "root@pam email -> ${ROOT_EMAIL}; was: ${cur:-none}"
@@ -984,16 +1007,16 @@ stage_notify() {
   fi
 
   if [[ ${NOTIFY_SMTP_ENABLE:-no} != yes ]]; then info "NOTIFY_SMTP_ENABLE=no — skipped"; return 0; fi
-  local n=$NOTIFY_SMTP_NAME
+  local n=$NOTIFY_SMTP_NAME smtp="/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
 
   # SMTP target. Login, From address and key are not in git (public repo): prompted or env.
-  if pve_exists "/cluster/notifications/endpoints/smtp/${n}"; then
+  if pve_exists "$smtp"; then
     local retest="no"
-    cur=$(pve_smtp_mailto "$n")
+    cur=$(pve_get "$smtp" mailto)
     if [[ $cur == "$NOTIFY_MAILTO" ]]; then ok "SMTP target ${n} -> ${NOTIFY_MAILTO}"
     else
       change "SMTP target ${n} recipient -> ${NOTIFY_MAILTO}; was: ${cur:-none}"
-      run pvesh set "/cluster/notifications/endpoints/smtp/${n}" --mailto "$NOTIFY_MAILTO"
+      run pvesh set "$smtp" --mailto "$NOTIFY_MAILTO"
       retest="yes"
     fi
     # From address: not in git. Only checked when given in env NOTIFY_SMTP_FROM
@@ -1003,17 +1026,11 @@ stage_notify() {
       if [[ $cur == "$NOTIFY_SMTP_FROM" ]]; then ok "SMTP target ${n} From address matches NOTIFY_SMTP_FROM"
       else
         change "SMTP target ${n} From address -> ${NOTIFY_SMTP_FROM}; was: ${cur:-none}"
-        run pvesh set "/cluster/notifications/endpoints/smtp/${n}" --from-address "$NOTIFY_SMTP_FROM"
+        run pvesh set "$smtp" --from-address "$NOTIFY_SMTP_FROM"
         retest="yes"
       fi
     fi
-    if [[ $retest == yes ]] && is_apply; then
-      if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then
-        ok "test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"
-      else
-        warn "test notification failed — check the target (GUI: Datacenter → Notifications)"
-      fi
-    fi
+    if [[ $retest == yes ]] && is_apply; then notify_test pve; fi
   else
     change "add SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} (${NOTIFY_SMTP_MODE}) -> ${NOTIFY_MAILTO} (login, From and key prompted)"
     if is_apply; then
@@ -1028,13 +1045,7 @@ stage_notify() {
         --comment "Managed by pve-bootstrap" >/dev/null
       unset NOTIFY_SMTP_PASSWORD
       ok "SMTP target ${n} created"
-      if pvesh create "/cluster/notifications/targets/${n}/test" >/dev/null; then
-        ok "test notification sent — check ${NOTIFY_MAILTO} (and its spam folder)"
-      else
-        warn "test notification failed. Re-running this stage won't ask again. A 535 error means a wrong login or key (Brevo: use the SMTP key, xsmtpsib-…, not the API key). Fix:"
-        info "read -rs -p 'SMTP key: ' K; echo; pvesh set /cluster/notifications/endpoints/smtp/${n} --password \"\$K\"; unset K"
-        info "pvesh create /cluster/notifications/targets/${n}/test   (or GUI: Datacenter → Notifications)"
-      fi
+      notify_test pve
     fi
   fi
 
@@ -1071,7 +1082,7 @@ stage_notify() {
   # The built-in mail-to-root target sends through the host's local mail system, which
   # can't deliver off-host here (tested 2026-11-16). Off, so nothing is queued or bounced.
   if [[ ${NOTIFY_MAIL_TO_ROOT:-on} == off ]]; then
-    if pve_mail_to_root_disabled; then ok "built-in target mail-to-root disabled"
+    if [[ $(pve_get /cluster/notifications/endpoints/sendmail/mail-to-root disable) == 1 ]]; then ok "built-in target mail-to-root disabled"
     else
       change "disable built-in target mail-to-root (local mail can't deliver off-host; ${n} carries the alerts)"
       run pvesh set /cluster/notifications/endpoints/sendmail/mail-to-root --disable 1
@@ -1082,13 +1093,10 @@ stage_notify() {
 # ----------------------------------------------------------------------------
 # Stage: pbs (optional) — Proxmox Backup Server on this host
 # ----------------------------------------------------------------------------
-pbs_json() { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
-pbs_acl_ok() {  # pbs_acl_ok <path> <auth-id> <role>
-  pbs_json acl list | perl -MJSON::PP -0777 -ne 'BEGIN { ($p, $u, $r) = splice(@ARGV, 0, 3) } exit((grep { $_->{path} eq $p && $_->{ugid} eq $u && $_->{roleid} eq $r } @{decode_json($_)}) ? 0 : 1)' "$1" "$2" "$3"
-}
-pbs_has() {  # pbs_has <json-key> <value> <list-subcommand...>
-  local key=$1 val=$2; shift 2
-  pbs_json "$@" | perl -MJSON::PP -0777 -ne 'BEGIN { ($k, $v) = splice(@ARGV, 0, 2) } exit((grep { ($_->{$k} // "") eq $v } @{decode_json($_)}) ? 0 : 1)' "$key" "$val"
+ensure_pbs_acl() {  # ensure_pbs_acl <path> <auth-id> <role>
+  if pbs_json acl list | json_find path "path=$1" "ugid=$2" "roleid=$3" >/dev/null; then ok "acl $1 $2 $3"; return 0; fi
+  change "acl $1 $2 -> $3"
+  run proxmox-backup-manager acl update "$1" "$3" --auth-id "$2"
 }
 
 stage_pbs() {
@@ -1096,15 +1104,8 @@ stage_pbs() {
   if [[ ${PBS_ENABLE:-no} != yes ]]; then info "PBS_ENABLE=no — skipped"; return 0; fi
   local ds=$PBS_DATASTORE auth="${PBS_USER}!${PBS_TOKEN}" installed="no"
 
-  ensure_file /etc/apt/sources.list.d/pbs.sources 0644 <<EOF
-# Managed by PhoenixStack pve-bootstrap.sh
-Types: deb
-URIs: http://download.proxmox.com/debian/pbs
-Suites: $(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"')
-Components: pbs-no-subscription
-Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
-EOF
-  if dpkg-query -W -f='${Status}' proxmox-backup-server 2>/dev/null | grep -q 'install ok installed'; then
+  ensure_proxmox_repo pbs.sources pbs
+  if pkg_installed proxmox-backup-server; then
     ok "proxmox-backup-server installed"; installed="yes"
   else
     change "install proxmox-backup-server"
@@ -1148,21 +1149,13 @@ EOF
   # Backup user (token permissions = user ACL ∩ token ACL)
   if pbs_has userid "$PBS_USER" user list; then ok "PBS user ${PBS_USER}"
   else change "create PBS user ${PBS_USER}"; run proxmox-backup-manager user create "$PBS_USER" --comment "PVE backups (managed by pve-bootstrap)"; fi
-  if pbs_acl_ok "/datastore/${ds}" "$PBS_USER" DatastoreBackup; then ok "acl /datastore/${ds} ${PBS_USER} DatastoreBackup"
-  else
-    change "acl /datastore/${ds} ${PBS_USER} -> DatastoreBackup"
-    run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$PBS_USER"
-  fi
+  ensure_pbs_acl "/datastore/${ds}" "$PBS_USER" DatastoreBackup
 
   # PVE storage. The token secret goes straight from PBS into PVE (/etc/pve/priv) and is never shown.
   # A token can only get an ACL after it exists, so it's created, granted and handed to PVE together.
   if storage_exists "$PBS_PVE_STORAGE"; then
     ok "storage ${PBS_PVE_STORAGE}"
-    if pbs_acl_ok "/datastore/${ds}" "$auth" DatastoreBackup; then ok "acl /datastore/${ds} ${auth} DatastoreBackup"
-    else
-      change "acl /datastore/${ds} ${auth} -> DatastoreBackup"
-      run proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
-    fi
+    ensure_pbs_acl "/datastore/${ds}" "$auth" DatastoreBackup
   else
     change "create token ${auth}, acl /datastore/${ds} -> DatastoreBackup, add PVE storage ${PBS_PVE_STORAGE} (127.0.0.1, keep-all: PBS prunes)"
     if is_apply; then
@@ -1189,19 +1182,12 @@ EOF
   pbs_notifications
 }
 
-# pve_notify_value <target> <key> [file] — one value from PVE's notification config section
-pve_notify_value() {
-  awk -v sec="smtp: $1" -v key="$2" '
-    /^[a-z]+: / { insec = ($0 == sec) }
-    insec && $1 == key { sub(/^[ \t]*[^ \t]+[ \t]+/, ""); print; exit }' "${3:-/etc/pve/notifications.cfg}"
-}
-
 # PBS has its own notification system (prune, GC, verify, sync). Same SMTP relay as PVE.
 pbs_notifications() {
   # PBS keeps its own root@pam record (separate from PVE's). Its built-in mail-to-root target,
   # fed by the default matcher, sends to this address; empty means those mails go nowhere.
   local root_cur
-  root_cur=$(pbs_root_email)
+  root_cur=$(pbs_json user list | json_find email userid=root@pam || true)
   if [[ $root_cur == "$ROOT_EMAIL" ]]; then ok "PBS root@pam email ${ROOT_EMAIL}"
   else
     change "PBS root@pam email -> ${ROOT_EMAIL}; was: ${root_cur:-none}"
@@ -1212,7 +1198,7 @@ pbs_notifications() {
   local n=$NOTIFY_SMTP_NAME
   if pbs_has name "$n" notification endpoint smtp list; then
     local cur want retest="no"
-    cur=$(pbs_smtp_mailto "$n")
+    cur=$(pbs_get mailto notification endpoint smtp show "$n")
     if [[ $cur == "$NOTIFY_MAILTO" ]]; then ok "PBS SMTP target ${n} -> ${NOTIFY_MAILTO}"
     else
       change "PBS SMTP target ${n} recipient -> ${NOTIFY_MAILTO}; was: ${cur:-none}"
@@ -1221,20 +1207,14 @@ pbs_notifications() {
     fi
     # From address follows PVE's target (or env NOTIFY_SMTP_FROM, which the notify stage applies to PVE).
     want=${NOTIFY_SMTP_FROM:-$(pve_notify_value "$n" from-address 2>/dev/null || true)}
-    cur=$(pbs_smtp_from "$n")
+    cur=$(pbs_get from-address notification endpoint smtp show "$n")
     if [[ -z $want || $cur == "$want" ]]; then ok "PBS SMTP target ${n} From address matches PVE's"
     else
       change "PBS SMTP target ${n} From address -> ${want}; was: ${cur:-none}"
       run proxmox-backup-manager notification endpoint smtp update "$n" --from-address "$want"
       retest="yes"
     fi
-    if [[ $retest == yes ]] && is_apply; then
-      if proxmox-backup-manager notification target test "$n" >/dev/null; then
-        ok "PBS test notification sent — check ${NOTIFY_MAILTO}"
-      else
-        warn "PBS test notification failed — check the target in the PBS GUI (Configuration → Notifications)"
-      fi
-    fi
+    if [[ $retest == yes ]] && is_apply; then notify_test pbs; fi
   else
     change "add PBS SMTP target ${n}: ${NOTIFY_SMTP_SERVER}:${NOTIFY_SMTP_PORT} -> ${NOTIFY_MAILTO} (login, From and key copied from PVE's target, else prompted)"
     if is_apply; then
@@ -1255,11 +1235,7 @@ pbs_notifications() {
         --comment "Managed by pve-bootstrap"
       unset pw
       ok "PBS SMTP target ${n} created"
-      if proxmox-backup-manager notification target test "$n" >/dev/null; then
-        ok "PBS test notification sent — check ${NOTIFY_MAILTO}"
-      else
-        warn "PBS test notification failed — check the target in the PBS GUI (Configuration → Notifications)"
-      fi
+      notify_test pbs
     fi
   fi
 
@@ -1273,7 +1249,7 @@ pbs_notifications() {
   fi
 
   if [[ ${NOTIFY_MAIL_TO_ROOT:-on} == off ]]; then
-    if pbs_mail_to_root_disabled; then ok "PBS built-in target mail-to-root disabled"
+    if [[ $(pbs_get disable notification endpoint sendmail show mail-to-root) == 1 ]]; then ok "PBS built-in target mail-to-root disabled"
     else
       change "disable PBS built-in target mail-to-root (local mail can't deliver off-host; ${n} carries the alerts)"
       run proxmox-backup-manager notification endpoint sendmail update mail-to-root --disable true
@@ -1281,7 +1257,9 @@ pbs_notifications() {
   fi
 
   # Datastore must use the notification system (the default), not legacy sendmail.
-  if pbs_json datastore show "$PBS_DATASTORE" | perl -MJSON::PP -0777 -ne 'exit(((decode_json($_)->{"notification-mode"} // "notification-system") eq "notification-system") ? 0 : 1)'; then
+  local nmode
+  nmode=$(pbs_get notification-mode datastore show "$PBS_DATASTORE")
+  if [[ ${nmode:-notification-system} == notification-system ]]; then
     ok "datastore ${PBS_DATASTORE} uses the notification system"
   else
     change "datastore ${PBS_DATASTORE} notification-mode -> notification-system"
@@ -1301,8 +1279,8 @@ stage_backups() {
       if is_apply; then warn "backup job ${id}: storage ${store} missing — skipped"; continue; fi
       info "(storage ${store} does not exist yet — created by an earlier stage)"
     fi
-    if cur=$(pvesh get "/cluster/backup/${id}" --output-format json 2>/dev/null); then
-      if perl -MJSON::PP -0777 -e 'my $j=decode_json(<STDIN>); exit(($j->{schedule} eq $ARGV[0] && $j->{storage} eq $ARGV[1]) ? 0 : 1)' "$sched" "$store" <<<"$cur"; then
+    if cur=$(pve_json "/cluster/backup/${id}"); then
+      if [[ $(json_get schedule <<<"$cur") == "$sched" && $(json_get storage <<<"$cur") == "$store" ]]; then
         ok "backup job ${id} (${sched} -> ${store})"
       else
         change "update backup job ${id} -> ${sched} -> ${store}"
@@ -1360,58 +1338,61 @@ check() {  # check <description> <command...>
   local desc=$1; shift
   if "$@" >/dev/null 2>&1; then ok "$desc"; else warn "FAIL: $desc"; fi
 }
+check_eq() {  # check_eq <description> <actual> <expected>
+  if [[ $2 == "$3" ]]; then ok "$1"; else warn "FAIL: $1 (found '${2:-nothing}')"; fi
+}
 stage_verify() {
   section "verify"
   check "rpool mirrored"                  sh -c 'zpool status rpool | grep -qE "^\s+mirror-"'
-  check "all pools healthy"               sh -c '[ "$(zpool status -x)" = "all pools are healthy" ]'
+  check_eq "all pools healthy"            "$(zpool status -x 2>&1)" "all pools are healthy"
   local p; for p in ${ZFS_POOLS:-}; do check "pool ${p} imported" zpool list -H "$p"; done
   local bad
   bad=$(pvesm status 2>/dev/null | awk 'NR>1 && $3!="active"{print $1"("$3")"}' | paste -sd' ' -)
   if [[ -z $bad ]]; then ok "all PVE storages active"; else warn "FAIL: PVE storages not active: ${bad}"; fi
-  check "vmbr0 VLAN-aware"                sh -c '[ "$(cat /sys/class/net/vmbr0/bridge/vlan_filtering)" = 1 ]'
+  check_eq "vmbr0 VLAN-aware"             "$(cat /sys/class/net/vmbr0/bridge/vlan_filtering 2>/dev/null)" 1
   check "gateway ${MGMT_GATEWAY} reachable" ping -c 1 -W 2 "$MGMT_GATEWAY"
   check "IOMMU groups present"            sh -c 'ls /sys/kernel/iommu_groups | grep -q .'
   if [[ -n ${GPU_PCI_ADDR:-} ]]; then
     check "GPU ${GPU_PCI_ADDR} bound to vfio-pci" sh -c "lspci -nnk -s ${GPU_PCI_ADDR}.0 | grep -q 'in use: vfio-pci'"
     if [[ -n ${GPU_MAPPING_ID:-} ]]; then
-      check "PCI mapping ${GPU_MAPPING_ID} exists" pvesh get "/cluster/mapping/pci/${GPU_MAPPING_ID}"
+      check "PCI mapping ${GPU_MAPPING_ID} exists" pve_exists "/cluster/mapping/pci/${GPU_MAPPING_ID}"
     fi
   fi
-  check "ZFS ARC max ${ZFS_ARC_MAX_GIB} GiB" sh -c "[ \"\$(cat /sys/module/zfs/parameters/zfs_arc_max)\" = $((ZFS_ARC_MAX_GIB * 1024 * 1024 * 1024)) ]"
+  check_eq "ZFS ARC max ${ZFS_ARC_MAX_GIB} GiB" "$(cat /sys/module/zfs/parameters/zfs_arc_max 2>/dev/null)" "$((ZFS_ARC_MAX_GIB * 1024 * 1024 * 1024))"
   check "firewall enabled/running"        sh -c 'pve-firewall status | grep -q "enabled/running"'
   check "SSH password auth disabled"      sh -c 'sshd -T 2>/dev/null | grep -qx "passwordauthentication no"'
   check "no enterprise repo enabled"      sh -c '! grep -l enterprise.proxmox.com /etc/apt/sources.list.d/*.sources 2>/dev/null | xargs -r grep -LiE "^Enabled:[[:space:]]*(no|false)" | grep -q .'
-  check "running newest installed kernel" sh -c '[ "$(uname -r)" = "$(ls /lib/modules | sort -V | tail -1)" ]'
-  check "time synchronized"               sh -c 'timedatectl show -p NTPSynchronized --value | grep -qx yes'
+  check_eq "running newest installed kernel" "$(uname -r)" "$(newest_kernel)"
+  check_eq "time synchronized"            "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" yes
   check "daily update check scheduled"    systemctl is-active --quiet pve-daily-update.timer
   check "package lists refreshed in the last 2 days" sh -c 'find /var/cache/apt/pkgcache.bin -mtime -2 | grep -q .'
   local pending
-  pending=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst' || true)
+  pending=$(pending_updates)
   if [[ ${pending:-0} == 0 ]]; then ok "no package updates pending"
   else info "${pending} package update(s) pending — apply in the next patch window (apt update && apt dist-upgrade)"; fi
   if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
-    check "SMTP notification target ${NOTIFY_SMTP_NAME}" pvesh get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}"
-    check "alerts go to ${NOTIFY_MAILTO} (PVE target, root@pam)" \
-      eval '[[ $(pve_smtp_mailto "$NOTIFY_SMTP_NAME") == "$NOTIFY_MAILTO" && $(pve_root_email) == "$ROOT_EMAIL" ]]'
-    check "root mail (ZFS events, smartd, cron) routed to ${NOTIFY_SMTP_NAME}" pvesh get /cluster/notifications/matchers/phoenix-system-mail
+    check_eq "alerts go to ${NOTIFY_MAILTO} (PVE SMTP target ${NOTIFY_SMTP_NAME})" \
+      "$(pve_get "/cluster/notifications/endpoints/smtp/${NOTIFY_SMTP_NAME}" mailto)" "$NOTIFY_MAILTO"
+    check_eq "root@pam email ${ROOT_EMAIL}" "$(pve_get /access/users/root@pam email)" "$ROOT_EMAIL"
+    check "root mail (ZFS events, smartd, cron) routed to ${NOTIFY_SMTP_NAME}" pve_exists /cluster/notifications/matchers/phoenix-system-mail
     if [[ ${NOTIFY_PACKAGE_UPDATES:-no} == yes ]]; then
-      check "update notices routed to ${NOTIFY_SMTP_NAME}" \
-        sh -c 'pvesh get /cluster/notifications/matchers/phoenix-updates >/dev/null && grep -qE "^notify:.*package-updates=always" /etc/pve/datacenter.cfg'
+      check "update notices routed to ${NOTIFY_SMTP_NAME}" pve_exists /cluster/notifications/matchers/phoenix-updates
+      check "daily update job announces new updates" grep -qE '^notify:.*package-updates=always' /etc/pve/datacenter.cfg
     fi
   fi
   if [[ ${PBS_ENABLE:-no} == yes ]]; then
     check "PBS running" systemctl is-active --quiet proxmox-backup-proxy
     check "PBS datastore ${PBS_DATASTORE}" pbs_has name "$PBS_DATASTORE" datastore list
-    check "PBS root@pam email ${ROOT_EMAIL}" eval '[[ $(pbs_root_email) == "$ROOT_EMAIL" ]]'
+    check_eq "PBS root@pam email ${ROOT_EMAIL}" "$(pbs_json user list | json_find email userid=root@pam)" "$ROOT_EMAIL"
     if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
-      check "PBS SMTP notification target ${NOTIFY_SMTP_NAME}" pbs_has name "$NOTIFY_SMTP_NAME" notification endpoint smtp list
-      check "PBS alerts go to ${NOTIFY_MAILTO}" eval '[[ $(pbs_smtp_mailto "$NOTIFY_SMTP_NAME") == "$NOTIFY_MAILTO" ]]'
+      check_eq "PBS alerts go to ${NOTIFY_MAILTO} (PBS SMTP target ${NOTIFY_SMTP_NAME})" \
+        "$(pbs_get mailto notification endpoint smtp show "$NOTIFY_SMTP_NAME")" "$NOTIFY_MAILTO"
     fi
   fi
   local entry id
   for entry in "${BACKUP_JOBS[@]}"; do
     id=${entry%%|*}
-    check "backup job ${id}" pvesh get "/cluster/backup/${id}"
+    check "backup job ${id}" pve_exists "/cluster/backup/${id}"
   done
 }
 
@@ -1493,4 +1474,5 @@ main() {
   if [[ $REBOOT_REQUIRED == yes ]]; then warn "REBOOT REQUIRED before continuing (kernel/initramfs/boot changes)"; fi
 }
 
-main "$@"
+# Run only when executed, so tests can source this file for its functions.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

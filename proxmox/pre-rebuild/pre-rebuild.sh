@@ -9,7 +9,7 @@
 #                     Default mode 'snapshot' (guests keep running).
 #   --final           With --backup-guests: cleanly shut down ALL guests first and
 #                     leave them off — use this for the cutover backup.
-#   --storage <id>    vzdump storage (default: nas-backups)
+#   --storage <id>    vzdump storage (default: nas-dump)
 #
 # Typical flow:
 #   ./pre-rebuild.sh --capture                     # any time, harmless
@@ -19,7 +19,7 @@
 set -Eeuo pipefail
 umask 027
 
-CAPTURE="no" BACKUP="no" FINAL="no" STORAGE="nas-backups"
+CAPTURE="no" BACKUP="no" FINAL="no" STORAGE="nas-dump"
 RUN_ID=$(date +%Y%m%d-%H%M%S)
 die() { printf '\e[31mERROR:\e[0m %s\n' "$*" >&2; exit 1; }
 trap 'die "failed (line $LINENO): $BASH_COMMAND"' ERR

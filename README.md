@@ -10,8 +10,8 @@ The stack is being rebuilt from the ground up, one layer at a time:
 | Layer | What | State |
 | --- | --- | --- |
 | L0–L3 | Proxmox host pve01: install, network, storage, access, firewall | **Done 2026-11-14.** See [proxmox/REBUILD_STATE.md](proxmox/REBUILD_STATE.md) |
-| L4 | Backups (PBS + NAS), restore of the existing guests, alerts | **Done 2026-11-16:** guests restored, PBS and nightly jobs running, alerts delivered to a real mailbox. Host hardening follow-ups (patching policy, firewall logging, TLS) are listed in the state file |
-| L5+ | Guest provisioning and configuration (IaC), services | Not started. Designed after L4 is done |
+| L4 | Backups (PBS + NAS), restore of the existing guests, alerts | **Done 2026-11-16:** guests restored, PBS and nightly jobs running, alerts delivered to a real mailbox. Open follow-ups are in the state file |
+| L5+ | Guest provisioning and configuration, services | Not started. Terraform will create guests and Ansible will configure them; the host layer stays on the bootstrap script (decided 2026-11-16) |
 
 The previous design is kept, unmaintained, in [archive/](archive/README.md).
 

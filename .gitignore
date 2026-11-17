@@ -22,14 +22,18 @@ answer.toml
 **/.ansible_vault_pass
 **/vault_pass.txt
 
-# Credentials
+# Credentials: files that hold secret values. Kept narrow on purpose: broad patterns such
+# as token* or secret* would silently ignore source files (tokens.tf, a secrets role, ...).
 .env
 .env.*
+!.env.example
 **/credentials
-**/secret*
-**/password*
-**/api_key*
-**/token*
+*.cred
+*.secret
+*.pem
+*.key
+*.p12
+*.pfx
 
 # SSH
 **/.ssh/id_*

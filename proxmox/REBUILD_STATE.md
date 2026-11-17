@@ -1,152 +1,40 @@
-# pve01 rebuild: current state
+# pve01: current state
 
-Snapshot as of **2026-11-16**. This file is for picking the rebuild up on another computer. The full
-design and runbook are in [README.md](README.md). This file records where things stand and how the plan
-changed from that runbook.
+Snapshot as of **2026-11-16**. This file says where the host stands and what's still open, so the work
+can be picked up on another computer. The design and the rebuild runbook are in [README.md](README.md).
+How things got here is in the git history (`git log -- proxmox/`).
 
 ## Where things stand
 
-| Item | State |
+| Area | State |
 | --- | --- |
-| Old pve01 | **Gone.** Phases 1–3 of the README (capture, rehearsal, cutover backup on the old host) no longer apply. |
-| Guest backups | **Exist on the NAS** in `Backups/pve01` (mounted as `/mnt/nas/nas-dump` once the bootstrap has run). Phase 7 restores from them. |
-| Node config | [config/pve01.conf](config/pve01.conf) is complete: no `REPLACE_ME` outside comments. |
-| ASUS Hyper M.2 + Samsung 990 Pro | **Not installed now.** The `data` pool, `data/models` dataset and `data` storage stay commented out in the config. Nothing in the ISO or bootstrap depends on them. |
-| Install (Phases 4–5) | **Done.** Checked 2026-11-14: FQDN, timezone, keyboard, root mail, IP/gateway, NIC pinning (`nic0` = 4C:D9:8F:0C:15:3E), rpool mirror of the 2 Intel SSDs (ashift 12, lz4), ARC 24 GiB and root SSH key all match the config. PVE 9.2.2, kernel 7.0.2-6-pve. |
-| Unattended installer ISO | Contains the root password hash. **Delete every copy** (`/home/ayoung/iso/pve01-auto.iso` on the Mint workstation, and any copy on the NAS). |
-| Old `nvme` / `ssd` pools | Still on their disks (importable, not imported). Wiped by `storage --destroy-data`. |
-| Bootstrap plan | Runs clean with no `--apply`. The disk paths in all three pool layouts match the real disks. |
-| Bootstrap applied | `repos` (PVE 9.2.27, kernel 7.0.14-29), `system`, `network` (bond0 + VLAN-aware vmbr0, 10 Gb/s), `kernel` (IOMMU on, P2000 on vfio-pci). All verified 2026-11-14. `kernel` will be re-run once for `l1tf=flush,nowarn`. |
-| Bootstrap applied (cont.) | `kernel` re-run with `l1tf=flush,nowarn` (warning gone, mitigation unchanged). `nas`: both shares mounted, `nas-iso` and `nas-dump` storages added. |
-| Guest archives | Checked 2026-11-14. The archives to restore are **Protected**: `lxc-100-2026_11_12-19_32_20`, `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. |
-| Bootstrap applied (cont.) | `storage --destroy-data`: nvme (mirror, 860G), ssd (mirror, 231G), backup (RAIDZ1 + special mirror, 3.07T; `backup/pbs`). `access`: aaron@pve (admins), terraform and claude-audit tokens (privsep; the audit secret is in 1Password `(Proxmox) Claude API`). `firewall`: default DROP, `management` ipset. |
-| **Host baseline (L0–L3)** | **Done 2026-11-14.** `verify` passes all 16 checks; a fresh plan shows **0 changes pending**. |
-| Close-out items done (2026-11-14) | TOTP enrolled for `aaron@pve` and `root@pam`. Every copy of `pve01-auto.iso` deleted. Old host SMB credentials retired. Branch pushed to GitHub. |
-| Guests restored (Phase 7) | **Done 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190, panel :8080 up). docker-temp (lxc 999, `nvme`, 10.101.0.166; `mp0`/`mp1` removed, Media and Porter mounted read-write, 20 containers up, Immich healthy). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111, guest agent OK, GPU01 mapping attached, `nvidia-smi` sees the P2000, Plex :32400 answers). |
-| Network fix | **Applied 2026-11-14.** Host `10.101.0.11/23` (matches UniFi `10.101.0.0/23`); guests are on-link. Admin allowlist = `10.101.0.11` (via the `local_network` alias) + `10.1.1.0/24`. Checked: from docker-temp, host ports 22/8006/3128 and ping are blocked; guests still reach the internet and the NAS; the workstation reaches the GUI. |
-| Test restore | **Passed 2026-11-14.** lxc-100's archive restored to scratch VMID 990 on `ssd` (`--unique`): 26 GiB read, no errors, at about 24 MiB/s (so a full restore of all guests from the NAS takes hours). Then destroyed. |
-| Alerts (`notify`) | **Applied 2026-11-14.** SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS) to accounts@phoenixstack.net; matchers `phoenix-alerts` (warning, error) and `phoenix-backups` (all backup results). The first attempt failed with 535 (wrong key); after the key was updated the test was accepted by Brevo. |
-| Admin allowlist | **Applied 2026-11-15.** `ADMIN_SOURCES` is `10.1.1.0/24` (Young workstation LAN), `10.2.1.0/24` (Porter workstation LAN) and `192.168.2.0/24` (WireGuard VPN clients). The host answers a VPN client (`192.168.2.8`), which it didn't before. On 2026-11-16 the host's copy of `proxmox/` was synced with this repo and the `firewall` plan shows 0 changes. |
-| Alert address | **Applied 2026-11-16.** root@pam's email and the recipient of the `brevo` target in PVE and in PBS are now `alerts@phoenixstack.net` (was `accounts@`, which never existed, so nothing sent before this was delivered). The From address on both targets was changed to the new verified Brevo sender (not kept in this repo). Brevo accepted the test from PVE and the one from PBS. `verify` passes 25/25; plan shows 0 changes. |
-| Open | Brevo delivery **confirmed 2026-11-16**: test emails from PVE and from PBS arrived in the `alerts@` mailbox. PBS's own root@pam email was empty, so PBS's built-in `mail-to-root` target had no recipient; the `pbs` stage now sets it from `ROOT_EMAIL` (applied 2026-11-16, as reported by Aaron; output not recorded here). **Root mail fixed 2026-11-16.** The host's local mail can't deliver off-host: outbound port 25 to the mailbox's mail servers times out (and there's no IPv6 route). Matcher `phoenix-system-mail` now routes root's mail (ZFS events, smartd, cron) through `brevo`, and the built-in `mail-to-root` targets are disabled in PVE and PBS. Checked: a `sendmail root` test arrived in `alerts@`, and the mail log shows `notified via target brevo` and `skipping disabled target 'mail-to-root'`. Left over: 10 undeliverable messages in the postfix queue from before the fix (old notifications to `accounts@`, test mails to `alerts@`); clear with `postsuper -d ALL deferred`, or they bounce to root, and so to `alerts@`, after 5 days. Informational notices such as "package updates available" matched only `mail-to-root`, so they aren't sent anywhere now: to be routed under the patching policy. NAS is 77% full: check after the first week of nightly backups. Protected archives stay protected until the new backups have run for a while. |
-| PBS + backup jobs | **Applied 2026-11-14.** PBS 4.2 on the host, datastore `pve01-local` on `backup/pbs` (prune 04:00: 14d/8w/6m; GC 04:30; verify Sat 05:00). PVE storage `pbs-local` (127.0.0.1, pinned fingerprint) with token `pve01@pbs!backup`, which has only Datastore.Backup. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 (zstd), all guests, snapshot mode. PBS GUI on :8007 from the admin LAN only. `verify` passes 22/22. |
-| First PBS backup | **Passed 2026-11-14** (manual run of the `nightly-pbs` command, 22:24–22:53, 29 minutes). One snapshot each for lxc 100, lxc 999 and VM 9999 (256 GiB at about 207 MiB/s). The bind mounts `mp2`/`mp3` were excluded as intended. The datastore uses 201G. The result was sent to both `mail-to-root` and `brevo`. |
-| PBS alerts | **Applied 2026-11-14.** PBS has its own `brevo` SMTP target (copied from PVE's) and a `phoenix-alerts` matcher for warnings and errors. Brevo accepted the test. |
-| Scheduled runs, PBS TOTP | **2026-11-16** (reported by Aaron): the nightly backup runs since 2026-11-14 completed successfully, and TOTP is enrolled on the PBS GUI. |
-| Next step | **In the repo, not applied yet** (2026-11-16): 1. Patching: weekly by hand (decided 2026-11-16; see the design table), with matcher `phoenix-updates` and `notify package-updates=always` so new updates are emailed, and `verify` checks for the daily update timer, fresh package lists and pending updates. 2. Firewall: dropped inbound packets logged (`FIREWALL_LOG_LEVEL_IN="info"`). Apply with `$B --stage notify --stage firewall` (plan: 3 changes), then `--apply` (the firewall stage asks for `keep`). Then: first weekly patch run, and the TLS certificate (`acme` stage). Later: check NAS space around 2026-11-21, and unprotect the old archives once the new backups have a few weeks' history. Guest network separation, per-guest firewall rules and the `terraform@pve` token scope belong to the L5 design. |
+| Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.27, kernel 7.0.14-29. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/23`. IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
+| Pools | `nvme` (mirror, 860G), `ssd` (mirror, 231G), `backup` (RAIDZ1 + special mirror, 3.07T, dataset `backup/pbs`). The `data` pool isn't built: the ASUS Hyper M.2 card and the 990 Pro drives aren't installed. |
+| Access | `aaron@pve` (group `admins`) and `root@pam` have TOTP, in PVE and in PBS. Tokens: `terraform@pve!automation` (unused so far) and `claude-audit@pve!discovery` (secret in 1Password, `(Proxmox) Claude API`). |
+| Admin allowlist | `10.1.1.0/24` (Young LAN), `10.2.1.0/24` (Porter LAN), `192.168.2.0/24` (WireGuard VPN clients). Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
+| Guests | **Restored 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190). docker-temp (lxc 999, `nvme`, 10.101.0.166; NAS shares Media and Porter bind-mounted read-write). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111; GPU01 attached). FTP01 (9000) and INTEL01 (9001) are retired. |
+| Backups (L4) | **Done.** PBS 4.2 on the host, datastore `pve01-local`. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 have run successfully every night since 2026-11-14 (reported by Aaron 2026-11-16). First PBS run: 256 GiB in 29 minutes. Test restore from the NAS passed, at about 24 MiB/s, so restoring every guest from the NAS takes hours. |
+| Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled. |
+| Patching and logging | **Applied 2026-11-16.** New package updates are emailed (matcher `phoenix-updates`, `notify package-updates=always`). Dropped inbound packets are logged to `/var/log/pve-firewall.log`. Updates are installed weekly, by hand. |
+| Last full plan | 2026-11-16, script version 2026.11.1: **0 changes pending**, all 30 `verify` checks passed, 10 package updates pending. |
 
-> **The ISO contains the root password hash.** Don't commit it or leave copies around. Delete every copy
-> after the install. The password itself is in 1Password (`infrastructure` vault).
+## Open items
 
-## Changes from the README runbook
+1. First weekly patch run: 10 updates were pending on 2026-11-16 ("Weekly patch window" in the README).
+2. Clear the 10 undeliverable messages left in the postfix queue from before the alert fix:
+   `postsuper -d ALL deferred`. Otherwise each one bounces to root, and so to `alerts@`, after 5 days.
+3. TLS certificate for the GUI: the `acme` stage, which needs a Cloudflare token.
+4. NAS space: it was 77% full before the nightly archives started. Check around 2026-11-21.
+5. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
+   `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups
+   have a few weeks of history.
+6. Set `NOTIFY_ALL_BACKUP_JOBS="no"` once the nightly jobs have proven themselves, so only failures are emailed.
 
-- **Phases 1–3 skipped**: the old host no longer exists.
-- **Phase 2 (build ISO) ran on the workstation, not the old host**: inside a `debian:trixie` Podman
-  container, with `--skip-device-check`, because there was no target hardware to check against. The
-  hardware check moves to the debug shell before install (see step 2 below).
-- **Disk IDs were never checked against a capture.** Check them on the new host before the
-  `storage` stage (see step 5 below).
+## For the L5 design
 
-## Remaining steps
-
-### 1. BIOS and controller settings (iDRAC console), README Phase 4
-
-- SATA controllers **RAID → AHCI**.
-- PERC H740P **Enhanced HBA**, delete all virtual disks, every backplane disk **Non-RAID**.
-- Virtualization, VT-d/IOMMU, SR-IOV **on**. Boot mode **UEFI**.
-
-### 2. Optional: confirm the installer filters on the real hardware
-
-Boot the **regular** Proxmox VE 9 ISO → *Advanced Options → Install Proxmox VE (Terminal UI, Debug
-Mode)*. At the shell:
-
-```bash
-for d in /sys/block/sd*; do udevadm info -q property -n ${d##*/} | grep -E '^(DEVNAME|ID_MODEL)='; done
-ip -br link | grep -i 4c:d9:8f:0c:15:3e
-```
-
-Expect **exactly 2** disks with `ID_MODEL=INTEL_SSDSC2BF240A4L` and **1** interface with that MAC.
-Then power off. If the output differs, fix `INSTALL_DISK_FILTER` / `UPLINK_MACS` and rebuild the ISO.
-
-### 3. Install
-
-1. Mount `pve01-auto.iso` through iDRAC Virtual Media (from the virtual console, or copy it to the NAS ISO share).
-2. Boot it (UEFI). It picks *Automated Installation* by itself, installs in about 10 minutes, and reboots.
-3. Unmount it, then **delete every copy** of `pve01-auto.iso`.
-
-What the ISO installs: `pve01.int.phoenixstack.net`, `10.101.0.11/24` (corrected to `/23` on 2026-11-14 to match the UniFi network), gateway and DNS `10.101.0.254`,
-ZFS RAID1 on the 2 Intel SSDs (ashift 12, lz4, ARC max 24 GiB), the uplink NIC selected by MAC with
-pinned interface names, and the root SSH key from the config.
-
-### 4. First login
-
-```bash
-ssh-keygen -R 10.101.0.11
-ssh root@10.101.0.11          # key login, no password
-```
-
-### 5. Bootstrap, README Phase 6
-
-```bash
-scp -r proxmox root@10.101.0.11:/root/phoenix
-ssh root@10.101.0.11
-cd /root/phoenix/bootstrap
-B="./pve-bootstrap.sh --config ../config/pve01.conf"
-$B                                   # full plan: read it end to end
-```
-
-**Before the `storage` stage:** run `ls -l /dev/disk/by-id/` and check that every disk path in
-`ZFS_POOL_nvme_LAYOUT`, `ZFS_POOL_ssd_LAYOUT` and `ZFS_POOL_backup_LAYOUT` exists. The PERC Non-RAID
-conversion changes how the backplane disk names look. Fix the config first if any path is missing.
-
-Then run the stages in order: `repos`, `system`, `network`, `kernel` (reboot), `nas`, then **check the
-guest archives on `/mnt/nas/nas-dump` and mark them Protected**, then `storage --destroy-data`,
-`access`, `firewall`, `verify`. The README has the exact commands and prompts.
-
-### 6. Restore guests, README Phase 7
-
-- **First**, mark the pre-rebuild archives **Protected** in the GUI (nas-dump → Backups), or `keep-daily=7` deletes them after a week.
-- Restore only the three production guests: AMP-TEMP (lxc 100, from the **2026-11-12 19:32** archive; it's smaller because files were removed on purpose), docker-temp (lxc 999), PLEX-TEMP (qemu 9999). FTP01 and INTEL01 are retired and not restored.
-- **Watch the VMIDs:** `nas-dump` also has archives from older guests that reused these IDs (`qemu-100`, `lxc-9999`, …). Pick archives by type and ID: `vzdump-lxc-100-…`, `vzdump-lxc-999-…`, `vzdump-qemu-9999-…`.
-- `ssd` holds only about 238G. Check AMP-TEMP's disk size before restoring it there. Use `nvme` if it doesn't fit with room to spare.
-- docker-temp (999): `pct set 999 --delete mp0,mp1`, then point `mp2`/`mp3` at the `/mnt/nas/...` mounts before starting it.
-
-### 7. Close-out, README Phase 8
-
-`verify` passes, one test restore, old tokens and SMB credentials rotated, config changes committed.
-
-## Rebuilding the ISO on another computer
-
-Only needed if the ISO is lost or the config changes. Requires Podman (`sudo apt install podman` on Mint or Ubuntu).
-
-```bash
-mkdir -p ~/iso                       # put proxmox-ve_9.x-y.iso here
-cd <repo root>
-sudo podman run --rm -it -v "$PWD/proxmox:/work" -v "$HOME/iso:/iso" debian:trixie bash
-```
-
-Inside the container:
-
-```bash
-apt-get update && apt-get install -y wget openssl
-wget -O /usr/share/keyrings/proxmox-archive-keyring.gpg \
-  https://enterprise.proxmox.com/debian/proxmox-archive-keyring-trixie.gpg
-cat > /etc/apt/sources.list.d/pve.sources <<'EOF'
-Types: deb
-URIs: http://download.proxmox.com/debian/pve
-Suites: trixie
-Components: pve-no-subscription
-Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
-EOF
-apt-get update
-cd /work/install
-./prepare-iso.sh --config ../config/pve01.conf --iso /iso/proxmox-ve_9.x-y.iso \
-  --out /iso/pve01-auto.iso --skip-device-check
-exit
-```
-
-Back on the host, make yourself the owner of the ISO (it's created as root, mode 600):
-
-```bash
-sudo chown "$USER": ~/iso/pve01-auto.iso
-```
+- Tooling is decided: Terraform creates guests, Ansible configures them.
+- Guests share the mgmt network (`10.101.0.0/23`, untagged) with the host. Moving them to their own VLAN,
+  and whether they can reach the iDRAC and NAS admin pages today, is not yet looked at.
+- No per-guest firewall rules exist.
+- The `terraform@pve` token has `Sys.Modify` and `Sys.Console` on `/`. Narrow it to what Terraform will do.
+- Both backup copies are in the same building. An offsite copy is an open decision.
