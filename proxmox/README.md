@@ -36,7 +36,7 @@ First written 2026-11-08; later decisions carry their own date.
 | GPU | Quadro P2000 bound to `vfio-pci` at boot; IOMMU passthrough | Reserved for the Plex VM. The host never loads NVIDIA drivers. |
 | IPv6 | No RA or autoconfiguration on the host (the stack stays loaded) | Follows the "IPv6 off unless needed" guardrail without breaking PVE daemons. |
 | Secrets | Prompted at run time, or read from env vars, then stored root-only on the host. Never in git or logs. | Repo guardrail. |
-| PBS | Proxmox Backup Server **on the host itself** (decided 2026-11-14), datastore `pve01-local` on `backup/pbs`. Server-side prune (daily 04:00: 14 daily, 8 weekly, 6 monthly), GC 04:30, weekly verify (Sat 05:00, re-verify after 30 days). PVE reaches it as storage `pbs-local` (127.0.0.1, pinned fingerprint) with token `pve01@pbs!backup`, role **DatastoreBackup** (it can back up and restore, but can't delete). GUI on 8007 from `+management` only. No client-side encryption. | Simplest of the options. A separate container or VM wouldn't make PBS independent of this host; the NAS job is the off-host copy. Pruning on the server means a compromised PVE token can't delete history. Encryption adds a key to lose and protects nothing extra while the datastore is on the same host. |
+| PBS | Proxmox Backup Server **on the host itself** (decided 2026-11-14), datastore `pve01-local` on `backup/pbs`. Server-side prune (daily 04:00: 14 daily, 8 weekly, 6 monthly), GC 04:30, weekly verify (Sat 05:00, re-verify after 30 days). PVE reaches it as storage `pbs-local` with token `pve01@pbs!backup`, role **DatastoreBackup** (it can back up and restore, but can't delete). GUI on 8007 from `+management` only. No client-side encryption. With the Let's Encrypt certificate (`acme` stage) the storage connects to `pve01.int.phoenixstack.net` and checks the certificate normally; before that, to 127.0.0.1 with a pinned fingerprint. | Simplest of the options. A separate container or VM wouldn't make PBS independent of this host; the NAS job is the off-host copy. Pruning on the server means a compromised PVE token can't delete history. Encryption adds a key to lose and protects nothing extra while the datastore is on the same host. |
 | Alerts | Everything goes to `alerts@phoenixstack.net` (`ROOT_EMAIL`) through the SMTP target `brevo` (smtp-relay.brevo.com:587, STARTTLS), set up in both PVE and PBS. PVE matchers: `phoenix-alerts` (warnings and errors), `phoenix-backups` (every backup result, for the first weeks), `phoenix-system-mail` (mail the host's daemons send to root: ZFS events, smartd, cron) and `phoenix-updates` (new package updates). PBS matcher: `phoenix-alerts` (failed prune, GC and verify jobs). The built-in `mail-to-root` targets are disabled. | A silent failure (disk, ZFS, backup) is the main risk to a single host. The host's local mail can't deliver off-host (outbound port 25 is blocked), so nothing may depend on it. The SMTP login, From address and key aren't in this public repo: they're entered when the `notify` stage runs. To change the sender later, run `notify` and `pbs` with `NOTIFY_SMTP_FROM` set. |
 | Patching | **Weekly, by hand** (decided 2026-11-16). Nothing installs itself. The host checks for updates daily and emails `alerts@` when new packages appear (matcher `phoenix-updates`). Once a week: `apt update && apt dist-upgrade`, then reboot if a new kernel was installed. `verify` shows pending updates and fails if the running kernel isn't the newest installed. | A kernel or QEMU update applying itself on a single host would take the guests down, or change things under them, with nobody watching. Weekly keeps the delay for a security fix to days. The cost: it depends on someone acting on the emails. See "Weekly patch window" in the Operating notes. |
 | CPU side channels | Microcode kept current (`intel-microcode` + Dell BIOS). Downfall left unmitigated; SMT (Hyper-Threading) left on. | All guests are trusted. The fixes would cost AVX or half the threads. See "Accepted risks". |
@@ -118,9 +118,13 @@ new decision to make, not something already covered by this one.
 - [ ] Create these in 1Password (`infrastructure` vault):
   - new root password
   - `svc_proxmox` SMB credentials
+  - the Brevo SMTP login and SMTP key (`xsmtpsib-…`, not the API key), and the From address, which must be a verified sender in Brevo
+  - a Cloudflare API token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (item `Cloudflare PVE Token`)
   - empty items to receive the new API tokens later
+- [ ] The alert mailbox `alerts@phoenixstack.net` exists and receives mail.
 - [ ] Download the latest **Proxmox VE 9.x ISO** to the NAS: share `Media`, folder `Software/ISO/template/iso` (PVE looks for ISOs in `template/iso` under the storage path).
-- [ ] Add a DNS record on the UDM: `pve01.int.phoenixstack.net → 10.101.0.11`.
+- [ ] Add a local DNS record on the UDM: `pve01.int.phoenixstack.net → 10.101.0.11`. Without it the name resolves to Cloudflare's addresses (the zone has a wildcard record), and the GUI can't be reached by name.
+- [ ] Workstation set up as in "Admin workstation" under Operating notes.
 
 Phases 1–3 run on the host being replaced. If it's already gone, start at Phase 2 (workstation build) and Phase 4.
 
@@ -224,7 +228,8 @@ cd /root/phoenix/pre-rebuild
 Prefer the iDRAC console or `tmux` for the `network` and `firewall` stages.
 
 ```bash
-scp -r proxmox root@10.101.0.11:/root/phoenix
+ssh root@10.101.0.11 mkdir -p /root/phoenix   # once, on a fresh host
+pve-sync                             # on the workstation: copies proxmox/ to /root/phoenix
 ssh root@10.101.0.11
 cd /root/phoenix/bootstrap
 B="./pve-bootstrap.sh --config ../config/pve01.conf"
@@ -241,6 +246,7 @@ $B --apply --stage access            # store each token in 1Password when shown
 $B --apply --stage firewall          # test GUI + a NEW ssh session, then type "keep"
 $B --apply --stage notify            # SMTP login, From address and key prompted; sends a test
 $B --apply --stage pbs               # installs PBS; datastore, jobs, token, its own alerts
+$B --apply --stage acme              # certificates for both GUIs; Cloudflare token prompted
 $B --apply --stage backups           # nightly jobs (they need the guests restored to do anything)
 $B --apply --stage verify
 $B                                   # re-plan: should report 0 changes pending
@@ -250,6 +256,15 @@ Before `storage --destroy-data`:
 
 - The old `nvme`/`ssd` pools are the last copy of the guests besides the NAS. After the `nas` stage, check that an archive for every guest is listed, and mark them **Protected** (GUI: nas-dump → Backups) so the `keep-daily=7` prune can't remove them.
 - Run `ls -l /dev/disk/by-id/` and check that every disk path in the pool layouts exists. Converting PERC disks to Non-RAID changes their names.
+
+After the `notify` and `pbs` stages: check that both test emails (one from PVE, one from PBS) arrived at `alerts@`, junk folder included. Then send one through the host's own mail, the route ZFS, smartd and cron use, and check it arrives too:
+
+```bash
+printf 'Subject: pve01 root mail test\n\nTest.\n' | sendmail root
+mailq                                # should say "Mail queue is empty"
+```
+
+The `acme` stage asks you to accept Let's Encrypt's terms twice, once for PVE and once for PBS, and whether to use external account binding: answer **no** (Let's Encrypt doesn't use it). It then asks for the Cloudflare token once. Afterwards both `https://pve01.int.phoenixstack.net:8006` and `:8007` open without a certificate warning, and `pvesm list pbs-local` lists the backups.
 
 After the `access` stage:
 
@@ -281,22 +296,32 @@ pct set 999 --mp2 /mnt/nas/media,mp=/mnt/pve/cifs-media       # same in-containe
 pct set 999 --mp3 /mnt/nas/porter,mp=/mnt/pve/cifs-porter     # same in-container path
 ```
 
-Start each guest and check it works. MAC addresses are kept, so DHCP leases don't change. Guests stay untagged on `vmbr0` (VLAN 10) for now. Moving them to VLAN 100 is a later step.
+Start each guest and check it works. MAC addresses are kept, so DHCP leases don't change. Guests stay untagged on `vmbr0` (the mgmt network) for now; where they move is part of the L5 design.
 
 ### Phase 8: Close-out
 
-- [ ] `$B --stage verify` passes with no `FAIL`.
+- [ ] `$B --stage verify` passes with no `FAIL`, and a full plan shows 0 changes pending.
+- [ ] TOTP enrolled for every admin login, in PVE and in PBS.
+- [ ] Alerts reach `alerts@` from PVE, from PBS and from the host's own mail (tests above).
+- [ ] The first scheduled `nightly-pbs` and `nightly-nas` runs succeeded and their result emails arrived.
 - [ ] One test restore of a small guest from `nas-dump` to a scratch VMID, then deleted.
+- [ ] First weekly patch run done ("Weekly patch window" below).
 - [ ] Old `terraform-token` and the old SMB credentials rotated or retired.
 - [ ] Re-run Claude's read-only discovery and compare against this design.
 - [ ] Commit any config changes made along the way, and update [REBUILD_STATE.md](REBUILD_STATE.md).
-- [ ] Weeks later, once the new backups have history: remove the **Protected** flag from the pre-rebuild archives.
+- [ ] Weeks later, once the new backups have history: remove the **Protected** flag from the pre-rebuild archives, and set `NOTIFY_ALL_BACKUP_JOBS="no"` so only failed backups are emailed.
 
 ---
 
 ## Operating notes
 
-- **Updating the host's copy of this folder:** `scp -r proxmox/. root@10.101.0.11:/root/phoenix/` (note the `/.`). Once `/root/phoenix` exists, plain `scp -r proxmox root@…:/root/phoenix` puts a second copy in `/root/phoenix/proxmox` and the old scripts keep running. Check: the first line of every run shows the script's version, which should match `VERSION` in the repo's copy. Raise `VERSION` whenever the script changes.
+- **Admin workstation.** Three things on the machine you administer from:
+  1. An alias that copies this folder to the host. In `~/.bash_aliases`:
+     `alias pve-sync='scp -r ~/Desktop/phoenix-stack-claude/PhoenixStack/proxmox/. root@10.101.0.11:/root/phoenix/'`.
+     The `/.` matters: without it, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
+  2. SSH uses the 1Password agent for the host under every name you type. SSH matches `Host` rules against the name typed, not the address, so list them all in `~/.ssh/config`:
+     `Host 10.101.0.* 10.101.1.* pve01 pve01.int.phoenixstack.net` with `IdentityAgent ~/.1password/agent.sock` and `User root`.
+  3. Over the VPN, a hosts entry `10.101.0.11 pve01.int.phoenixstack.net` (and `pve01`, if you use the short name). The UniFi WiFiman client sends all lookups to public DNS, where the zone's wildcard record answers instead of the UDM. On the home LAN the UDM's record is enough.
 - **Weekly patch window.** In `tmux` on the host:
   1. `apt update && apt dist-upgrade`. Always `dist-upgrade` (or `full-upgrade`), never plain `apt upgrade`: Proxmox updates often add or replace packages, and `upgrade` would hold them back. This updates PVE and PBS together.
   2. If a new kernel was installed, reboot at a quiet time. Guests shut down and come back by themselves (`onboot: 1`); expect a few minutes of downtime.
@@ -316,4 +341,4 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
   - **Drives 3 and 4: add a second mirror.** Dry run first, and check the output shows two `mirror` groups: `zpool add -n data mirror <990-3-by-id> <990-4-by-id>`. Then run it without `-n`. Leaving out the word `mirror` would add two unprotected disks. Existing data stays on the first mirror; new writes spread across both.
   - **After each step:** update `ZFS_POOL_data_LAYOUT` to the pool's real layout (`zpool status data`) and commit, so the config matches the host.
 - **Changing admin networks:** edit `ADMIN_SOURCES`, then run `--apply --stage firewall`.
-- **ACME:** set `ACME_ENABLE="yes"`. This needs a Cloudflare token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (1Password: `infrastructure` / `Cloudflare PVE Token`). Then run `--apply --stage acme`.
+- **ACME:** covers the PVE GUI (8006) and the PBS GUI (8007); each product renews its own certificate. The stage also re-creates the `pbs-local` storage so PVE reaches PBS by name: a pinned fingerprint would break backups at every renewal. Set `ACME_ENABLE="yes"`. This needs a Cloudflare token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (1Password: `infrastructure` / `Cloudflare PVE Token`). Then run `--apply --stage acme`.

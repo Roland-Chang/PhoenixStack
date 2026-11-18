@@ -18,12 +18,13 @@ How things got here is in the git history (`git log -- proxmox/`).
 | Patching and logging | **Applied 2026-11-16.** New package updates are emailed (matcher `phoenix-updates`, `notify package-updates=always`). Dropped inbound packets are logged to `/var/log/pve-firewall.log`. Updates are installed weekly, by hand. |
 | Last full plan | 2026-11-16, script version 2026.11.1: **0 changes pending**, all 30 `verify` checks passed. |
 | TLS | **Applied 2026-11-16.** Let's Encrypt certificate for `pve01.int.phoenixstack.net` on the PVE GUI (port 8006), issued through Cloudflare DNS-01; valid until 2027-02-15 and renewed by PVE's daily job. Checked from a VPN client: the chain and host name verify. |
+| PBS certificate | **Applied 2026-11-18** (reported by Aaron). Let's Encrypt certificate on the PBS GUI (port 8007), with its own ACME account and renewal. Storage `pbs-local` re-created to reach PBS at `pve01.int.phoenixstack.net` with normal certificate checking, so renewals can't break backups. The name resolves only to `10.101.0.11` on the host (`/etc/hosts`, as seen by `getent ahosts`). Script version 2026.11.4. |
 | Last patch run | **2026-11-16**: 10 updates installed with `apt dist-upgrade`. Afterwards `verify` showed no updates pending, 0 warnings, and the running kernel is the newest installed, so no reboot was needed. Next run due around 2026-11-23. |
 
 ## Open items
 
 1. Name resolution over VPN: the UDM now has the local record `pve01.int.phoenixstack.net → 10.101.0.11` (added 2026-11-16; checked: the GUI answers by name with a valid certificate when the UDM is asked). VPN clients still use public DNS, where the zone's wildcard record answers instead: the WiFiman app builds the tunnel with `8.8.8.8` for all lookups and recreates it on every connect, so editing the tunnel's settings doesn't last. Until VPN DNS is solved properly (worth doing at L5, when there are more names), a client needs a hosts entry: `10.101.0.11 pve01.int.phoenixstack.net` (done on Aaron's laptop 2026-11-16; the GUI opens by name over VPN with a valid certificate).
-2. The PBS GUI (port 8007) still has its self-signed certificate.
+2. Check that the 01:00 `nightly-pbs` run on 2026-11-19 succeeded: it's the first backup through the re-created `pbs-local` storage.
 3. NAS space: it was 77% full before the nightly archives started. Check around 2026-11-21.
 4. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
    `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups

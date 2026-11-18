@@ -27,7 +27,8 @@
 #   pbs        Proxmox Backup Server on this host: datastore, prune/GC/verify jobs,
 #              backup user + token, PVE storage (only if PBS_ENABLE=yes)
 #   backups    PVE backup jobs (BACKUP_JOBS): nightly to PBS and to the NAS
-#   acme       Let's Encrypt cert via Cloudflare DNS-01 (only if ACME_ENABLE=yes)
+#   acme       Let's Encrypt certs for the PVE and PBS GUIs via Cloudflare DNS-01; PVE then
+#              reaches PBS by name instead of a pinned fingerprint (only if ACME_ENABLE=yes)
 #   verify     read-only health report
 #
 # Safety:
@@ -44,7 +45,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.1"
+readonly VERSION="2026.11.4"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -185,6 +186,8 @@ pbs_json()   { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
 pbs_get()    { { pbs_json "${@:2}" || true; } | json_get "$1"; }                  # pbs_get <key> <subcommand...>
 pbs_has()    { pbs_json "${@:3}" | json_find "$1" "$1=$2" >/dev/null; }           # pbs_has <key> <value> <list-subcommand...>
 
+readonly PVE_CERT_DIR="/etc/pve/nodes" PBS_CERT="/etc/proxmox-backup/proxy.pem"
+cert_from_le()    { openssl x509 -in "$1" -noout -issuer 2>/dev/null | grep -qi "let's encrypt"; }   # cert_from_le <pem>
 os_codename()     { sed -n 's/^VERSION_CODENAME=//p' /etc/os-release | tr -d '"'; }   # parsed, not sourced: os-release sets VERSION
 pkg_installed()   { dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'; }
 newest_kernel()   { find /lib/modules -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -V | tail -1; }
@@ -1099,6 +1102,53 @@ ensure_pbs_acl() {  # ensure_pbs_acl <path> <auth-id> <role>
   run proxmox-backup-manager acl update "$1" "$3" --auth-id "$2"
 }
 
+# ensure_pbs_storage [token-secret] — PVE storage for the PBS datastore. The token secret goes
+# straight from PBS into PVE (/etc/pve/priv) and is never shown. A token can only get an ACL after
+# it exists, so it's created, granted and handed to PVE together. With a secret given, that token
+# is reused (the acme stage re-creates the storage this way).
+# With PBS's self-signed certificate PVE connects to 127.0.0.1 and pins the fingerprint. With a
+# Let's Encrypt certificate it connects by name and checks the certificate normally, so a renewal
+# (a new fingerprint every two months) can't break backups.
+ensure_pbs_storage() {
+  local ds=$PBS_DATASTORE auth="${PBS_USER}!${PBS_TOKEN}" secret=${1:-} how
+  if storage_exists "$PBS_PVE_STORAGE"; then
+    ok "storage ${PBS_PVE_STORAGE} (server $(storage_prop "$PBS_PVE_STORAGE" server))"
+    ensure_pbs_acl "/datastore/${ds}" "$auth" DatastoreBackup
+    return 0
+  fi
+  if cert_from_le "$PBS_CERT"; then how="server ${NODE_FQDN}, trusted certificate"; else how="server 127.0.0.1, pinned fingerprint"; fi
+  change "add PVE storage ${PBS_PVE_STORAGE} (${how}; keep-all: PBS prunes) with token ${auth}"
+  is_apply || return 0
+
+  if [[ -z $secret ]]; then
+    if pbs_json user list-tokens "$PBS_USER" | grep -q "\"${auth}\""; then
+      warn "token ${auth} exists but its secret is unknown — regenerating"
+      proxmox-backup-manager user delete-token "$PBS_USER" "$PBS_TOKEN" >/dev/null
+    fi
+    # generate-token has no --output-format; it prints "Result: {json}".
+    secret=$(proxmox-backup-manager user generate-token "$PBS_USER" "$PBS_TOKEN" \
+      | perl -MJSON::PP -0777 -ne 's/^\s*Result:\s*//; print decode_json($_)->{value}')
+    [[ -n $secret ]] || die "could not create token ${auth}"
+    ok "token ${auth} created"
+  fi
+  proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
+
+  local -a target
+  if cert_from_le "$PBS_CERT"; then
+    target=(--server "$NODE_FQDN")
+  else
+    local fp
+    fp=$(proxmox-backup-manager cert info | awk '/Fingerprint/{print $NF}')
+    [[ -n $fp ]] || die "could not read the PBS certificate fingerprint"
+    target=(--server 127.0.0.1 --fingerprint "$fp")
+  fi
+  # Not via run(): never print the secret.
+  pvesm add pbs "$PBS_PVE_STORAGE" "${target[@]}" --datastore "$ds" --username "$auth" \
+    --password "$secret" --content backup --prune-backups keep-all=1
+  unset secret
+  ok "storage ${PBS_PVE_STORAGE} added (${how})"
+}
+
 stage_pbs() {
   section "pbs"
   if [[ ${PBS_ENABLE:-no} != yes ]]; then info "PBS_ENABLE=no — skipped"; return 0; fi
@@ -1151,33 +1201,7 @@ stage_pbs() {
   else change "create PBS user ${PBS_USER}"; run proxmox-backup-manager user create "$PBS_USER" --comment "PVE backups (managed by pve-bootstrap)"; fi
   ensure_pbs_acl "/datastore/${ds}" "$PBS_USER" DatastoreBackup
 
-  # PVE storage. The token secret goes straight from PBS into PVE (/etc/pve/priv) and is never shown.
-  # A token can only get an ACL after it exists, so it's created, granted and handed to PVE together.
-  if storage_exists "$PBS_PVE_STORAGE"; then
-    ok "storage ${PBS_PVE_STORAGE}"
-    ensure_pbs_acl "/datastore/${ds}" "$auth" DatastoreBackup
-  else
-    change "create token ${auth}, acl /datastore/${ds} -> DatastoreBackup, add PVE storage ${PBS_PVE_STORAGE} (127.0.0.1, keep-all: PBS prunes)"
-    if is_apply; then
-      if pbs_json user list-tokens "$PBS_USER" | grep -q "\"${auth}\""; then
-        warn "token ${auth} exists but its secret is unknown — regenerating"
-        proxmox-backup-manager user delete-token "$PBS_USER" "$PBS_TOKEN" >/dev/null
-      fi
-      local secret fp
-      # generate-token has no --output-format; it prints "Result: {json}".
-      secret=$(proxmox-backup-manager user generate-token "$PBS_USER" "$PBS_TOKEN" \
-        | perl -MJSON::PP -0777 -ne 's/^\s*Result:\s*//; print decode_json($_)->{value}')
-      [[ -n $secret ]] || die "could not create token ${auth}"
-      proxmox-backup-manager acl update "/datastore/${ds}" DatastoreBackup --auth-id "$auth"
-      ok "token ${auth} created with DatastoreBackup on /datastore/${ds}"
-      fp=$(proxmox-backup-manager cert info | awk '/Fingerprint/{print $NF}')
-      [[ -n $fp ]] || die "could not read the PBS certificate fingerprint"
-      pvesm add pbs "$PBS_PVE_STORAGE" --server 127.0.0.1 --datastore "$ds" --username "$auth" \
-        --password "$secret" --fingerprint "$fp" --content backup --prune-backups keep-all=1
-      unset secret
-      ok "storage ${PBS_PVE_STORAGE} added (fingerprint ${fp})"
-    fi
-  fi
+  ensure_pbs_storage
 
   pbs_notifications
 }
@@ -1298,10 +1322,28 @@ stage_backups() {
 # ----------------------------------------------------------------------------
 # Stage: acme (optional)
 # ----------------------------------------------------------------------------
+# acme_token_file — path of a root-only file holding the Cloudflare token in the format the
+# ACME plugins read. Prompts once per run (or reads env CF_API_TOKEN). Remove with acme_token_done.
+ACME_TOKEN_FILE=""
+acme_token_file() {
+  if [[ -z $ACME_TOKEN_FILE ]]; then
+    read_secret CF_API_TOKEN "Cloudflare API token (DNS:Edit and Zone:Read on the zone)"
+    ACME_TOKEN_FILE=$(mktemp); chmod 600 "$ACME_TOKEN_FILE"
+    printf 'CF_Token=%s\n' "$CF_API_TOKEN" >"$ACME_TOKEN_FILE"
+    unset CF_API_TOKEN
+  fi
+}
+acme_token_done() {
+  [[ -n $ACME_TOKEN_FILE ]] || return 0
+  shred -u "$ACME_TOKEN_FILE" 2>/dev/null || rm -f "$ACME_TOKEN_FILE"
+  ACME_TOKEN_FILE=""
+}
+
 stage_acme() {
   section "acme"
   if [[ ${ACME_ENABLE:-no} != yes ]]; then info "ACME_ENABLE=no — skipped"; return 0; fi
 
+  # --- PVE GUI (8006) ---
   if pvenode acme account list 2>/dev/null | grep -qw default; then ok "ACME account default"
   else
     change "register ACME account 'default' (${ACME_EMAIL})"
@@ -1311,24 +1353,64 @@ stage_acme() {
   if pvenode acme plugin config cloudflare >/dev/null 2>&1; then ok "ACME plugin cloudflare"
   else
     change "add ACME DNS plugin cloudflare"
-    if is_apply; then
-      read_secret CF_API_TOKEN "Cloudflare API token (Zone:DNS:Edit on phoenixstack.net)"
-      local data; data=$(mktemp); chmod 600 "$data"
-      printf 'CF_Token=%s\n' "$CF_API_TOKEN" >"$data"
-      pvenode acme plugin add dns cloudflare --api cf --data "$data"
-      shred -u "$data" 2>/dev/null || rm -f "$data"
-      unset CF_API_TOKEN
-    fi
+    if is_apply; then acme_token_file; pvenode acme plugin add dns cloudflare --api cf --data "$ACME_TOKEN_FILE"; fi
   fi
 
   if pvenode config get --property acmedomain0 2>/dev/null | grep -q "$NODE_FQDN"; then ok "acmedomain0 ${NODE_FQDN}"
   else change "acmedomain0 -> ${NODE_FQDN}"; run pvenode config set --acmedomain0 "domain=${NODE_FQDN},plugin=cloudflare"; fi
 
-  if openssl x509 -in "/etc/pve/nodes/${NODE_NAME}/pveproxy-ssl.pem" -noout -issuer 2>/dev/null | grep -qi "let's encrypt"; then
-    ok "ACME certificate installed"
-  else
-    change "order certificate for ${NODE_FQDN}"; run pvenode acme cert order
+  if cert_from_le "${PVE_CERT_DIR}/${NODE_NAME}/pveproxy-ssl.pem"; then ok "ACME certificate installed"
+  else change "order certificate for ${NODE_FQDN}"; run pvenode acme cert order; fi
+
+  # --- PBS GUI (8007): PBS has its own ACME account, plugin and renewal job ---
+  if [[ ${PBS_ENABLE:-no} == yes ]] && command -v proxmox-backup-manager >/dev/null; then
+    if proxmox-backup-manager acme account list 2>/dev/null | grep -qw default; then ok "PBS ACME account default"
+    else
+      change "register PBS ACME account 'default' (${ACME_EMAIL})"
+      run proxmox-backup-manager acme account register default "$ACME_EMAIL" --directory "$ACME_DIRECTORY"
+    fi
+
+    if proxmox-backup-manager acme plugin config cloudflare >/dev/null 2>&1; then ok "PBS ACME plugin cloudflare"
+    else
+      change "add PBS ACME DNS plugin cloudflare"
+      if is_apply; then acme_token_file; proxmox-backup-manager acme plugin add dns cloudflare --api cf --data "$ACME_TOKEN_FILE"; fi
+    fi
+
+    if proxmox-backup-manager node show 2>/dev/null | grep -q "$NODE_FQDN"; then ok "PBS acmedomain0 ${NODE_FQDN}"
+    else
+      change "PBS acmedomain0 -> ${NODE_FQDN}"
+      run proxmox-backup-manager node update --acme account=default --acmedomain0 "domain=${NODE_FQDN},plugin=cloudflare"
+    fi
+
+    # --force: PBS's self-signed certificate is valid for centuries, and without it the order
+    # is skipped as "not expiring". Only reached when the current certificate isn't from LE.
+    if cert_from_le "$PBS_CERT"; then ok "PBS ACME certificate installed"
+    else change "order PBS certificate for ${NODE_FQDN}"; run proxmox-backup-manager acme cert order --force true; fi
+
+    # PVE's storage must follow: it pins the old certificate's fingerprint. 'server' can't be
+    # changed on an existing storage, so it is removed and added again with the same token.
+    # Only the storage definition is touched; the backups in the datastore are not.
+    if storage_exists "$PBS_PVE_STORAGE" && [[ $(storage_prop "$PBS_PVE_STORAGE" server) != "$NODE_FQDN" ]]; then
+      change "re-create storage ${PBS_PVE_STORAGE} with server ${NODE_FQDN} (trusted certificate, no pinned fingerprint)"
+      if is_apply; then
+        cert_from_le "$PBS_CERT" || die "PBS certificate is not from Let's Encrypt — storage ${PBS_PVE_STORAGE} left as it was"
+        # Every address the resolver returns (as getaddrinfo, which the backup client uses) must
+        # be this host: the public zone has a wildcard record, so a leak would point backups away.
+        local addrs
+        addrs=$(getent ahosts "$NODE_FQDN" | awk '{print $1}' | sort -u | paste -sd' ' -)
+        [[ $addrs == "${MGMT_CIDR%/*}" ]] \
+          || die "${NODE_FQDN} resolves to '${addrs:-nothing}' on this host, not only ${MGMT_CIDR%/*} (check /etc/hosts) — storage left as it was"
+        local pw="/etc/pve/priv/storage/${PBS_PVE_STORAGE}.pw" secret=""
+        if [[ -s $pw ]]; then secret=$(<"$pw"); fi
+        pvesm remove "$PBS_PVE_STORAGE"
+        ensure_pbs_storage "$secret"
+        unset secret
+        if pvesm list "$PBS_PVE_STORAGE" >/dev/null 2>&1; then ok "storage ${PBS_PVE_STORAGE} answers: PVE can list the backups"
+        else warn "storage ${PBS_PVE_STORAGE} does not answer — run: pvesm list ${PBS_PVE_STORAGE}"; fi
+      fi
+    fi
   fi
+  acme_token_done
 }
 
 # ----------------------------------------------------------------------------
@@ -1387,6 +1469,15 @@ stage_verify() {
     if [[ ${NOTIFY_SMTP_ENABLE:-no} == yes ]]; then
       check_eq "PBS alerts go to ${NOTIFY_MAILTO} (PBS SMTP target ${NOTIFY_SMTP_NAME})" \
         "$(pbs_get mailto notification endpoint smtp show "$NOTIFY_SMTP_NAME")" "$NOTIFY_MAILTO"
+    fi
+  fi
+  if [[ ${ACME_ENABLE:-no} == yes ]]; then
+    local two_weeks=$((14 * 86400))
+    check "PVE GUI certificate valid for 14+ days" openssl x509 -in "${PVE_CERT_DIR}/${NODE_NAME}/pveproxy-ssl.pem" -noout -checkend "$two_weeks"
+    if [[ ${PBS_ENABLE:-no} == yes ]]; then
+      check "PBS GUI certificate from Let's Encrypt, valid for 14+ days" \
+        sh -c "openssl x509 -in '$PBS_CERT' -noout -issuer | grep -qi \"let's encrypt\" && openssl x509 -in '$PBS_CERT' -noout -checkend $two_weeks"
+      check_eq "storage ${PBS_PVE_STORAGE} reaches PBS by name" "$(storage_prop "$PBS_PVE_STORAGE" server)" "$NODE_FQDN"
     fi
   fi
   local entry id
