@@ -32,7 +32,7 @@ First written 2026-11-08; later decisions carry their own date.
 | Domain | `int.phoenixstack.net` (was `phoenix.stack`) | Real domain, so real TLS via Cloudflare DNS-01. The real addresses are only in the UDM's local DNS. Public DNS answers too, but with the zone's wildcard record (Cloudflare proxy), never an internal address. Host names in certificates are public (Certificate Transparency logs). |
 | Firewall | Datacenter `policy_in: DROP`; GUI/SSH/SPICE/ping only from the `management` ipset. Dropped inbound packets are logged (`FIREWALL_LOG_LEVEL_IN="info"`, rate-limited) to `/var/log/pve-firewall.log`. | The old firewall was enabled but accepted everything. The log shows who is knocking on the host: a guest probing the admin ports is the thing to look for. |
 | Admin sources | `10.1.1.0/24` (Young workstation LAN), `10.2.1.0/24` (Porter workstation LAN) and `192.168.2.0/24` (WireGuard VPN clients). Not the mgmt subnet. | Guests get DHCP addresses on the mgmt subnet and must not reach the host's SSH or GUI. Each entry is a whole network: every device on it, and anyone holding a VPN profile, can reach the login pages (logins still need the SSH key, or a password plus TOTP). Keep VPN profiles few, and narrow an entry to `/32`s if its network stops being trusted. The iDRAC console is the fallback. |
-| Access | Personal admin users in an `admins` group, with TOTP. Root for break-glass only. Service accounts get privilege-separated tokens. | Named accounts, least privilege. |
+| Access | Personal admin users in an `admins` group, with TOTP. Root for break-glass only. Service accounts get privilege-separated tokens with exactly the grants in `SERVICE_ACCOUNTS` (others are removed). Terraform's token works only on guests in pool `terraform` (2026-11-20; see [../guests/README.md](../guests/README.md)). | Named accounts, least privilege. |
 | GPU | Quadro P2000 bound to `vfio-pci` at boot; IOMMU passthrough | Reserved for the Plex VM. The host never loads NVIDIA drivers. |
 | IPv6 | No RA or autoconfiguration on the host (the stack stays loaded) | Follows the "IPv6 off unless needed" guardrail without breaking PVE daemons. |
 | Secrets | Prompted at run time, or read from env vars, then stored root-only on the host. Never in git or logs. | Repo guardrail. |
@@ -242,6 +242,7 @@ $B --apply --stage kernel && reboot
 $B --apply --stage nas               # SMB password prompted; mounts the NAS
 ls -lt /mnt/nas/nas-dump/dump/ | head -20   # STOP unless every guest's archive is here
 $B --apply --stage storage --destroy-data   # type "destroy-<pool>" for each pool
+$B --apply --stage templates         # Debian LXC template for guests
 $B --apply --stage access            # store each token in 1Password when shown
 $B --apply --stage firewall          # test GUI + a NEW ssh session, then type "keep"
 $B --apply --stage notify            # SMTP login, From address and key prompted; sends a test

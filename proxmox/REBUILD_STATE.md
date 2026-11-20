@@ -39,6 +39,10 @@ How things got here is in the git history (`git log -- proxmox/`).
    docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`).
    That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
    VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
+8. **Mgmt DHCP range overlaps fixed addresses** (seen 2026-11-20): UniFi's PHOENIX-PRIMARY network (`10.101.0.0/23`,
+   gateway `.254`) hands out `10.101.0.11`–`10.101.1.254`, which includes pve01's own `10.101.0.11` and the NAS's
+   `10.101.0.101`. Add UniFi fixed-IP reservations for pve01 (bond MAC), the NAS, and docker-temp's `10.101.0.166`
+   (the port forwards' target), rather than moving the range, which would re-address the restored guests.
 
 ## For the L5 design
 
@@ -48,5 +52,6 @@ The draft is in [../guests/README.md](../guests/README.md) (2026-11-18); it answ
 - Guests share the mgmt network (`10.101.0.0/23`, untagged) with the host. Moving them to their own VLAN,
   and whether they can reach the iDRAC and NAS admin pages today, is not yet looked at.
 - No per-guest firewall rules exist.
-- The `terraform@pve` token has `Sys.Modify` and `Sys.Console` on `/`. Narrow it to what Terraform will do.
+- The `terraform@pve` token has `Sys.Modify` and `Sys.Console` on `/`. Bootstrap 2026.11.5 (written 2026-11-20,
+  **not applied yet**) narrows it to pool `terraform` and adds the `templates` stage; run it in plan mode first.
 - Both backup copies are in the same building. An offsite copy is an open decision.

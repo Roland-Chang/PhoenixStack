@@ -20,7 +20,9 @@
 #   nas        NAS SMB mounts + PVE dir storages (before storage, so backups
 #              can be checked before any disk is wiped)
 #   storage    guest/backup ZFS pools, datasets, PVE storage
-#   access     admins group/users, roles, service accounts + API tokens
+#   templates  LXC templates for guests (LXC_TEMPLATES), from the Proxmox appliance index
+#   access     admins group/users, resource pools, roles, service accounts + API tokens
+#              (a service account's ACLs are set to exactly its configured grants)
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
 #   notify     root@pam email; SMTP notification target + alert/backup matchers
 #              (the SMTP part only if NOTIFY_SMTP_ENABLE=yes)
@@ -45,8 +47,8 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.4"
-readonly ALL_STAGES=(preflight repos system network kernel nas storage access firewall notify pbs backups acme verify)
+readonly VERSION="2026.11.5"
+readonly ALL_STAGES=(preflight repos system network kernel nas storage templates access firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
@@ -760,6 +762,36 @@ stage_storage() {
 }
 
 # ----------------------------------------------------------------------------
+# Stage: templates
+# ----------------------------------------------------------------------------
+# template_present <storage> <prefix> — newest matching vztmpl volume on <storage>, or nothing
+template_present() {
+  { pveam list "$1" 2>/dev/null || true; } |
+    awk -v p="${1}:vztmpl/${2}_" 'index($1, p) == 1 {print $1}' | sort -V | tail -1
+}
+
+stage_templates() {
+  section "templates"
+  if [[ ${#LXC_TEMPLATES[@]} -eq 0 ]]; then info "no templates configured — skipped"; return 0; fi
+  local entry storage prefix have want
+  for entry in "${LXC_TEMPLATES[@]}"; do
+    IFS='|' read -r storage prefix <<<"$entry"
+    have=$(template_present "$storage" "$prefix")
+    if [[ -n $have ]]; then ok "template ${have}"; continue; fi
+    # The index is refreshed daily by pve-daily-update; refresh it now only when applying.
+    if is_apply; then pveam update >/dev/null 2>&1 || warn "pveam update failed — using the cached index"; fi
+    want=$({ pveam available --section system 2>/dev/null || true; } |
+      awk -v p="${prefix}_" 'index($2, p) == 1 {print $2}' | sort -V | tail -1)
+    if [[ -z $want ]]; then
+      warn "no template matching '${prefix}' in the appliance index (pveam available --section system)"
+      continue
+    fi
+    change "download template ${want} to ${storage}"
+    run pveam download "$storage" "$want"
+  done
+}
+
+# ----------------------------------------------------------------------------
 # Stage: nas
 # ----------------------------------------------------------------------------
 stage_nas() {
@@ -825,6 +857,28 @@ ensure_acl() {  # ensure_acl <path> <user|group|token> <ugid> <role>
   run pveum acl modify "$path" "--${type}s" "$ugid" --roles "$role"
 }
 
+# acl_entries <user|token|group> <ugid> — one "path role" line per ACL entry it holds
+acl_entries() {
+  { pve_json /access/acl || true; } | perl -MJSON::PP -0777 -ne 'BEGIN { ($t, $u) = splice @ARGV, 0, 2 }
+    my $l = eval { decode_json($_) }; exit 0 unless ref $l eq "ARRAY";
+    print "$_->{path} $_->{roleid}\n" for grep { $_->{type} eq $t && $_->{ugid} eq $u } @$l' "$1" "$2"
+}
+
+# grants_lines <grants> — "path=role path=role" as sorted "path role" lines (compare with acl_entries)
+grants_lines() { words "$1" | tr '=' ' ' | sort; }
+
+# ensure_grants <user|token> <ugid> <grants> — exactly these ACL entries: add missing, remove others
+ensure_grants() {
+  local type=$1 ugid=$2 grants=$3 g path role
+  for g in $grants; do ensure_acl "${g%%=*}" "$type" "$ugid" "${g#*=}"; done
+  while read -r path role; do
+    [[ -n $path ]] || continue
+    [[ " ${grants} " == *" ${path}=${role} "* ]] && continue
+    change "remove acl ${path} ${type} ${ugid} ${role} (not in config)"
+    run pveum acl delete "$path" "--${type}s" "$ugid" --roles "$role"
+  done < <(acl_entries "$type" "$ugid")
+}
+
 stage_access() {
   section "access"
   local entry
@@ -844,6 +898,14 @@ stage_access() {
       info "set a password for ${userid}:"
       pveum passwd "$userid" </dev/tty
     fi
+  done
+
+  # Resource pools
+  local poolid pcomment
+  for entry in ${PVE_POOLS[@]+"${PVE_POOLS[@]}"}; do
+    IFS='|' read -r poolid pcomment <<<"$entry"
+    if { pve_json /pools || true; } | json_find poolid "poolid=${poolid}" >/dev/null; then ok "pool ${poolid}"
+    else change "create pool ${poolid}"; run pveum pool add "$poolid" --comment "$pcomment"; fi
   done
 
   # Custom roles (drop privileges this PVE version doesn't know)
@@ -866,13 +928,16 @@ stage_access() {
     fi
   done
 
-  # Service accounts + tokens (privsep: effective perms = user ∩ token ACLs)
-  local role path token comment out secret
+  # Service accounts + tokens (privsep: effective perms = user ∩ token ACLs, so both get the same grants)
+  local grants g token comment out secret
   for entry in "${SERVICE_ACCOUNTS[@]}"; do
-    IFS='|' read -r userid role path token comment <<<"$entry"
+    IFS='|' read -r userid grants token comment <<<"$entry"
+    for g in $grants; do
+      [[ $g == /*=?* ]] || die "SERVICE_ACCOUNTS ${userid}: grant '${g}' is not path=role"
+    done
     if pve_exists "/access/users/${userid}"; then ok "service user ${userid}"
     else change "create service user ${userid}"; run pveum user add "$userid" --comment "$comment"; fi
-    ensure_acl "$path" user "$userid" "$role"
+    ensure_grants user "$userid" "$grants"
 
     if pve_exists "/access/users/${userid}/token/${token}"; then
       ok "token ${userid}!${token}"
@@ -889,7 +954,7 @@ stage_access() {
         read -r -p "    Press Enter once saved... " _ </dev/tty
       fi
     fi
-    ensure_acl "$path" token "${userid}!${token}" "$role"
+    ensure_grants token "${userid}!${token}" "$grants"
   done
 }
 
@@ -1484,6 +1549,21 @@ stage_verify() {
   for entry in "${BACKUP_JOBS[@]}"; do
     id=${entry%%|*}
     check "backup job ${id}" pve_exists "/cluster/backup/${id}"
+  done
+  local storage prefix
+  for entry in ${LXC_TEMPLATES[@]+"${LXC_TEMPLATES[@]}"}; do
+    IFS='|' read -r storage prefix <<<"$entry"
+    check "template ${prefix} on ${storage}" test -n "$(template_present "$storage" "$prefix")"
+  done
+  for entry in ${PVE_POOLS[@]+"${PVE_POOLS[@]}"}; do
+    id=${entry%%|*}
+    check "pool ${id}" sh -c "pvesh get /pools --output-format json | grep -q '\"poolid\":\"${id}\"'"
+  done
+  local userid grants token
+  for entry in "${SERVICE_ACCOUNTS[@]}"; do
+    IFS='|' read -r userid grants token _ <<<"$entry"
+    check_eq "permissions of ${userid}!${token} match config" \
+      "$(acl_entries token "${userid}!${token}" | sort | paste -sd, -)" "$(grants_lines "$grants" | paste -sd, -)"
   done
 }
 
