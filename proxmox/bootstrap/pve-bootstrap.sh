@@ -47,7 +47,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.5"
+readonly VERSION="2026.11.6"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage templates access firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -764,10 +764,19 @@ stage_storage() {
 # ----------------------------------------------------------------------------
 # Stage: templates
 # ----------------------------------------------------------------------------
+# Templates are named <prefix>_<version>_<arch>.tar.<ext>. The appliance index lists several
+# architectures (amd64 and arm64), so every match is limited to this host's.
+host_arch() { dpkg --print-architecture; }
+
+# template_matches <prefix> <field> — names in field <field> of stdin that are <prefix> templates for this host
+template_matches() {
+  awk -v p="$1" -v a="$(host_arch)" -v f="$2" '{ n = $f; sub(/^.*\//, "", n) }
+    index(n, p "_") == 1 && n ~ ("_" a "\\.tar\\.") {print $f}' | sort -V | tail -1
+}
+
 # template_present <storage> <prefix> — newest matching vztmpl volume on <storage>, or nothing
 template_present() {
-  { pveam list "$1" 2>/dev/null || true; } |
-    awk -v p="${1}:vztmpl/${2}_" 'index($1, p) == 1 {print $1}' | sort -V | tail -1
+  { pveam list "$1" 2>/dev/null || true; } | template_matches "$2" 1
 }
 
 stage_templates() {
@@ -780,10 +789,9 @@ stage_templates() {
     if [[ -n $have ]]; then ok "template ${have}"; continue; fi
     # The index is refreshed daily by pve-daily-update; refresh it now only when applying.
     if is_apply; then pveam update >/dev/null 2>&1 || warn "pveam update failed — using the cached index"; fi
-    want=$({ pveam available --section system 2>/dev/null || true; } |
-      awk -v p="${prefix}_" 'index($2, p) == 1 {print $2}' | sort -V | tail -1)
+    want=$({ pveam available --section system 2>/dev/null || true; } | template_matches "$prefix" 2)
     if [[ -z $want ]]; then
-      warn "no template matching '${prefix}' in the appliance index (pveam available --section system)"
+      warn "no $(host_arch) template matching '${prefix}' in the appliance index (pveam available --section system)"
       continue
     fi
     change "download template ${want} to ${storage}"

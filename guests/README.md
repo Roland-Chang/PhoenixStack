@@ -77,7 +77,7 @@ gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they ar
 Today: role `PhoenixTerraform` on `/`, including `Sys.Modify`, `Sys.Console`, `VM.Console` and `Pool.Allocate`.
 That's enough to change the host and open a console to any guest, the -TEMP guests included.
 
-New (bootstrap 2026.11.5, written 2026-11-20, **not applied yet**):
+New (bootstrap 2026.11.6, written 2026-11-20, **not applied yet**):
 
 - A resource pool **`terraform`**. Terraform creates every guest in it.
 - Role `PhoenixTerraform` narrowed to guest privileges: `Pool.Allocate, Pool.Audit, VM.Allocate, VM.Audit,
@@ -137,7 +137,7 @@ Each step is dry-run first. Steps 1–3 change shared infrastructure and wait fo
 1. **Mgmt back to `/24`** (UniFi and pve01 together; runbook in [../proxmox/REBUILD_STATE.md](../proxmox/REBUILD_STATE.md), open item 8).
 2. **UDM (by hand, Aaron):** create the workload network (VLAN 100, `10.101.1.0/24`, DHCP `.150–.199`) and the
    zone rules above. Check that pve01's switch port carries VLAN 100 (`BRIDGE_VIDS="2-4094"` already allows it on `vmbr0`).
-3. **Bootstrap 2026.11.5:** pool `terraform`, narrowed token, Debian 13 template. Plan, review,
+3. **Bootstrap 2026.11.6:** pool `terraform`, narrowed token, Debian 13 template. Plan, review,
    `--apply --stage templates,access`. Then narrow the token's network grant to `vmbr0/100`.
 4. **Check for old `1XXYY` archives** on `nas-dump` (`ls /mnt/nas/nas-dump/dump/ | grep -E 'vzdump-(lxc|qemu)-1[0-9]{4}-'`),
    so a new guest's backups can't be confused with an old guest's.
