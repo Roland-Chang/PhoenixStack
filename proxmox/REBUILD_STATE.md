@@ -39,7 +39,8 @@ How things got here is in the git history (`git log -- proxmox/`).
    docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`).
    That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
    VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
-8. **Mgmt network back to `/24`** (decided 2026-11-20, **not done yet**). UniFi's PHOENIX-PRIMARY is `10.101.0.0/23`
+8. **Mgmt network back to `/24`** (decided 2026-11-20; **UniFi changed 2026-11-20 by Aaron, pve01 not yet**).
+   Until pve01 is changed too, it treats `10.101.1.x` as mgmt; that subnet becomes the workload VLAN, so do it first. UniFi's PHOENIX-PRIMARY is `10.101.0.0/23`
    (gateway `.254`, DHCP `10.101.0.11`–`10.101.1.254`, which also covers pve01's `.11` and the NAS's `.101`).
    `pve01.conf` now says `/24`; UniFi and pve01 must change together, since a mask mismatch routes host-to-guest
    traffic through the gateway. In one sitting, with the iDRAC console or `tmux` open:

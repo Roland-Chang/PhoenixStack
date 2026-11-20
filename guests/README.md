@@ -18,7 +18,7 @@ Status: **draft, 2026-11-18. Nothing here is applied yet.** Items marked **Decid
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Network | New guests go on the **workload VLAN: VLAN 100, `10.101.2.0/24`**, gateway `10.101.2.254` (UDM) (decided 2026-11-20). Mgmt goes back to `/24` (`10.101.0.0/24`). | VLAN 100 is the workload VLAN of the original design. Its original subnet, `10.101.1.0/24`, now holds mgmt DHCP clients, so services take the next block. The host has no address on the workload VLAN, so a guest can only reach the host's admin ports through the UDM, where it's blocked. |
+| Network | New guests go on the **workload VLAN: VLAN 100, `10.101.1.0/24`**, gateway `10.101.1.254` (UDM) (decided 2026-11-20). Mgmt is `10.101.0.0/24` again. | VLAN 100 on `10.101.1.0/24` is the workload network of the original design, free again now that mgmt is a `/24`. The host has no address on the workload VLAN, so a guest can only reach the host's admin ports through the UDM, where it's blocked. |
 | Addressing | The original scheme (see [Address scheme](#address-scheme)): MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, a fixed last octet per tier. Terraform sets the MAC and a static IP. UDM DHCP on VLAN 100 limited to `.150–.199`; `.254` gateway. | Kept from the archived design (`archive/legacy/docs/roadmap/MAC_ADDRESS_SCHEME.md`), reconciled 2026-11-20. A DNS server's address is handed out to every client, so it can't move. |
 | UDM firewall | Workload VLAN in its own zone. Allow: admin sources (`10.1.1.0/24`, `10.2.1.0/24`, `192.168.2.0/24`) → services, SSH and each service's ports; client LANs and VPN → services, only the ports a service publishes (e.g. 53); services → internet. Block: services → mgmt (host, iDRAC, NAS), services → client LANs. Exceptions (a guest that needs a NAS share) are added per guest, by port. | UniFi allows traffic between internal networks by default. These rules are the real boundary; the PVE guest firewall is a second layer. Set by hand in the UniFi UI and recorded here. |
 | Guest firewall (PVE) | Every Terraform guest has its firewall on (`firewall=1` on the NIC), `policy_in: DROP`, and only the rules its service needs, defined in Terraform next to the guest. | Defense in depth: a mistake in the UDM rules doesn't expose a guest. Rules live with the guest that needs them. |
@@ -37,10 +37,10 @@ From the archived design, kept as it was where its sources agree. Where they dis
 
 - **MAC:** `02:aa:bb:cc:XX:YY`. `02` = locally administered unicast; `XX` = tier code; `YY` = instance.
 - **VMID:** `1XXYY`, same code and instance.
-- **IP:** `10.101.2.<octet>` on VLAN 100, one fixed octet per instance.
+- **IP:** `10.101.1.<octet>` on VLAN 100, one fixed octet per instance.
 - **Name:** `<role><YY>`, e.g. `dns01`.
 
-| Code | Tier | VMIDs | IPs (`10.101.2.x`) | Notes |
+| Code | Tier | VMIDs | IPs (`10.101.1.x`) | Notes |
 | --- | --- | --- | --- | --- |
 | 01 | Bastion / Ansible | 101YY | `.21`, `.22` | Archive also had `.20`/`.21` (Terraform); the scheme document's `.21`/`.22` kept. |
 | 02 | DNS (Pi-hole) | 102YY | `.201`, `.202` | |
@@ -127,7 +127,7 @@ and the nightly backups restore it.
 ### Name resolution until L5b
 
 Until Pi-hole exists, each guest's name is added by hand to the UDM's local DNS, as `pve01` was. Guests use
-the UDM (`10.101.2.254`) as their resolver. L5b moves the records into git (Pi-hole, managed by Ansible),
+the UDM (`10.101.1.254`) as their resolver. L5b moves the records into git (Pi-hole, managed by Ansible),
 and the UDM's manual records are then removed so there is only one copy.
 
 ## Implementation steps
@@ -135,7 +135,7 @@ and the UDM's manual records are then removed so there is only one copy.
 Each step is dry-run first. Steps 1–3 change shared infrastructure and wait for approval.
 
 1. **Mgmt back to `/24`** (UniFi and pve01 together; runbook in [../proxmox/REBUILD_STATE.md](../proxmox/REBUILD_STATE.md), open item 8).
-2. **UDM (by hand, Aaron):** create the workload network (VLAN 100, `10.101.2.0/24`, DHCP `.150–.199`) and the
+2. **UDM (by hand, Aaron):** create the workload network (VLAN 100, `10.101.1.0/24`, DHCP `.150–.199`) and the
    zone rules above. Check that pve01's switch port carries VLAN 100 (`BRIDGE_VIDS="2-4094"` already allows it on `vmbr0`).
 3. **Bootstrap 2026.11.5:** pool `terraform`, narrowed token, Debian 13 template. Plan, review,
    `--apply --stage templates,access`. Then narrow the token's network grant to `vmbr0/100`.
@@ -143,7 +143,7 @@ Each step is dry-run first. Steps 1–3 change shared infrastructure and wait fo
    so a new guest's backups can't be confused with an old guest's.
 5. **Repo:** `guests/inventory.yml`, `guests/terraform/`, `guests/ansible/` with the `base` role. `terraform plan` and
    `ansible-playbook --check --diff` against nothing yet.
-6. **Test guest** `test01` (VMID 19901, `10.101.2.249`): apply, run `base`, check, then destroy.
+6. **Test guest** `test01` (VMID 19901, `10.101.1.249`): apply, run `base`, check, then destroy.
 
 ## Done when (test guest)
 
@@ -161,5 +161,5 @@ Each step is dry-run first. Steps 1–3 change shared infrastructure and wait fo
 1. For L5b, not needed yet: who uses Pi-hole first (VPN only, or the LANs too) and whether it blocks ads.
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
-the rest weekly), workload network (VLAN 100, `10.101.2.0/24`), mgmt back to `/24`, and the archived address
+the rest weekly), workload network (VLAN 100, `10.101.1.0/24`), mgmt back to `/24`, and the archived address
 scheme with the tier codes reconciled above.
