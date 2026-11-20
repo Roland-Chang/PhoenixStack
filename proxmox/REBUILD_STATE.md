@@ -1,6 +1,6 @@
 # pve01: current state
 
-Snapshot as of **2026-11-16**. This file says where the host stands and what's still open, so the work
+Snapshot as of **2026-11-20**. This file says where the host stands and what's still open, so the work
 can be picked up on another computer. The design and the rebuild runbook are in [README.md](README.md).
 How things got here is in the git history (`git log -- proxmox/`).
 
@@ -30,8 +30,19 @@ How things got here is in the git history (`git log -- proxmox/`).
    `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups
    have a few weeks of history.
 5. Set `NOTIFY_ALL_BACKUP_JOBS="no"` once the nightly jobs have proven themselves, so only failures are emailed.
+6. **Temporary migration host** (found 2026-11-20): a separate Proxmox machine on the Young LAN (LVM root, kernel
+   7.0.2-6) ran copies of the guests during the rebuild, including a docker-temp copy at `10.1.1.116`
+   (MAC `bc:24:11:a0:1b:38`). Its guests were shut down 2026-11-20 by Aaron. Anything they saved after the backups
+   of 2026-11-12 exists only on that machine's disk (its NAS mount folders were empty local directories). Keep its
+   disks until the pve01 guests are verified and anything newer has been copied over, then wipe it.
+7. **Port forwards** (fixed 2026-11-20 by Aaron): the UDM's port forwards still pointed at the migration host's
+   docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`).
+   That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
+   VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
 
 ## For the L5 design
+
+The draft is in [../guests/README.md](../guests/README.md) (2026-11-18); it answers the points below.
 
 - Tooling is decided: Terraform creates guests, Ansible configures them.
 - Guests share the mgmt network (`10.101.0.0/23`, untagged) with the host. Moving them to their own VLAN,
