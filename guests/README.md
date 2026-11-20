@@ -74,10 +74,10 @@ gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they ar
 
 ### Token (`terraform@pve`)
 
-Today: role `PhoenixTerraform` on `/`, including `Sys.Modify`, `Sys.Console`, `VM.Console` and `Pool.Allocate`.
+Before 2026-11-20: role `PhoenixTerraform` on `/`, including `Sys.Modify`, `Sys.Console`, `VM.Console` and `Pool.Allocate`.
 That's enough to change the host and open a console to any guest, the -TEMP guests included.
 
-New (bootstrap 2026.11.6, written 2026-11-20, **not applied yet**):
+Now (bootstrap 2026.11.6, **applied 2026-11-20**):
 
 - A resource pool **`terraform`**. Terraform creates every guest in it.
 - Role `PhoenixTerraform` narrowed to guest privileges: `Pool.Allocate, Pool.Audit, VM.Allocate, VM.Audit,

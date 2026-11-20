@@ -60,6 +60,7 @@ The draft is in [../guests/README.md](../guests/README.md) (2026-11-18); it answ
 - Guests share the mgmt network (`10.101.0.0/24`, untagged) with the host. Moving them to their own VLAN,
   and whether they can reach the iDRAC and NAS admin pages today, is not yet looked at.
 - No per-guest firewall rules exist.
-- The `terraform@pve` token has `Sys.Modify` and `Sys.Console` on `/`. Bootstrap 2026.11.6 (written 2026-11-20,
-  **not applied yet**) narrows it to pool `terraform` and adds the `templates` stage; run it in plan mode first.
+- **Applied 2026-11-20** (bootstrap 2026.11.6, `templates,access`, reported by Aaron): pool `terraform` created, the
+  `terraform@pve` token narrowed to it (no grant on `/` any more), Debian 13 template `debian-13-standard_13.6-1_amd64`
+  on `local`.
 - Both backup copies are in the same building. An offsite copy is an open decision.
