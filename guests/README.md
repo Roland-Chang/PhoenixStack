@@ -18,17 +18,46 @@ Status: **draft, 2026-11-18. Nothing here is applied yet.** Items marked **Decid
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Network | New guests go on a **services VLAN**, not on mgmt. Proposed: **VLAN 20, `10.101.2.0/24`**, gateway `10.101.2.254` (UDM). **Decide:** confirm the ID and subnet don't clash with existing UniFi networks. | The host has no address on the services VLAN, so a guest can only reach the host's admin ports through the UDM, where it's blocked. Today guests share the mgmt subnet, and their access to the iDRAC and NAS admin pages hasn't been checked. `10.101.1.0/24` (the old plan) is inside the mgmt `/23`. |
-| Addressing | Static IPs set by Terraform in `.1–.99`; UDM DHCP limited to `.100–.199`; `.254` gateway. | A DNS server's address is handed out to every client, so it can't move. DHCP stays available for anything temporary. |
-| UDM firewall | Services VLAN in its own zone. Allow: admin sources (`10.1.1.0/24`, `10.2.1.0/24`, `192.168.2.0/24`) → services, SSH and each service's ports; client LANs and VPN → services, only the ports a service publishes (e.g. 53); services → internet. Block: services → mgmt (host, iDRAC, NAS), services → client LANs. Exceptions (a guest that needs a NAS share) are added per guest, by port. | UniFi allows traffic between internal networks by default. These rules are the real boundary; the PVE guest firewall is a second layer. Set by hand in the UniFi UI and recorded here. |
+| Network | New guests go on the **workload VLAN: VLAN 100, `10.101.2.0/24`**, gateway `10.101.2.254` (UDM) (decided 2026-11-20). Mgmt goes back to `/24` (`10.101.0.0/24`). | VLAN 100 is the workload VLAN of the original design. Its original subnet, `10.101.1.0/24`, now holds mgmt DHCP clients, so services take the next block. The host has no address on the workload VLAN, so a guest can only reach the host's admin ports through the UDM, where it's blocked. |
+| Addressing | The original scheme (see [Address scheme](#address-scheme)): MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, a fixed last octet per tier. Terraform sets the MAC and a static IP. UDM DHCP on VLAN 100 limited to `.150–.199`; `.254` gateway. | Kept from the archived design (`archive/legacy/docs/roadmap/MAC_ADDRESS_SCHEME.md`), reconciled 2026-11-20. A DNS server's address is handed out to every client, so it can't move. |
+| UDM firewall | Workload VLAN in its own zone. Allow: admin sources (`10.1.1.0/24`, `10.2.1.0/24`, `192.168.2.0/24`) → services, SSH and each service's ports; client LANs and VPN → services, only the ports a service publishes (e.g. 53); services → internet. Block: services → mgmt (host, iDRAC, NAS), services → client LANs. Exceptions (a guest that needs a NAS share) are added per guest, by port. | UniFi allows traffic between internal networks by default. These rules are the real boundary; the PVE guest firewall is a second layer. Set by hand in the UniFi UI and recorded here. |
 | Guest firewall (PVE) | Every Terraform guest has its firewall on (`firewall=1` on the NIC), `policy_in: DROP`, and only the rules its service needs, defined in Terraform next to the guest. | Defense in depth: a mistake in the UDM rules doesn't expose a guest. Rules live with the guest that needs them. |
 | Guest type | **Unprivileged LXC** by default, from the Debian 13 standard template. A VM only when a guest needs its own kernel, a PCI device, or runs Docker. VM templates (cloud-init) are designed when the first VM is needed. | Containers are light and back up fast. Unprivileged maps container root to an unprivileged host user. |
 | Template | Downloaded by the bootstrap's `templates` stage (`LXC_TEMPLATES`, `pveam`) to storage `local`, not by Terraform. It keeps one template; a newer one is fetched by deleting the old one and re-running the stage. | Downloading needs `Sys.Modify`, which the Terraform token loses (see Token). |
 | Storage | Root disks on `ssd` for light guests, on `nvme` for I/O-heavy ones. Set per guest. | Matches the tiers in the host design. |
 | Names | `<role><nn>`, e.g. `dns01`; FQDN `<name>.int.phoenixstack.net`. | Short and predictable. The domain is the one the host uses. |
-| VMIDs | `VLAN × 1000 + last octet`: `10.101.2.10` on VLAN 20 is **20010**. | Read the address from the ID. Avoids every ID in use or in the archives on `nas-dump` (100, 999, 9000, 9001, 9999, and the older 1xxxx plan). |
+| VMIDs | `1XXYY` from the address scheme: dns01 is **10201**. | Read the tier from the ID. Avoids every ID in use (100, 999, 9999). Check `nas-dump` for old `1XXYY` archives before first use (see Implementation steps). |
 | Start order | `onboot: 1`; DNS starts first (`startup order=1`), then everything else. | After a patch reboot, other guests find DNS already up. |
 | Backups | Nothing to add: both nightly jobs back up all guests. Bind mounts get `backup=0`. | Already covered by L4. |
+
+### Address scheme
+
+From the archived design, kept as it was where its sources agree. Where they disagreed, the scheme document
+(`MAC_ADDRESS_SCHEME.md` and `INFRASTRUCTURE_DESIGN.md`) wins over the archived Terraform files.
+
+- **MAC:** `02:aa:bb:cc:XX:YY`. `02` = locally administered unicast; `XX` = tier code; `YY` = instance.
+- **VMID:** `1XXYY`, same code and instance.
+- **IP:** `10.101.2.<octet>` on VLAN 100, one fixed octet per instance.
+- **Name:** `<role><YY>`, e.g. `dns01`.
+
+| Code | Tier | VMIDs | IPs (`10.101.2.x`) | Notes |
+| --- | --- | --- | --- | --- |
+| 01 | Bastion / Ansible | 101YY | `.21`, `.22` | Archive also had `.20`/`.21` (Terraform); the scheme document's `.21`/`.22` kept. |
+| 02 | DNS (Pi-hole) | 102YY | `.201`, `.202` | |
+| 03 | Proxy | 103YY | `.31`, `.32` | |
+| 04 | Authentik | 104YY | `.41`, `.42` | |
+| 05 | Game server (AMP) | 105YY | `.81`, `.82` | Archived Terraform used code 11. |
+| 06 | Media (Plex) | 106YY | `.61`, `.62` | |
+| 07 | Database | 107YY | `.71`–`.79` | pgsql01/02 `.71`/`.72`, mariadb01 `.73`. |
+| 08 | Monitor | 108YY | `.91`, `.92` | Archived Terraform used code 09. |
+| 09 | Vault | 109YY | `.111`, `.112` | **Moved:** the archive gave Vault `.81` (AMP's) or `.101` (the NAS's on mgmt). Archived Terraform used code 05. |
+| 10 | Docker | 110YY | `.51`, `.52` | |
+| 11 | Backup | 111YY | `.121` | Archived Terraform used code 08; no IP in the archive. |
+| 99 | Test (throwaway) | 199YY | `.249` | New. `test01` = VMID 19901, MAC `02:aa:bb:cc:99:01`. |
+
+Free for new tiers: `.100`–`.149` (except `.111`, `.112`, `.121`) and `.203`–`.248`. DHCP: `.150`–`.199`.
+Infrastructure on mgmt (`10.101.0.0/24`) keeps its original addresses: iDRAC `.1`, pve01 `.11`, NAS `.101`,
+gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they are rebuilt.
 
 ### Terraform
 
@@ -64,7 +93,7 @@ New (bootstrap 2026.11.5, written 2026-11-20, **not applied yet**):
   | `/pool/terraform` | `PhoenixTerraform` | Create and manage guests, only inside the pool. The -TEMP guests aren't in it. |
   | `/storage/ssd`, `/storage/nvme` | `PVEDatastoreUser` (built-in) | Allocate root disks. |
   | `/storage/local` | `PVEAuditor` (built-in, read-only) | Read the template. |
-  | `/sdn/zones/localnetwork/vmbr0` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` (PVE 8+ checks this). **Narrow to `vmbr0/<vlan>`** once the services VLAN exists, so Terraform can't put a guest on mgmt. |
+  | `/sdn/zones/localnetwork/vmbr0` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` (PVE 8+ checks this). **Narrow to `vmbr0/<vlan>`** once the workload VLAN exists, so Terraform can't put a guest on mgmt. |
   | `/nodes/pve01` | `PVEAuditor` (built-in, read-only) | Read node status. |
 
 - The `access` stage now sets each service account's grants **exactly**: it adds the configured ones and
@@ -103,15 +132,18 @@ and the UDM's manual records are then removed so there is only one copy.
 
 ## Implementation steps
 
-Each step is dry-run first. Steps 1 and 2 change shared infrastructure and wait for approval.
+Each step is dry-run first. Steps 1–3 change shared infrastructure and wait for approval.
 
-1. **UDM (by hand, Aaron):** create the services network (VLAN 20, `10.101.2.0/24`, DHCP `.100–.199`) and the
-   zone rules above. Check that pve01's switch port carries VLAN 20 (`BRIDGE_VIDS="2-4094"` already allows it on `vmbr0`).
-2. **Bootstrap:** pool `terraform`, narrowed role, list of ACL paths, Debian 13 template download. Plan, review,
-   `--apply --stage access`.
-3. **Repo:** `guests/inventory.yml`, `guests/terraform/`, `guests/ansible/` with the `base` role. `terraform plan` and
+1. **Mgmt back to `/24`** (UniFi and pve01 together; runbook in [../proxmox/REBUILD_STATE.md](../proxmox/REBUILD_STATE.md), open item 8).
+2. **UDM (by hand, Aaron):** create the workload network (VLAN 100, `10.101.2.0/24`, DHCP `.150–.199`) and the
+   zone rules above. Check that pve01's switch port carries VLAN 100 (`BRIDGE_VIDS="2-4094"` already allows it on `vmbr0`).
+3. **Bootstrap 2026.11.5:** pool `terraform`, narrowed token, Debian 13 template. Plan, review,
+   `--apply --stage templates,access`. Then narrow the token's network grant to `vmbr0/100`.
+4. **Check for old `1XXYY` archives** on `nas-dump` (`ls /mnt/nas/nas-dump/dump/ | grep -E 'vzdump-(lxc|qemu)-1[0-9]{4}-'`),
+   so a new guest's backups can't be confused with an old guest's.
+5. **Repo:** `guests/inventory.yml`, `guests/terraform/`, `guests/ansible/` with the `base` role. `terraform plan` and
    `ansible-playbook --check --diff` against nothing yet.
-4. **Test guest** `test01`, `10.101.2.99`, VMID 20099: apply, run `base`, check, then destroy.
+6. **Test guest** `test01` (VMID 19901, `10.101.2.249`): apply, run `base`, check, then destroy.
 
 ## Done when (test guest)
 
@@ -126,9 +158,8 @@ Each step is dry-run first. Steps 1 and 2 change shared infrastructure and wait 
 
 ## Open decisions
 
-1. VLAN ID and subnet for the services network (proposed VLAN 20, `10.101.2.0/24`). Aaron is checking which are
-   free in UniFi.
-2. For L5b, not needed yet: who uses Pi-hole first (VPN only, or the LANs too) and whether it blocks ads.
+1. For L5b, not needed yet: who uses Pi-hole first (VPN only, or the LANs too) and whether it blocks ads.
 
-Settled 2026-11-20: Terraform state (local, with a 1Password copy) and guest patching (automatic security updates,
-the rest weekly).
+Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
+the rest weekly), workload network (VLAN 100, `10.101.2.0/24`), mgmt back to `/24`, and the archived address
+scheme with the tier codes reconciled above.

@@ -8,7 +8,7 @@ How things got here is in the git history (`git log -- proxmox/`).
 
 | Area | State |
 | --- | --- |
-| Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.27, kernel 7.0.14-29. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/23`. IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
+| Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.27, kernel 7.0.14-29. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/23` (going back to `/24`, open item 8). IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
 | Pools | `nvme` (mirror, 860G), `ssd` (mirror, 231G), `backup` (RAIDZ1 + special mirror, 3.07T, dataset `backup/pbs`). The `data` pool isn't built: the ASUS Hyper M.2 card and the 990 Pro drives aren't installed. |
 | Access | `aaron@pve` (group `admins`) and `root@pam` have TOTP, in PVE and in PBS. Tokens: `terraform@pve!automation` (unused so far) and `claude-audit@pve!discovery` (secret in 1Password, `(Proxmox) Claude API`). |
 | Admin allowlist | `10.1.1.0/24` (Young LAN), `10.2.1.0/24` (Porter LAN), `192.168.2.0/24` (WireGuard VPN clients). Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
@@ -39,17 +39,24 @@ How things got here is in the git history (`git log -- proxmox/`).
    docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`).
    That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
    VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
-8. **Mgmt DHCP range overlaps fixed addresses** (seen 2026-11-20): UniFi's PHOENIX-PRIMARY network (`10.101.0.0/23`,
-   gateway `.254`) hands out `10.101.0.11`–`10.101.1.254`, which includes pve01's own `10.101.0.11` and the NAS's
-   `10.101.0.101`. Add UniFi fixed-IP reservations for pve01 (bond MAC), the NAS, and docker-temp's `10.101.0.166`
-   (the port forwards' target), rather than moving the range, which would re-address the restored guests.
+8. **Mgmt network back to `/24`** (decided 2026-11-20, **not done yet**). UniFi's PHOENIX-PRIMARY is `10.101.0.0/23`
+   (gateway `.254`, DHCP `10.101.0.11`–`10.101.1.254`, which also covers pve01's `.11` and the NAS's `.101`).
+   `pve01.conf` now says `/24`; UniFi and pve01 must change together, since a mask mismatch routes host-to-guest
+   traffic through the gateway. In one sitting, with the iDRAC console or `tmux` open:
+   1. In UniFi, list the clients with `10.101.1.x` addresses (AMP-TEMP had `.1.190`); they'll get new addresses.
+      Add fixed-IP reservations for the NAS (`.101`), docker-temp (`.166`, the port forwards' target) and
+      PLEX-TEMP (`.111`).
+   2. PHOENIX-PRIMARY: `10.101.0.254/24`, DHCP range `10.101.0.100`–`10.101.0.249` (fixed addresses stay below `.100`).
+   3. pve01: `pve-sync`; `--stage network` (plan: only the address mask should change); `--apply --stage network`; type `keep`.
+   4. Check: `ip -br addr show vmbr0` shows `/24`; `verify` passes; NAS mounts; apps through the port forwards;
+      guests pick up the `/24` at their next DHCP renewal (or restart them).
 
 ## For the L5 design
 
 The draft is in [../guests/README.md](../guests/README.md) (2026-11-18); it answers the points below.
 
 - Tooling is decided: Terraform creates guests, Ansible configures them.
-- Guests share the mgmt network (`10.101.0.0/23`, untagged) with the host. Moving them to their own VLAN,
+- Guests share the mgmt network (`10.101.0.0/23`, `/24` soon; untagged) with the host. Moving them to their own VLAN,
   and whether they can reach the iDRAC and NAS admin pages today, is not yet looked at.
 - No per-guest firewall rules exist.
 - The `terraform@pve` token has `Sys.Modify` and `Sys.Console` on `/`. Bootstrap 2026.11.5 (written 2026-11-20,
