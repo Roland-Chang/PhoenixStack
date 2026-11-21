@@ -33,6 +33,11 @@ resource "proxmox_virtual_environment_vm" "this" {
   on_boot     = true
   started     = true
 
+  # Same hardware as template 10001 (pve-bootstrap.sh), so a clone doesn't drift from it.
+  machine       = "q35"
+  scsi_hardware = "virtio-scsi-single"
+  tablet_device = false
+
   clone {
     vm_id        = var.template_vmid
     full         = true
