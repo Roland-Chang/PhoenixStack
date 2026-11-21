@@ -59,6 +59,10 @@ How things got here is in the git history (`git log -- proxmox/`).
    the iDRAC on purpose (a closed port 22 there isn't a fault). The Temp site-to-site VPN and unused port lists were deleted;
    two site-to-site VPNs remain (BPorter, RYoung). pve01's `ADMIN_SOURCES` narrowed to match the same day
    (Young and Porter workstations, Teleport). The zone grid is on the topology page (`guests/topology.html`).
+   **Temporary exception (2026-11-21, by Aaron):** `10.2.1.175`, a temporary production system at the Porter site that
+   needs the file server, was added to the UDM's **Porter Admin** rules (into Management, Services and DMZ). It is
+   *not* an admin source and isn't in pve01's `ADMIN_SOURCES`, so pve01 itself still drops it. Replace it with a
+   rule for the NAS only (its protocol and ports) and take it out of Porter Admin when that system retires.
 10. **1Password clean-up, after the rebuild** (reviewed 2026-11-20, deferred by Aaron): retire the old design's items
     (its automation service account and tokens, the old Proxmox API fields, logins for guests that never ran),
     retire the -TEMP guests' items as their apps move, move items that aren't lab secrets out of the lab vaults,
