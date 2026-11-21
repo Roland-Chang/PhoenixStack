@@ -1,0 +1,28 @@
+# Baseline for every guest. Always run with --check --diff first.
+#
+#   cd guests/ansible
+#   ansible-playbook site.yml -l <guest> --check --diff
+#   ansible-playbook site.yml -l <guest>
+#
+# A brand-new container has only root (the VM template creates the admin user through
+# cloud-init). Its first run connects as root:
+#   ansible-playbook site.yml -l <container> -e ansible_user=root
+# After that run, root can't log in over SSH and every run uses the admin user.
+
+- name: Python for Ansible (new containers ship without it)
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Install python3 if it's missing
+      ansible.builtin.raw: >-
+        test -e /usr/bin/python3 ||
+        (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 && echo INSTALLED)
+      register: python_bootstrap
+      changed_when: "'INSTALLED' in python_bootstrap.stdout"
+      # Runs in --check too: without Python, nothing else can even be checked.
+      check_mode: false
+
+- name: Baseline
+  hosts: all
+  roles:
+    - base

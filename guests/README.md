@@ -218,11 +218,36 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
    with a Management and an IOT zone as well (see [topology.html](topology.html) and REBUILD_STATE item 9).
 4. ~~**Bootstrap 2026.11.7:** pool `templates`, the token's network grant narrowed to VLANs 100 and 200, the VM
    template (`10001`)~~ Done 2026-11-20; checked through the read-only API (template, pool, token grants).
-5. **Check for old `1XXYY` archives** on `nas-dump` (`ls /mnt/nas/nas-dump/dump/ | grep -E 'vzdump-(lxc|qemu)-1[0-9]{4}-'`),
-   so a new guest's backups can't be confused with an old guest's.
-6. **Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`
-   role. `terraform plan` and `ansible-playbook --check --diff` against nothing yet.
-7. **Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ): apply, run `base`, check, then destroy.
+5. ~~**Check for old `1XXYY` archives** on `nas-dump`~~ Done 2026-11-20: none, the IDs are clear.
+6. ~~**Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`
+   role~~ Written 2026-11-20 (`terraform validate`, `ansible-playbook --syntax-check`). See [Running it](#running-it).
+7. **Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ): plan, apply, run `base`, check, then destroy.
+
+## Running it
+
+From an admin workstation (Young or Porter workstation, or Teleport), with `OP_ACCOUNT` set for the PhoenixStack
+1Password account and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
+
+```bash
+# Terraform: the wrapper reads the API token from 1Password and saves the state there after changes
+guests/tf.sh plan
+guests/tf.sh apply
+
+# Ansible: first run on a NEW container connects as root (VMs already have the admin user)
+cd guests/ansible
+ansible-galaxy collection install -r requirements.yml      # once
+ansible-playbook site.yml -l test01 -e ansible_user=root --check --diff
+ansible-playbook site.yml -l test01 -e ansible_user=root
+ansible-playbook site.yml -l test02 --check --diff
+ansible-playbook site.yml -l test02
+```
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
+| Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
+| Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `PhoenixStack guests terraform.tfstate` after apply, destroy, import and state commands. |
+| Ansible | [ansible/](ansible/) | `base` role: admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ## Done when (test guests)
 
