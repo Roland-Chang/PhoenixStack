@@ -246,7 +246,7 @@ ansible-playbook site.yml -l test02
 | --- | --- | --- |
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
-| Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `PhoenixStack guests terraform.tfstate` after apply, destroy, import and state commands. |
+| Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
 | Ansible | [ansible/](ansible/) | `base` role: admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ## Done when (test guests)

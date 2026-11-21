@@ -20,7 +20,7 @@ set -Eeuo pipefail
 TOKEN_REF="${TOKEN_REF:-op://infrastructure/77alo4tqtgsujttuvcwslaukwe/credential}"   # (Proxmox) - Terraform Token
 TOKEN_ID="terraform@pve!automation"
 STATE_VAULT="${STATE_VAULT:-infrastructure}"
-STATE_DOC="PhoenixStack guests terraform.tfstate"
+STATE_DOC="(Terraform) - Guests State"
 
 : "${OP_ACCOUNT:?set OP_ACCOUNT to the PhoenixStack 1Password account}"
 for cmd in terraform op; do command -v "$cmd" >/dev/null || { echo "missing: $cmd" >&2; exit 1; }; done
