@@ -148,6 +148,7 @@ Default: block between zones. Then allow only these (each by port, to the named 
 | Layout | `guests/terraform/`: one root module, two small modules (`lxc`, `vm`), `for_each` over the inventory. | Small enough to read in one sitting. No modules per tier. |
 | State | Local state, git-ignored, saved to 1Password (document item) by the wrapper after each `apply` (decided 2026-11-20). | State can hold sensitive values and is the only record of what Terraform owns. A lost state is recoverable here (`terraform import` of a few guests), so a simple backup is enough. |
 | Workflow | `plan`, review, `apply`, by hand from an admin workstation. No CI. | The archive's CI applied on every push to main. |
+| Tags | None. Proxmox checks tag changes against `/vms/<vmid>` only, not the pool, so the pool-scoped token can't set them while creating a guest (found by the first test apply, 2026-11-20). Pool `terraform` marks Terraform's guests; the VLAN shows the zone. | Keeps the token pool-scoped instead of granting it rights on every guest. |
 | Hand-made exceptions | Bind mounts and LXC feature flags other than `nesting` need `root@pam`, which no token has. Guests that need them get those lines by hand, recorded in this file, and Terraform ignores them (`lifecycle.ignore_changes`). | Keeps root out of automation. The design avoids bind mounts (NAS shares are mounted inside VMs). |
 
 ### Token (`terraform@pve`)
@@ -171,7 +172,7 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
   | `/pool/terraform` | `PhoenixTerraform` | Create and manage guests, only inside the pool. The -TEMP guests aren't in it. |
   | `/pool/templates` | `PVETemplateUser` (built-in) | Read and clone the VM templates; can't change or delete them. (bootstrap 2026.11.7) |
   | `/storage/ssd`, `/storage/nvme` | `PVEDatastoreUser` (built-in) | Allocate root disks. |
-  | `/storage/local` | `PVEAuditor` (built-in, read-only) | Read the template. |
+  | `/storage/local` | `PVEDatastoreUser` (built-in) | Use the container template and the cloud-init vendor snippet. A VM that references a snippet needs `Datastore.AllocateSpace` here (found by the first test apply, 2026-11-20; was `PVEAuditor`). `local` holds no guest disks, and this role can't upload. |
   | `/sdn/zones/localnetwork/vmbr0/100`, `/vmbr0/200` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` on VLAN 100 (Services) or 200 (DMZ) only. Without a grant on `vmbr0` itself, Terraform can't create an untagged NIC, so it can't put a guest on mgmt. (bootstrap 2026.11.7; was all of `vmbr0`) |
   | `/nodes/pve01` | `PVEAuditor` (built-in, read-only) | Read node status. |
 

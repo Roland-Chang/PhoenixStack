@@ -29,9 +29,10 @@ resource "proxmox_virtual_environment_vm" "this" {
   name        = local.g.name
   pool_id     = local.c.pool
   description = local.g.description
-  tags        = ["terraform", local.g.zone]
-  on_boot     = true
-  started     = true
+  # No tags: Proxmox checks tag changes against /vms/<vmid> only, not the pool, so a pool-scoped
+  # token can't set them while creating a guest. Pool `terraform` marks Terraform's guests.
+  on_boot = true
+  started = true
 
   # Same hardware as template 10001 (pve-bootstrap.sh), so a clone doesn't drift from it.
   machine       = "q35"

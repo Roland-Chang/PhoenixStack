@@ -21,11 +21,12 @@ locals {
 }
 
 resource "proxmox_virtual_environment_container" "this" {
-  node_name     = local.c.node
-  vm_id         = local.g.vmid
-  pool_id       = local.c.pool
-  description   = local.g.description
-  tags          = ["terraform", local.g.zone]
+  node_name   = local.c.node
+  vm_id       = local.g.vmid
+  pool_id     = local.c.pool
+  description = local.g.description
+  # No tags: Proxmox checks tag changes against /vms/<vmid> only, not the pool, so a pool-scoped
+  # token can't set them while creating a guest. Pool `terraform` marks Terraform's guests.
   unprivileged  = true
   start_on_boot = true
   started       = true
