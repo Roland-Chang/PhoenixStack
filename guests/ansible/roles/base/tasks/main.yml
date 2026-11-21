@@ -49,12 +49,15 @@
     groups: sudo
     append: true
     create_home: true
+  register: admin_user_account
 
 - name: Admin user's SSH keys (exactly the keys in the inventory)
   ansible.posix.authorized_key:
     user: "{{ admin_user }}"
     key: "{{ ssh_public_keys | join('\n') }}"
     exclusive: true
+  # A dry run on a new guest only pretends to create the user, so its keys can't be checked yet.
+  when: not (ansible_check_mode and admin_user_account.changed)
 
 - name: Admin user uses sudo without a password (key-only login; Ansible needs it)
   ansible.builtin.copy:
