@@ -51,6 +51,12 @@ How things got here is in the git history (`git log -- proxmox/`).
    3. pve01: `pve-sync`; `--stage network` (plan: only the address mask should change); `--apply --stage network`; type `keep`.
    4. Check: `ip -br addr show vmbr0` shows `/24`; `verify` passes; NAS mounts; apps through the port forwards;
       guests pick up the `/24` at their next DHCP renewal (or restart them).
+9. **UniFi zones** (2026-11-20, by Aaron, checked with `tools/unifi-export.sh`): mgmt moved from the shared Internal
+   zone to its own **Management** zone. In: admin workstation `10.1.1.69` and Teleport users (all); Young LAN and the
+   site-to-site VPNs only to the NAS (SMB) and PLEX-TEMP (Plex); Young LAN to docker-temp's app ports. Port forwards
+   followed the network. Stale forwards removed; Services DHCP `.150`–`.199`. Still open: limit Services and
+   Management → Gateway to DNS, DHCP, ICMP and NTP; narrow pve01's `ADMIN_SOURCES` to match the UDM (the Porter
+   workstation's address is still to come). The current zone grid is on the topology page (`guests/topology.html`).
 
 ## For the L5 design
 
