@@ -3,7 +3,15 @@
     name: systemd-journald
     state: restarted
 
+# How sshd starts differs: Debian VMs run it as a normal service (reload it), the Debian container
+# template has systemd hold port 22 (ssh.socket) and hand connections to sshd. There, a reload makes
+# sshd try to bind port 22 itself, which fails and stops it; a restart hands the socket over again.
+# Existing sessions survive either way. The config was checked with sshd -t before this runs.
 - name: Reload ssh
-  ansible.builtin.service:
-    name: ssh
-    state: reloaded
+  ansible.builtin.shell: |
+    if systemctl is-active --quiet ssh.socket; then
+      systemctl restart ssh.service
+    else
+      systemctl reload ssh.service
+    fi
+  changed_when: true

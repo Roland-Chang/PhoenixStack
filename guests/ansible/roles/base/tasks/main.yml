@@ -68,6 +68,14 @@
     mode: "0440"
     validate: visudo -cf %s
 
+- name: Journal settings folder (Debian doesn't ship it)
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Journal size cap
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/50-phoenix.conf
