@@ -242,8 +242,8 @@ $B --apply --stage kernel && reboot
 $B --apply --stage nas               # SMB password prompted; mounts the NAS
 ls -lt /mnt/nas/nas-dump/dump/ | head -20   # STOP unless every guest's archive is here
 $B --apply --stage storage --destroy-data   # type "destroy-<pool>" for each pool
-$B --apply --stage templates         # Debian LXC template for guests
 $B --apply --stage access            # store each token in 1Password when shown
+$B --apply --stage templates         # Debian container template and Debian cloud VM template for guests
 $B --apply --stage firewall          # test GUI + a NEW ssh session, then type "keep"
 $B --apply --stage notify            # SMTP login, From address and key prompted; sends a test
 $B --apply --stage pbs               # installs PBS; datastore, jobs, token, its own alerts

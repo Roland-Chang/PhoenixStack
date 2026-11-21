@@ -80,7 +80,7 @@ supported data-centre cards; neither the P2000 nor the 3070 qualifies).
 | UDM firewall | One zone per VLAN, default block between zones, then the allows in [UDM rules](#udm-rules). | UniFi allows traffic between internal networks by default. These rules are the real boundary; the PVE guest firewall is a second layer. Set by hand in the UniFi UI and recorded here. |
 | Guest firewall (PVE) | Every Terraform guest has its firewall on (`firewall=1` on the NIC), `policy_in: DROP`, and only the rules its service needs, defined in Terraform next to the guest. | Defense in depth: also covers traffic between guests in the same zone, which the UDM never sees. |
 | Guest type | See [Guest types](#guest-types). | |
-| Templates | **Container:** Debian 13 standard, downloaded by the bootstrap's `templates` stage (done). **VM:** a Debian 13 cloud-init template, VMID `10001`, built by a new bootstrap step from Debian's `genericcloud` image and placed in pool `terraform` so Terraform can clone it. | Downloading needs `Sys.Modify`, which the Terraform token doesn't have. Cloud-init sets the user, SSH key and static IP at first boot, through the API only (no snippets, no SSH). |
+| Templates | **Container:** Debian 13 standard, downloaded by the bootstrap's `templates` stage (done). **VM:** `debian13-cloud`, VMID `10001`, built by the same stage (bootstrap 2026.11.7) from Debian's `genericcloud` image, checked against Debian's published SHA512 sums. Disk on `ssd`, in pool **`templates`**, where Terraform may only read and clone (`PVETemplateUser`). NIC tagged VLAN 100. A cloud-init vendor snippet (`local:snippets/phoenix-vendor.yaml`, written by the bootstrap) installs the QEMU guest agent at first boot. Terraform full-clones, so the template can be rebuilt (`qm destroy 10001`, re-run the stage) without touching guests. | Downloading needs `Sys.Modify`, which the Terraform token doesn't have. Cloud-init sets the user, SSH key and static IP at first boot through the API. A separate pool keeps Terraform from changing or deleting the template. The VLAN tag means a fresh clone never sits untagged on mgmt. |
 | Storage | Root disks on `ssd` for light guests, on `nvme` for I/O-heavy ones and Docker hosts. AI models wait for the `data` pool. | `ssd` holds 231 GB; Docker images and media metadata grow. |
 | Names | `<role><nn>`, e.g. `dns01`; FQDN `<name>.int.phoenixstack.net`. | Short and predictable. The domain is the one the host uses. |
 | Start order | `onboot: 1`; DNS first (`startup order=1`), databases second, then everything else. | After a patch reboot, other guests find DNS and their databases already up. |
@@ -169,9 +169,10 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
   | Path | Role | Why |
   | --- | --- | --- |
   | `/pool/terraform` | `PhoenixTerraform` | Create and manage guests, only inside the pool. The -TEMP guests aren't in it. |
+  | `/pool/templates` | `PVETemplateUser` (built-in) | Read and clone the VM templates; can't change or delete them. (bootstrap 2026.11.7) |
   | `/storage/ssd`, `/storage/nvme` | `PVEDatastoreUser` (built-in) | Allocate root disks. |
   | `/storage/local` | `PVEAuditor` (built-in, read-only) | Read the template. |
-  | `/sdn/zones/localnetwork/vmbr0` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` (PVE 8+ checks this). **Next: narrow to `vmbr0/100` and `vmbr0/200`** once those VLANs exist, so Terraform can't put a guest on mgmt. |
+  | `/sdn/zones/localnetwork/vmbr0/100`, `/vmbr0/200` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` on VLAN 100 (Services) or 200 (DMZ) only. Without a grant on `vmbr0` itself, Terraform can't create an untagged NIC, so it can't put a guest on mgmt. (bootstrap 2026.11.7; was all of `vmbr0`) |
   | `/nodes/pve01` | `PVEAuditor` (built-in, read-only) | Read node status. |
 
 - Later: `Mapping.Use` on `/mapping/pci/GPU01` only, when `plex01` is built (and the same for the 3070's mapping).
@@ -213,11 +214,10 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 
 1. ~~**Mgmt back to `/24`**~~ Done 2026-11-20.
 2. ~~**Bootstrap 2026.11.6:** pool `terraform`, narrowed token, Debian 13 container template~~ Done 2026-11-20.
-3. **UniFi (by hand, Aaron, with a guide):** clear leftover `10.101.1.x` leases on mgmt; create the Services
-   (VLAN 100) and DMZ (VLAN 200) networks and zones; the rules in [UDM rules](#udm-rules) that apply before any
-   service exists; check that pve01's switch port carries VLANs 100 and 200 (`BRIDGE_VIDS="2-4094"` already
-   allows them on `vmbr0`).
-4. **Bootstrap:** the VM template (`10001`); narrow the token's network grant to `vmbr0/100` and `vmbr0/200`.
+3. ~~**UniFi:** Services (VLAN 100) and DMZ (VLAN 200) networks and zones, and the starting rules~~ Done 2026-11-20,
+   with a Management and an IOT zone as well (see [topology.html](topology.html) and REBUILD_STATE item 9).
+4. **Bootstrap 2026.11.7:** pool `templates`, the token's network grant narrowed to VLANs 100 and 200, the VM
+   template (`10001`). Plan, review, `--apply --stage access,templates`.
 5. **Check for old `1XXYY` archives** on `nas-dump` (`ls /mnt/nas/nas-dump/dump/ | grep -E 'vzdump-(lxc|qemu)-1[0-9]{4}-'`),
    so a new guest's backups can't be confused with an old guest's.
 6. **Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`

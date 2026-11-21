@@ -20,9 +20,10 @@
 #   nas        NAS SMB mounts + PVE dir storages (before storage, so backups
 #              can be checked before any disk is wiped)
 #   storage    guest/backup ZFS pools, datasets, PVE storage
-#   templates  LXC templates for guests (LXC_TEMPLATES), from the Proxmox appliance index
 #   access     admins group/users, resource pools, roles, service accounts + API tokens
 #              (a service account's ACLs are set to exactly its configured grants)
+#   templates  LXC templates (LXC_TEMPLATES) from the Proxmox appliance index; VM templates
+#              (VM_TEMPLATES) from checksum-verified cloud images, with cloud-init vendor data
 #   firewall   datacenter default-DROP + admin ipset (auto-rollback unless confirmed)
 #   notify     root@pam email; SMTP notification target + alert/backup matchers
 #              (the SMTP part only if NOTIFY_SMTP_ENABLE=yes)
@@ -47,8 +48,8 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.6"
-readonly ALL_STAGES=(preflight repos system network kernel nas storage templates access firewall notify pbs backups acme verify)
+readonly VERSION="2026.11.7"
+readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
@@ -779,11 +780,43 @@ template_present() {
   { pveam list "$1" 2>/dev/null || true; } | template_matches "$2" 1
 }
 
+# ensure_vm_template "vmid|name|storage|pool|vlan|base-url|file" — build the template if the VMID is free
+ensure_vm_template() {
+  local vmid name storage pool vlan base file cfg tmp sum
+  IFS='|' read -r vmid name storage pool vlan base file <<<"$1"
+  if cfg=$(qm config "$vmid" 2>/dev/null); then
+    if grep -qx 'template: 1' <<<"$cfg" && grep -qx "name: ${name}" <<<"$cfg"; then ok "VM template ${vmid} ${name}"
+    else warn "VMID ${vmid} exists but isn't template '${name}' — left alone"; fi
+    return 0
+  fi
+  change "create VM template ${vmid} ${name} from ${file} (disk on ${storage}, pool ${pool}, NIC VLAN ${vlan})"
+  if ! is_apply; then
+    info "[plan] download ${base}/${file}, check it against SHA512SUMS, qm create, import the disk, add a cloud-init drive, qm template"
+    return 0
+  fi
+  tmp=$(mktemp -d /var/tmp/phoenix-template.XXXXXX)
+  info "downloading ${file} ..."
+  curl -fsSL --proto =https --tlsv1.2 -o "${tmp}/${file}" "${base}/${file}"
+  curl -fsSL --proto =https --tlsv1.2 -o "${tmp}/SHA512SUMS" "${base}/SHA512SUMS"
+  if ! (cd "$tmp" && grep -E " [*]?${file}\$" SHA512SUMS | sha512sum -c --status); then
+    rm -rf "$tmp"; die "${file}: SHA512 doesn't match ${base}/SHA512SUMS — template not created"
+  fi
+  sum=$(grep -E " [*]?${file}\$" "${tmp}/SHA512SUMS" | cut -c1-16)
+  ok "${file} SHA512 ${sum}… matches"
+  run qm create "$vmid" --name "$name" --pool "$pool" --ostype l26 --machine q35 --cpu x86-64-v2-AES \
+    --cores 1 --memory 1024 --scsihw virtio-scsi-single --net0 "virtio,bridge=vmbr0,tag=${vlan},firewall=1" \
+    --agent enabled=1 --serial0 socket --vga serial0 --tags "template;debian13" \
+    --description "Built by pve-bootstrap ${VERSION} on $(date +%F) from ${base}/${file} (SHA512 ${sum}...)"
+  run qm set "$vmid" --scsi0 "${storage}:0,import-from=${tmp}/${file},discard=on,ssd=1" \
+    --ide2 "${storage}:cloudinit" --boot order=scsi0 --cicustom "vendor=local:snippets/${CI_VENDOR_SNIPPET}"
+  run qm template "$vmid"
+  rm -rf "$tmp"
+}
+
 stage_templates() {
   section "templates"
-  if [[ ${#LXC_TEMPLATES[@]} -eq 0 ]]; then info "no templates configured — skipped"; return 0; fi
   local entry storage prefix have want
-  for entry in "${LXC_TEMPLATES[@]}"; do
+  for entry in ${LXC_TEMPLATES[@]+"${LXC_TEMPLATES[@]}"}; do
     IFS='|' read -r storage prefix <<<"$entry"
     have=$(template_present "$storage" "$prefix")
     if [[ -n $have ]]; then ok "template ${have}"; continue; fi
@@ -797,6 +830,20 @@ stage_templates() {
     change "download template ${want} to ${storage}"
     run pveam download "$storage" "$want"
   done
+
+  [[ ${#VM_TEMPLATES[@]} -gt 0 ]] || return 0
+  # Vendor data for every guest cloned from a VM template (merged with the user data PVE generates
+  # from the guest's cloud-init settings: user, SSH key, IP).
+  ensure_file "/var/lib/vz/snippets/${CI_VENDOR_SNIPPET}" 0644 <<'EOF'
+#cloud-config
+# Managed by PhoenixStack pve-bootstrap.sh: vendor data for guests cloned from VM templates.
+package_update: true
+packages:
+  - qemu-guest-agent
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent]
+EOF
+  for entry in "${VM_TEMPLATES[@]}"; do ensure_vm_template "$entry"; done
 }
 
 # ----------------------------------------------------------------------------
@@ -1562,6 +1609,10 @@ stage_verify() {
   for entry in ${LXC_TEMPLATES[@]+"${LXC_TEMPLATES[@]}"}; do
     IFS='|' read -r storage prefix <<<"$entry"
     check "template ${prefix} on ${storage}" test -n "$(template_present "$storage" "$prefix")"
+  done
+  for entry in ${VM_TEMPLATES[@]+"${VM_TEMPLATES[@]}"}; do
+    id=${entry%%|*}
+    check "VM template ${id}" sh -c "qm config ${id} | grep -qx 'template: 1'"
   done
   for entry in ${PVE_POOLS[@]+"${PVE_POOLS[@]}"}; do
     id=${entry%%|*}
