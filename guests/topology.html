@@ -10,6 +10,7 @@
     --svc: #edf3fb; --svc-line: #9dbde3;
     --mgmt: #f0f1f3; --mgmt-line: #b9bec5;
     --pill: #f3f5f7;
+    --ok-bg: #e9f5ec;
     --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   }
@@ -21,6 +22,7 @@
       --svc: #121c27; --svc-line: #35577c;
       --mgmt: #17191c; --mgmt-line: #454b52;
       --pill: #1c2126;
+      --ok-bg: #13251a;
       color-scheme: dark;
     }
   }
@@ -31,6 +33,7 @@
     --svc: #121c27; --svc-line: #35577c;
     --mgmt: #17191c; --mgmt-line: #454b52;
     --pill: #1c2126;
+    --ok-bg: #13251a;
     color-scheme: dark;
   }
   body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
@@ -75,6 +78,28 @@
   .topo .ah { fill: var(--fg); }
   .topo .ah.acc { fill: var(--accent); }
   @media (prefers-reduced-motion: no-preference) { .scroll { scroll-behavior: smooth; } }
+
+  /* Zone matrix */
+  .matrix-sec { margin-top: 40px; }
+  .matrix-sec > p { color: var(--muted); max-width: 75ch; margin: 0 0 12px; }
+  .mx { border-collapse: separate; border-spacing: 4px; min-width: 820px; font-size: 0.86rem; }
+  .mx th { font-weight: 600; text-align: left; padding: 6px 8px; color: var(--muted); white-space: nowrap; }
+  .mx thead th { text-align: center; }
+  .mx th small { display: block; font-weight: 400; font-size: 0.78rem; }
+  .mx td { vertical-align: top; padding: 8px 10px; border-radius: 6px; border: 1.5px solid transparent; min-width: 110px; }
+  .mx td b { display: block; font-weight: 600; }
+  .mx td span { color: var(--muted); font-size: 0.8rem; }
+  .c-allow { background: var(--ok-bg); }
+  .c-block { background: var(--mgmt); }
+  .c-part  { background: var(--svc); }
+  .c-fwd   { background: var(--dmz); }
+  .c-flag  { border-color: var(--accent) !important; }
+  .c-self  { background: transparent; color: var(--muted); }
+  .flags { list-style: none; padding: 0; display: grid; gap: 10px; max-width: 80ch; counter-reset: f; }
+  .flags li { padding-left: 2.2em; position: relative; }
+  .flags li::before { counter-increment: f; content: counter(f); position: absolute; left: 0; top: 0.05em;
+    width: 1.5em; height: 1.5em; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent);
+    font-size: 0.8rem; display: grid; place-items: center; font-weight: 600; }
 </style>
 
 <div class="wrap">
@@ -285,4 +310,111 @@
       </ul>
     </section>
   </div>
+
+  <section class="matrix-sec">
+    <h2>UDM firewall today</h2>
+    <p>From the read-only export of 2026-11-20, 17:01 (UniFi Network 11.0.99): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <div class="scroll">
+      <table class="mx">
+        <thead>
+          <tr><th>From \ To</th>
+            <th>Internal<small>Young LAN</small></th>
+            <th>Management<small>VLAN 10</small></th>
+            <th>VPN<small>Teleport + 2 sites</small></th>
+            <th>Services<small>VLAN 100</small></th>
+            <th>DMZ<small>VLAN 200</small></th>
+            <th>IOT<small>VLAN 99</small></th>
+            <th>Internet</th>
+            <th>Gateway<small>the UDM itself</small></th></tr>
+        </thead>
+        <tbody>
+          <tr><th>Internal</th>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-block"><b>Block</b><span>DNS, SSH, 443 to add</span></td>
+            <td class="c-allow c-flag"><b>Allow all</b><span>tighten when the DMZ has guests (3)</span></td>
+            <td class="c-allow"><b>Allow all</b><span>control your devices</span></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-allow"><b>Allow all</b></td>
+          </tr>
+          <tr><th>Management</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>VPN</th>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69: all · sites: NAS 445, Plex 32400</span></td>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow c-flag"><b>Allow all</b><span>tighten when the DMZ has guests (3)</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-allow"><b>Allow all</b></td>
+          </tr>
+          <tr><th>Services</th>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b><span>NAS for docker01 to add</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>DMZ</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>IOT</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block c-flag"><b>Block</b><span>DNS to Pi-hole at L5b (4)</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">same network</td>
+            <td class="c-allow"><b>Allow</b><span>straight out</span></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>Internet</th>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-fwd c-flag"><b>2 forwards</b><span>Plex 32400 → .111; Deployrr ports → .166 (Cloudflare IPs only) (1)</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">—</td>
+            <td class="c-part"><b>VPN ports</b><span>IPsec, WireGuard 20000–20001</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--ok-bg)"></i>allowed</span>
+      <span><i class="sw" style="background:var(--mgmt)"></i>blocked</span>
+      <span><i class="sw" style="background:var(--svc)"></i>limited</span>
+      <span><i class="sw" style="background:var(--dmz)"></i>port forwards</span>
+      <span><i class="sw" style="border-color:var(--accent)"></i>still open</span>
+    </div>
+
+    <h2 style="margin-top:28px">Still open</h2>
+    <ol class="flags">
+      <li><b>Internet-facing hosts on the management network.</b> The two forwards reach docker-temp and PLEX-TEMP on mgmt, with extra ports for docker-temp's current setup. Accepted until those apps move to the DMZ.</li>
+      <li><b>Home and VPN reach the whole DMZ.</b> Nothing is in it yet. When the first DMZ guest arrives, allow only the public ports plus SSH from admin sources.</li>
+      <li><b>IOT DNS through Pi-hole</b> (L5b): IOT's DHCP hands out Pi-hole's address, IOT → Services allows DNS to <code>dns01</code> only, and outbound DNS (53, 853) to the internet is blocked.</li>
+    </ol>
+    <p style="margin-top:14px">Fixed on 2026-11-20: stale port forwards removed; Services DHCP limited to <code>.150</code>–<code>.199</code>; mgmt and IOT each moved to a zone of their own; every zone's access to the UDM limited to DNS, DHCP and ICMP; SSH is off on the UDM and the iDRAC; the Temp site-to-site VPN and unused port lists deleted; pve01's own admin allowlist narrowed to the same sources as the UDM (Young and Porter admin workstations, Teleport).</p>
+  </section>
 </div>

@@ -11,7 +11,7 @@ How things got here is in the git history (`git log -- proxmox/`).
 | Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.27, kernel 7.0.14-29. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/24` (was `/23` until 2026-11-20). IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
 | Pools | `nvme` (mirror, 860G), `ssd` (mirror, 231G), `backup` (RAIDZ1 + special mirror, 3.07T, dataset `backup/pbs`). The `data` pool isn't built: the ASUS Hyper M.2 card and the 990 Pro drives aren't installed. |
 | Access | `aaron@pve` (group `admins`) and `root@pam` have TOTP, in PVE and in PBS. Tokens: `terraform@pve!automation` (unused so far) and `claude-audit@pve!discovery` (secret in 1Password, `(Proxmox) Claude API`). |
-| Admin allowlist | **2026-11-20:** `10.1.1.69/32` (Young admin workstation) and `192.168.2.0/24` (Teleport VPN clients) **applied**, tested over Teleport (SSH, GUI, PBS, SPICE). `10.2.1.69/32` (Porter admin workstation) added to the config, **not applied yet**. Matches the UDM's Management zone. Was `10.1.1.0/24`, `10.2.1.0/24` and `192.168.2.0/24`. Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
+| Admin allowlist | **2026-11-20:** `10.1.1.69/32` (Young admin workstation) and `192.168.2.0/24` (Teleport VPN clients) **applied**, tested over Teleport (SSH, GUI, PBS, SPICE). `10.2.1.69/32` (Porter admin workstation) applied the same day; `verify` passed with 0 warnings. Matches the UDM's Management zone. Was `10.1.1.0/24`, `10.2.1.0/24` and `192.168.2.0/24`. Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
 | Guests | **Restored 2026-11-14**, all running with `onboot: 1`. AMP-TEMP (lxc 100, `ssd`, 10.101.1.190). docker-temp (lxc 999, `nvme`, 10.101.0.166; NAS shares Media and Porter bind-mounted read-write). PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111; GPU01 attached). FTP01 (9000) and INTEL01 (9001) are retired. |
 | Backups (L4) | **Done.** PBS 4.2 on the host, datastore `pve01-local`. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 have run successfully every night since 2026-11-14 (reported by Aaron 2026-11-16). First PBS run: 256 GiB in 29 minutes. Test restore from the NAS passed, at about 24 MiB/s, so restoring every guest from the NAS takes hours. |
 | Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled, and the postfix queue is empty (the undeliverable mail from before the fix was deleted 2026-11-16). |
@@ -57,8 +57,8 @@ How things got here is in the git history (`git log -- proxmox/`).
    the Young LAN also docker-temp's app ports. Port forwards followed the network. Every zone's access to the UDM is
    limited to DNS, DHCP and ICMP. Stale forwards removed; Services DHCP `.150`–`.199`. SSH is **off** on the UDM and
    the iDRAC on purpose (a closed port 22 there isn't a fault). The Temp site-to-site VPN and unused port lists were deleted;
-   two site-to-site VPNs remain (BPorter, RYoung). Still open: narrow pve01's `ADMIN_SOURCES` to match the
-   UDM (the Porter workstation's address is still to come). The zone grid is on the topology page (`guests/topology.html`).
+   two site-to-site VPNs remain (BPorter, RYoung). pve01's `ADMIN_SOURCES` narrowed to match the same day
+   (Young and Porter workstations, Teleport). The zone grid is on the topology page (`guests/topology.html`).
 
 ## For the L5 design
 
