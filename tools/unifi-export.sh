@@ -45,6 +45,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+: "${OP_ACCOUNT:?set OP_ACCOUNT to the PhoenixStack 1Password account (the default 1Password account has no infrastructure vault)}"
 for cmd in curl jq op; do
   command -v "$cmd" >/dev/null || { echo "missing: $cmd" >&2; exit 1; }
 done
