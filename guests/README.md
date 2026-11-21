@@ -121,7 +121,7 @@ gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they ar
 ### UDM rules
 
 Default: block between zones. Then allow only these (each by port, to the named guest where it says so).
-"Admin sources" are the admin workstation `10.1.1.69` and Teleport VPN clients `192.168.2.0/24` (the same list as pve01's `ADMIN_SOURCES`).
+"Admin sources" are the admin workstations `10.1.1.69` (Young) and `10.2.1.69` (Porter) and Teleport VPN clients `192.168.2.0/24` (the same list as pve01's `ADMIN_SOURCES`).
 
 | From | To | Allow |
 | --- | --- | --- |

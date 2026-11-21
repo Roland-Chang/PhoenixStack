@@ -18,6 +18,6 @@ Read [README.md](README.md) first, then [proxmox/REBUILD_STATE.md](proxmox/REBUI
 
 - Shell scripts and configs under `proxmox/` must keep LF line endings (`proxmox/.gitattributes`).
 - pve01 is `10.101.0.11` (mgmt VLAN, reached through the UDM from the admin sources in `ADMIN_SOURCES`:
-  the admin workstation `10.1.1.69` and Teleport VPN clients `192.168.2.0/24`).
+  the admin workstations `10.1.1.69` (Young) and `10.2.1.69` (Porter), and Teleport VPN clients `192.168.2.0/24`).
   Repeated SSH connections from the LAN have been cut off for a few minutes at a time.
   Keep SSH sessions few and long-lived, and use the iDRAC console or tmux for the network/firewall stages.
