@@ -222,8 +222,8 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 5. ~~**Check for old `1XXYY` archives** on `nas-dump`~~ Done 2026-11-20: none, the IDs are clear.
 6. ~~**Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`
    role~~ Written 2026-11-20 (`terraform validate`, `ansible-playbook --syntax-check`). See [Running it](#running-it).
-7. **Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ): applied and checked 2026-11-21 (see below);
-   destroy still to do.
+7. ~~**Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ)~~ Applied, checked and destroyed 2026-11-21
+   (see below). L5a is done.
 
 ## Running it
 
@@ -265,7 +265,8 @@ Run 2026-11-21 on `test01` (LXC, Services, `10.101.1.249`) and `test02` (VM, DMZ
 - [x] From an admin workstation (the laptop, home LAN): SSH to both works. From either: SSH to the admin
       workstation and laptop fails.
 - [x] Each one's firewall drops a port that isn't allowed, logged as `policy DROP` in `/var/log/pve-firewall.log`.
-- [ ] `terraform destroy` removes both cleanly; nothing else on pve01 changes.
+- [x] `terraform destroy` removes both cleanly; nothing else on pve01 changes. 2026-11-21: state is empty; pve01 lists
+      only the template `10001` and the three -TEMP guests, as before.
 
 What the first run found, and fixed:
 
