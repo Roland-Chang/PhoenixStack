@@ -313,7 +313,7 @@
 
   <section class="matrix-sec">
     <h2>UDM firewall today</h2>
-    <p>From the read-only export of 2026-11-20, 17:01 (UniFi Network 11.0.99): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <p>From the read-only export of 2026-11-21, 14:51 (UniFi Network 11.0.99): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
     <div class="scroll">
       <table class="mx">
         <thead>
@@ -330,10 +330,10 @@
         <tbody>
           <tr><th>Internal</th>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
+            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69, 10.1.1.169: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-block"><b>Block</b><span>DNS, SSH, 443 to add</span></td>
-            <td class="c-allow c-flag"><b>Allow all</b><span>tighten when the DMZ has guests (3)</span></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · DNS and 443 for everyone at L5b</span></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · everyone else blocked</span></td>
             <td class="c-allow"><b>Allow all</b><span>control your devices</span></td>
             <td class="c-allow"><b>Allow</b></td>
             <td class="c-allow"><b>Allow all</b></td>
@@ -350,10 +350,10 @@
           </tr>
           <tr><th>VPN</th>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69: all · sites: NAS 445, Plex 32400</span></td>
+            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69, 10.2.1.169: all · sites: NAS 445, Plex 32400</span></td>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-block"><b>Block</b></td>
-            <td class="c-allow c-flag"><b>Allow all</b><span>tighten when the DMZ has guests (3)</span></td>
+            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all</span></td>
+            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · everyone else blocked</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-allow"><b>Allow</b></td>
             <td class="c-allow"><b>Allow all</b></td>
@@ -382,7 +382,7 @@
             <td class="c-block"><b>Block</b><span>replies only</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-block c-flag"><b>Block</b><span>DNS to Pi-hole at L5b (4)</span></td>
+            <td class="c-block c-flag"><b>Block</b><span>DNS to Pi-hole at L5b (2)</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">same network</td>
             <td class="c-allow"><b>Allow</b><span>straight out</span></td>
@@ -412,9 +412,9 @@
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
       <li><b>Internet-facing hosts on the management network.</b> The two forwards reach docker-temp and PLEX-TEMP on mgmt, with extra ports for docker-temp's current setup. Accepted until those apps move to the DMZ.</li>
-      <li><b>Home and VPN reach the whole DMZ.</b> Nothing is in it yet. When the first DMZ guest arrives, allow only the public ports plus SSH from admin sources.</li>
       <li><b>IOT DNS through Pi-hole</b> (L5b): IOT's DHCP hands out Pi-hole's address, IOT → Services allows DNS to <code>dns01</code> only, and outbound DNS (53, 853) to the internet is blocked.</li>
     </ol>
     <p style="margin-top:14px">Fixed on 2026-11-20: stale port forwards removed; Services DHCP limited to <code>.150</code>–<code>.199</code>; mgmt and IOT each moved to a zone of their own; every zone's access to the UDM limited to DNS, DHCP and ICMP; SSH is off on the UDM and the iDRAC; the Temp site-to-site VPN and unused port lists deleted; pve01's own admin allowlist narrowed to the same sources as the UDM (Young and Porter admin workstations, Teleport).</p>
+    <p style="margin-top:8px">Fixed on 2026-11-21: Services and the DMZ open to the admin sources only (Young and Porter admin workstations and laptops, Teleport), with <code>Internal -&gt; DMZ (Block)</code> and <code>VPN -&gt; DMZ (Block)</code> for everyone else; the admin laptops added to the Management rules and to pve01's allowlist; the admin workstations and laptops on the IPS "Detection Exclusions" list, so repeated SSH isn't taken for a scan. Checked with two test guests (one per zone), since destroyed.</p>
   </section>
 </div>
