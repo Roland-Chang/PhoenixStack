@@ -100,6 +100,13 @@ fetch traffic-rules      "/v2/api/site/${SITE}/trafficrules"
 fetch port-forwards      "/api/s/${SITE}/rest/portforward"
 fetch port-profiles      "/api/s/${SITE}/rest/portconf"
 fetch local-dns          "/v2/api/site/${SITE}/static-dns"
+# Newer UniFi versions keep local DNS records with the DNS policies; try both.
+fetch dns-policies       "/v2/api/site/${SITE}/dns-policies"
+# Remote-access VPNs (Teleport, WireGuard/OpenVPN servers): only the site settings whose key
+# names a VPN, so unrelated settings never leave the UDM. x_* secrets are stripped as everywhere.
+fetch vpn-settings       "/api/s/${SITE}/rest/setting" \
+  '{data: [.data[] | select(.key | test("teleport|vpn|wireguard|openvpn"; "i"))]}'
+fetch vpn-servers        "/v2/api/site/${SITE}/vpn/servers"
 # Devices: only what's needed to check switch ports (name, model, ports and their profiles)
 fetch devices            "/api/s/${SITE}/stat/device" \
   '{data: [.data[] | {name, model, type, ip, mac, version,
