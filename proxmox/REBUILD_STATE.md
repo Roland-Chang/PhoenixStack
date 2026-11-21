@@ -59,6 +59,11 @@ How things got here is in the git history (`git log -- proxmox/`).
    the iDRAC on purpose (a closed port 22 there isn't a fault). The Temp site-to-site VPN and unused port lists were deleted;
    two site-to-site VPNs remain (BPorter, RYoung). pve01's `ADMIN_SOURCES` narrowed to match the same day
    (Young and Porter workstations, Teleport). The zone grid is on the topology page (`guests/topology.html`).
+10. **1Password clean-up, after the rebuild** (reviewed 2026-11-20, deferred by Aaron): retire the old design's items
+    (its automation service account and tokens, the old Proxmox API fields, logins for guests that never ran),
+    retire the -TEMP guests' items as their apps move, move items that aren't lab secrets out of the lab vaults,
+    keep lab secrets in `infrastructure`, and use one naming pattern, `(Category) - Name`. The item-by-item list
+    is kept outside this public repo.
 
 ## For the L5 design
 
