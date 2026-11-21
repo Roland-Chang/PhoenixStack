@@ -16,7 +16,7 @@ all:
     domain: int.phoenixstack.net
     # Admin sources: the same list as pve01's ADMIN_SOURCES (proxmox/config/pve01.conf)
     # and the UDM's Management rules. Keep the three in step.
-    admin_sources: [10.1.1.69/32, 10.2.1.69/32, 192.168.2.0/24]
+    admin_sources: [10.1.1.69/32, 10.1.1.169/32, 10.2.1.69/32, 192.168.2.0/24]
     # Home and VPN client networks ("lan" in firewall_in).
     lan_sources: [10.1.1.0/24, 10.2.1.0/24, 10.3.1.0/24, 192.168.2.0/24]
     # Public keys allowed to log in as the admin user (and as root on a new container).
