@@ -222,7 +222,8 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 5. ~~**Check for old `1XXYY` archives** on `nas-dump`~~ Done 2026-11-20: none, the IDs are clear.
 6. ~~**Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`
    role~~ Written 2026-11-20 (`terraform validate`, `ansible-playbook --syntax-check`). See [Running it](#running-it).
-7. **Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ): plan, apply, run `base`, check, then destroy.
+7. **Test guests** `test01` (LXC, Services) and `test02` (VM, DMZ): applied and checked 2026-11-21 (see below);
+   destroy still to do.
 
 ## Running it
 
@@ -252,15 +253,31 @@ ansible-playbook site.yml -l test02
 
 ## Done when (test guests)
 
-- [ ] `terraform apply` creates both in pool `terraform`; a second `plan` shows no changes.
-- [ ] The token can't change the -TEMP guests or the host (an API call to each fails with 403).
-- [ ] `base` runs clean on both; a second run reports no changes. Root SSH login is refused.
-- [ ] From each: `10.101.0.11` ports 22, 8006, 8007, the iDRAC and the NAS admin page don't answer;
-      `apt update` works.
-- [ ] From `test02` (DMZ): nothing in Services answers except the ports the rules allow.
-- [ ] From an admin LAN and the VPN: SSH to both works. From either: SSH to an admin workstation fails.
-- [ ] Each one's firewall drops a port that isn't allowed (seen in `/var/log/pve-firewall.log`).
-- [ ] `terraform destroy` removes both cleanly; the UDM DNS records are removed.
+Run 2026-11-21 on `test01` (LXC, Services, `10.101.1.249`) and `test02` (VM, DMZ, `10.101.2.248`):
+
+- [x] `terraform apply` creates both in pool `terraform`; a second `plan` shows no changes.
+- [x] The token can't change the -TEMP guests or the host: it holds no permissions on `/vms/100`, `/vms/999`,
+      `/vms/9999` or `/`, and reading their configs, the host's log or its updates returns 403.
+- [x] `base` runs clean on both; a second run reports `changed=0`. Root SSH login is refused.
+- [x] From each: `10.101.0.11` ports 22, 8006, 8007, the iDRAC, the NAS (443, 22) and the UDM's admin page don't
+      answer; `apt update` and DNS work.
+- [x] From `test02` (DMZ) and `test01` (Services): the other zone's guest doesn't answer.
+- [x] From an admin workstation (the laptop, home LAN): SSH to both works. From either: SSH to the admin
+      workstation and laptop fails.
+- [x] Each one's firewall drops a port that isn't allowed, logged as `policy DROP` in `/var/log/pve-firewall.log`.
+- [ ] `terraform destroy` removes both cleanly; nothing else on pve01 changes.
+
+What the first run found, and fixed:
+
+| Found | Fix |
+| --- | --- |
+| Proxmox checks tags against `/vms/<vmid>` only, so a pool-scoped token can't set them when creating a guest | No tags (see Terraform decisions) |
+| A VM referencing the vendor snippet needs `Datastore.AllocateSpace` on `local` | `PVEDatastoreUser` on `/storage/local` |
+| The UDM had no admin rules into Services; Internal and VPN reached the whole DMZ | `Young/Porter/VPN Admin -> Services/DMZ` rules, then `Internal -> DMZ (Block)` and `VPN -> DMZ (Block)` |
+| The UDM's IPS blocked repeated SSH from the home LAN | IPS Detection Exclusions for the Young admin workstation and laptop (REBUILD_STATE item 11) |
+| `/etc/systemd/journald.conf.d` doesn't exist on Debian 13 | The `base` role creates it |
+| The Debian container template has systemd hold port 22 (`ssh.socket`), so reloading sshd stops it | The `base` role restarts sshd there and reloads it elsewhere |
+| A dry run on a new container can't check the admin user's keys (the user isn't created yet) | Skipped in that one case |
 
 ## Open decisions
 
