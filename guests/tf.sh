@@ -17,7 +17,7 @@
 set -Eeuo pipefail
 
 # 1Password references. Item IDs, not names: names with parentheses can't be used in op:// paths.
-TOKEN_REF="${TOKEN_REF:-op://Private/wbplxj3tdgerb2u2txjaf3ryke/credential}"   # (Proxmox) Terraform Token
+TOKEN_REF="${TOKEN_REF:-op://infrastructure/77alo4tqtgsujttuvcwslaukwe/credential}"   # (Proxmox) Terraform Token
 TOKEN_ID="terraform@pve!automation"
 STATE_VAULT="${STATE_VAULT:-infrastructure}"
 STATE_DOC="PhoenixStack guests terraform.tfstate"
