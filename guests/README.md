@@ -227,8 +227,8 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 
 ## Running it
 
-From an admin workstation (Young or Porter workstation, or Teleport), with `OP_ACCOUNT` set for the PhoenixStack
-1Password account and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
+From an admin workstation or laptop (Young or Porter, or over Teleport), with `OP_ACCOUNT` set for the PhoenixStack
+1Password account (the `phx` alias, see the admin-workstation notes in [../proxmox/README.md](../proxmox/README.md)) and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
 
 ```bash
 # Terraform: the wrapper reads the API token from 1Password and saves the state there after changes
