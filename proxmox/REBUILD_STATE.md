@@ -51,12 +51,13 @@ How things got here is in the git history (`git log -- proxmox/`).
    3. pve01: `pve-sync`; `--stage network` (plan: only the address mask should change); `--apply --stage network`; type `keep`.
    4. Check: `ip -br addr show vmbr0` shows `/24`; `verify` passes; NAS mounts; apps through the port forwards;
       guests pick up the `/24` at their next DHCP renewal (or restart them).
-9. **UniFi zones** (2026-11-20, by Aaron, checked with `tools/unifi-export.sh`): mgmt and IoT each moved from shared
-   zones to their own (**Management**, **IoT**). Into Management: the admin workstation `10.1.1.69` and Teleport
+9. **UniFi zones** (2026-11-20, by Aaron, checked with `tools/unifi-export.sh`): mgmt and IOT each moved from shared
+   zones to their own (**Management**, **IOT**). Into Management: the admin workstation `10.1.1.69` and Teleport
    (`192.168.2.0/24`) get everything; the Young LAN and the site-to-site VPNs only the NAS (SMB) and PLEX-TEMP (Plex);
    the Young LAN also docker-temp's app ports. Port forwards followed the network. Every zone's access to the UDM is
    limited to DNS, DHCP and ICMP. Stale forwards removed; Services DHCP `.150`–`.199`. SSH is **off** on the UDM and
-   the iDRAC on purpose (a closed port 22 there isn't a fault). Still open: narrow pve01's `ADMIN_SOURCES` to match the
+   the iDRAC on purpose (a closed port 22 there isn't a fault). The Temp site-to-site VPN and unused port lists were deleted;
+   two site-to-site VPNs remain (BPorter, RYoung). Still open: narrow pve01's `ADMIN_SOURCES` to match the
    UDM (the Porter workstation's address is still to come). The zone grid is on the topology page (`guests/topology.html`).
 
 ## For the L5 design
