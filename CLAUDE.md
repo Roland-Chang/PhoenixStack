@@ -18,8 +18,8 @@ Read [README.md](README.md) first, then [proxmox/REBUILD_STATE.md](proxmox/REBUI
 
 - Shell scripts and configs under `proxmox/` must keep LF line endings (`proxmox/.gitattributes`).
 - pve01 is `10.101.0.11` (mgmt VLAN, reached through the UDM from the admin sources in `ADMIN_SOURCES`:
-  the admin workstations `10.1.1.69` (Young) and `10.2.1.69` (Porter), Aaron's laptop `10.1.1.169` on the home LAN,
-  and Teleport VPN clients `192.168.2.0/24`).
+  the Young admin workstation and laptop `10.1.1.69` and `10.1.1.169`, the Porter admin workstation and laptop
+  `10.2.1.69` and `10.2.1.169`, and Teleport VPN clients `192.168.2.0/24`).
   Repeated SSH from the home LAN used to be cut off for a few minutes: the UDM's IPS took it for an SSH scan.
   Fixed 2026-11-21 by putting the admin workstation and laptop on the IPS "Detection Exclusions" list. If SSH
   times out while ping and the GUI work, check that list first (e.g. for a new admin address).
