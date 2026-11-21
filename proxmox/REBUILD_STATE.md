@@ -71,4 +71,7 @@ The draft is in [../guests/README.md](../guests/README.md) (2026-11-18); it answ
 - **Applied 2026-11-20** (bootstrap 2026.11.6, `templates,access`, reported by Aaron): pool `terraform` created, the
   `terraform@pve` token narrowed to it (no grant on `/` any more), Debian 13 template `debian-13-standard_13.6-1_amd64`
   on `local`.
+- **Applied 2026-11-20** (bootstrap 2026.11.7, `access,templates`): pool `templates` with VM template `10001`
+  `debian13-cloud` (Debian 13 genericcloud, SHA512-checked; NIC VLAN 100; guest-agent vendor snippet); Terraform may
+  only clone there, and its network grant is VLANs 100 and 200 only. Checked through the read-only API.
 - Both backup copies are in the same building. An offsite copy is an open decision.

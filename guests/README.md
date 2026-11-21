@@ -4,8 +4,8 @@ Purpose: how PhoenixStack guests are placed on the network, created (Terraform) 
 This is **L5a**: the groundwork every service builds on. The first service on it is DNS (L5b, Pi-hole).
 The host (L0–L4) is in [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status: **design, 2026-11-20.** Applied so far: mgmt back to `/24`, the Terraform token narrowed, the Debian 13
-container template downloaded. The topology diagram is [topology.html](topology.html)
+Status: **design, 2026-11-20.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
+its pools and VLANs 100/200, the Debian 13 container template and VM template `10001`. The topology diagram is [topology.html](topology.html)
 (published: <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
 ## Scope
@@ -216,8 +216,8 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 2. ~~**Bootstrap 2026.11.6:** pool `terraform`, narrowed token, Debian 13 container template~~ Done 2026-11-20.
 3. ~~**UniFi:** Services (VLAN 100) and DMZ (VLAN 200) networks and zones, and the starting rules~~ Done 2026-11-20,
    with a Management and an IOT zone as well (see [topology.html](topology.html) and REBUILD_STATE item 9).
-4. **Bootstrap 2026.11.7:** pool `templates`, the token's network grant narrowed to VLANs 100 and 200, the VM
-   template (`10001`). Plan, review, `--apply --stage access,templates`.
+4. ~~**Bootstrap 2026.11.7:** pool `templates`, the token's network grant narrowed to VLANs 100 and 200, the VM
+   template (`10001`)~~ Done 2026-11-20; checked through the read-only API (template, pool, token grants).
 5. **Check for old `1XXYY` archives** on `nas-dump` (`ls /mnt/nas/nas-dump/dump/ | grep -E 'vzdump-(lxc|qemu)-1[0-9]{4}-'`),
    so a new guest's backups can't be confused with an old guest's.
 6. **Repo:** `guests/inventory.yml`, `guests/terraform/` (`lxc` and `vm` modules), `guests/ansible/` with the `base`
