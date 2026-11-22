@@ -316,12 +316,14 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
 
 ## Operating notes
 
-- **Admin workstation.** Three things on the machine you administer from:
-  1. An alias that copies this folder to the host. In `~/.bash_aliases`:
-     `alias pve-sync='scp -r ~/Desktop/phoenix-stack-claude/PhoenixStack/proxmox/. root@10.101.0.11:/root/phoenix/'`.
-     The `/.` matters: without it, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
-     And one for the 1Password account (the CLI's default account isn't the one with the lab vaults), used by `guests/tf.sh`, `tools/unifi-export.sh` and `op`:
-     `alias phx='export OP_ACCOUNT=<Family account ID>; cd ~/Desktop/phoenix-stack-claude/PhoenixStack'`. Run `phx` once per terminal.
+- **Admin workstation.** Three things on the machine you administer from (a new computer or a colleague: clone the repo, then these):
+  1. The repo's shell shortcuts, [tools/phx-shell.sh](../tools/phx-shell.sh) (bash and zsh). Add one line to `~/.bash_aliases` (or `~/.zshrc`):
+     `source <your clone>/tools/phx-shell.sh`, and put your 1Password account ID (the CLI's default account may not be the one
+     with the lab vaults; `op account list` shows the IDs) in `~/.config/phoenixstack/env`, outside the repo:
+     `PHX_OP_ACCOUNT=<account ID>`. It gives:
+     - `phx`: sets `OP_ACCOUNT` for this terminal and goes to the repo. Needed by `guests/tf.sh`, `tools/unifi-export.sh` and `op`. Run it once per terminal.
+     - `apb`: `ansible-playbook`, run from `guests/ansible` (where `ansible.cfg` is) from any directory, e.g. `apb dns.yml -l dns01 --check --diff`.
+     - `pve-sync`: copies this folder to the host (`/root/phoenix`). The script copies `proxmox/.`; without the `/.`, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
   2. SSH uses the 1Password agent for the host under every name you type. SSH matches `Host` rules against the name typed, not the address, so list them all in `~/.ssh/config`:
      `Host 10.101.0.* pve01 pve01.int.phoenixstack.net` with `IdentityAgent ~/.1password/agent.sock` and `User root`.
   3. Over the VPN, a hosts entry `10.101.0.11 pve01.int.phoenixstack.net` (and `pve01`, if you use the short name). The UniFi WiFiman client sends all lookups to public DNS, where the zone's wildcard record answers instead of the UDM. On the home LAN the UDM's record is enough.
