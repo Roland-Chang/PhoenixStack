@@ -88,33 +88,42 @@ supported data-centre cards; neither the P2000 nor the 3070 qualifies).
 
 ### Address scheme
 
-From the archived design, kept as it was where its sources agree. Where they disagreed, the scheme document
-(`MAC_ADDRESS_SCHEME.md` and `INFRASTRUCTURE_DESIGN.md`) wins over the archived Terraform files.
+From the archived design (`02:aa:bb:cc:XX:YY` MACs, `1XXYY` VMIDs, the tier codes), with one change: **realigned
+2026-11-22** so the last octet spells the same code and instance as the MAC and VMID. The archive's octets followed
+no rule (code 01 had `.21`, code 05 `.81`, code 09 `.111`).
 
 - **MAC:** `02:aa:bb:cc:XX:YY`. `02` = locally administered unicast; `XX` = tier code; `YY` = instance.
 - **VMID:** `1XXYY`, same code and instance.
-- **IP:** `10.101.<zone>.<octet>`, where the third octet is the zone (1 = Services, 2 = DMZ). The last octet is
-  unique across both zones, so `.52` is always `docker02`.
+- **IP:** `10.101.<zone>.<octet>`, where the third octet is the zone (1 = Services, 2 = DMZ) and the last octet is
+  **code × 10 + instance**: `pgsql01` is MAC `…:07:01`, VMID `10701`, `10.101.1.71`. The last octet is unique
+  across both zones, so `.102` is always `docker02`.
 - **Name:** `<role><YY>`, e.g. `dns01`.
+- **Limits:** instances `01`–`09` per tier. Codes `01`–`14` fit below DHCP (`.150`–`.199`); a code from 15 on would
+  need the DHCP range moved first. Test (`99`) is the one exception.
+- **Lookalikes:** the zone octet tells them apart, but note that `10.101.1.11` (`bastion01`) isn't pve01
+  (`10.101.0.11`), and `10.101.1.101` (`docker01`) isn't the NAS (`10.101.0.101`).
 
 | Code | Tier | VMIDs | Zone | Last octet | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 00 | Templates | 100YY | — | — | New. `10001` = Debian 13 cloud-init VM template. |
-| 01 | Bastion / Ansible | 101YY | Services | `.21`, `.22` | Archive also had `.20`/`.21` (Terraform); the scheme document's `.21`/`.22` kept. |
-| 02 | DNS (Pi-hole) | 102YY | Services | `.201`, `.202` | Both on pve01 (2026-11-21). Off-host DNS: a Pi-hole on the Porter network, later. |
+| 01 | Bastion / Ansible | 101YY | Services | `.11`, `.12` | |
+| 02 | DNS (Pi-hole) | 102YY | Services | `.21`, `.22` | `dns01`, `dns02`, both on pve01 (were `.201`/`.202` until 2026-11-22). Off-host DNS: a Pi-hole on the Porter network, later. |
 | 03 | Proxy | 103YY | — | `.31`, `.32` | Reserved. Traefik runs as a container on each zone's Docker host. |
 | 04 | Authentik | 104YY | Services | `.41`, `.42` | |
-| 05 | Game server (AMP) | 105YY | DMZ | `.81`, `.82` | Archived Terraform used code 11. |
+| 05 | Game server (AMP) | 105YY | DMZ | `.51`, `.52` | |
 | 06 | Media (Plex / Jellyfin) | 106YY | DMZ | `.61`, `.62` | `plex01` gets the P2000. |
-| 07 | Database | 107YY | Services | `.71`–`.79` | pgsql01/02 `.71`/`.72`, mariadb01 `.73`. |
-| 08 | Monitor | 108YY | Services | `.91`, `.92` | Archived Terraform used code 09. |
-| 09 | Vault | 109YY | Services | `.111`, `.112` | **Moved:** the archive gave Vault `.81` (AMP's) or `.101` (the NAS's on mgmt). Archived Terraform used code 05. |
-| 10 | Docker host | 110YY | 01 Services, 02 DMZ | `.51`, `.52` | |
-| 11 | Backup | 111YY | Services | `.121` | Archived Terraform used code 08; no IP in the archive. |
-| 12 | AI | 112YY | Services | `.131` | New, proposed. `ai01` gets the RTX 3070 (not fitted yet). |
-| 99 | Test (throwaway) | 199YY | both | `.248`, `.249` | New. `test01` = LXC in Services (`10.101.1.249`); `test02` = VM in the DMZ (`10.101.2.248`). |
+| 07 | Database | 107YY | Services | `.71`–`.79` | `pgsql01`/`pgsql02` `.71`/`.72`, `mariadb01` `.73`. |
+| 08 | Monitor | 108YY | Services | `.81`, `.82` | |
+| 09 | Vault | 109YY | Services | `.91`, `.92` | |
+| 10 | Docker host | 110YY | 01 Services, 02 DMZ | `.101`, `.102` | |
+| 11 | Backup | 111YY | Services | `.111` | |
+| 12 | AI | 112YY | Services | `.121` | New, proposed. `ai01` gets the RTX 3070 (not fitted yet). |
+| 99 | Test (throwaway) | 199YY | both | `.248`, `.249` | The exception to the rule. `test01` = LXC in Services (`10.101.1.249`); `test02` = VM in the DMZ (`10.101.2.248`). |
 
-Free for new tiers: `.100`–`.149` (except those above) and `.203`–`.247`. DHCP: `.150`–`.199`.
+The archived Terraform files used other codes for some tiers (AMP 11, Monitor 09, Vault 05, Backup 08); the scheme
+document's codes were kept.
+
+Free for new tiers: codes `13` and `14` (`.131`–`.149`). Above DHCP, `.200`–`.247` are unused. DHCP: `.150`–`.199`.
 Infrastructure on mgmt (`10.101.0.0/24`) keeps its original addresses: iDRAC `.1`, pve01 `.11`, NAS `.101`,
 gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they are rebuilt.
 
@@ -126,7 +135,7 @@ Default: block between zones. Then allow only these (each by port, to the named 
 | From | To | Allow |
 | --- | --- | --- |
 | Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` |
-| LAN and VPN clients | Services | `53` → `dns01`; `443` → `docker01` |
+| LAN and VPN clients | Services | `53` → `dns01`, `dns02`; `443` → `docker01` |
 | LAN and VPN clients | DMZ | The same ports as the internet (so public names also work at home) |
 | Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page |
 | Admin sources | Management | As today (pve01's own firewall also limits to admin sources) |
@@ -291,13 +300,13 @@ What the first run found, and fixed:
 | The Debian container template has systemd hold port 22 (`ssh.socket`), so reloading sshd stops it | The `base` role restarts sshd there and reloads it elsewhere |
 | A dry run on a new container can't check the admin user's keys (the user isn't created yet) | Skipped in that one case |
 
-## L5b: DNS (`dns01`)
+## L5b: DNS (`dns01`, `dns02`)
 
 **Applied 2026-11-21** and checked from the admin laptop (results below). Not in use by any client yet.
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Guests | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.201`. `dns02` (added 2026-11-21): LXC `10202`, MAC `02:aa:bb:cc:02:02`, `10.101.1.202`. Both in Services, 1 core, 512 MiB, 8 GB on `ssd`, start order 1, configured identically by the same roles. | Address scheme tier 02. Pi-hole and Unbound install natively. Two resolvers keep DNS up while one is patched (`patch.yml` does one guest at a time). |
+| Guests | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.21`. `dns02` (added 2026-11-21): LXC `10202`, MAC `02:aa:bb:cc:02:02`, `10.101.1.22`. (Both were `.201`/`.202` until the re-address of 2026-11-22.) Both in Services, 1 core, 512 MiB, 8 GB on `ssd`, start order 1, configured identically by the same roles. | Address scheme tier 02. Pi-hole and Unbound install natively. Two resolvers keep DNS up while one is patched (`patch.yml` does one guest at a time). |
 | Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, both on `dns01`. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
 | Upstream | **Option A** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of the DNS path. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT (option D), a config change only. |
 | Blocking | **Off** (decided 2026-11-21): no blocklists installed, `dns.blocking.active = false`. | Local names first; turn blocking on later as its own step. |
@@ -306,7 +315,7 @@ What the first run found, and fixed:
 | Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources`; `443/tcp` (web interface) and SSH from admin sources. | The UDM only lets admin sources into Services today. Opening `53` to all LAN and VPN clients is a UDM rule, added at rollout. |
 | Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), set on the first run only. | An unattended install sets no password, and without one the web interface is open. |
 | Install | The installer is pinned to a Pi-hole release tag (`v6.6`) and checked by SHA-256 before it runs. It installs the current release, and FTL is checked against Pi-hole's own checksum. Updates are `pihole -up` in the weekly window. | Pi-hole has no Debian package. |
-| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.201` and `10.101.1.202` by hand. LAN DHCP stays on the UDM until they have run for a while. | |
+| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.21` and `10.101.1.22` by hand. LAN DHCP stays on the UDM until they have run for a while. | |
 | Redundancy | **Accepted risk** (2026-11-21, Aaron): both resolvers are on pve01, so a pve01 reboot or failure takes DNS down. Off-host DNS will be a Pi-hole on the Porter network, later. | Covers guest maintenance now; host outages wait for the Porter instance. |
 | Own resolver | `dns01` itself resolves through its gateway (`.254`), not through Pi-hole. | It still has working DNS for updates if Pi-hole is down. |
 
@@ -315,17 +324,17 @@ Steps (each one dry-run first):
 1. 1Password: create item `(Pi-hole) - DNS Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
 2. `guests/tf.sh plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
 3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
-4. Check (below), then set the admin machines' DNS to `10.101.1.201` and `10.101.1.202`, on the home network's profile only
+4. Check (below), then set the admin machines' DNS to `10.101.1.21` and `10.101.1.22` (were `.201`/`.202`), on the home network's profile only
    (away from home the laptop can't reach them). **Done 2026-11-21 on Aaron's laptop** (Linux Mint, NetworkManager profile
    `Auto YOUNG`: `ipv4.dns`, `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`).
    Checked: names resolve through Pi-hole, internal and public. The Young admin workstation is still to do.
 5. Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record, so there's only one copy. Found 2026-11-21: it
    was never used on the Young LAN, because the LAN's DHCP hands out `8.8.8.8`/`8.8.4.4`; the laptop's `/etc/hosts` entry did the work.
    Keep that hosts entry while VPN clients are forced onto public DNS (REBUILD_STATE item 1).
-6. Later, the LAN-wide rollout (a UniFi change): the Young LAN's DHCP DNS from `8.8.8.8` to `10.101.1.201`/`.202`, and a
+6. Later, the LAN-wide rollout (a UniFi change): the Young LAN's DHCP DNS from `8.8.8.8` to `10.101.1.21`/`.22`, and a
    UDM rule letting LAN and VPN clients reach port 53 on both (today only admin sources get into Services).
 
-Done when:
+Done when (run 2026-11-21, against the old addresses `.201`/`.202`):
 
 - [x] `terraform plan` after the apply shows no changes (2026-11-21, with `dns01` and `dns02`).
 - [x] `dns.yml` repeat runs: `changed=0` (twice, 2026-11-21).
@@ -342,6 +351,27 @@ Done when:
 each resolves the other's name): `./guests/tf.sh plan` (expect only `dns02` and its firewall), `apply`,
 then `apb site.yml -l dns02 -e ansible_user=root` and `apb dns.yml -l dns02` (each `--check --diff` first; the
 web password from the same 1Password item), then the same checks against `10.101.1.202`.
+
+**Re-address to `.21`/`.22`** (decided 2026-11-22, with the [address scheme](#address-scheme) realignment; done
+before the LAN rollout, while only the admin laptop uses them). **Applied 2026-11-22**: Terraform updated both
+containers in place (a second `plan`: no changes; state copy in 1Password matches), `dns.yml` changed only
+`dns.hosts` (repeat run `changed=0`). Checked at both new addresses: local names (including each other's), NXDOMAIN
+for unknown names, `example.com`, SERVFAIL for `dnssec-failed.org`, and the web interface. Old host keys removed.
+
+**What went wrong:** one `apply` moved both resolvers at once while the laptop still pointed at the old
+addresses, so the laptop lost DNS (and with it 1Password, which `tf.sh` needs). Aaron switched it back to the UDM's
+DNS. Next time a resolver moves: move one at a time (`./guests/tf.sh apply -target='module.lxc["dns01"]'`),
+point clients at the moved one, then move the other.
+
+Steps as run:
+
+1. `inventory.yml`: the new IPs. `./guests/tf.sh plan`: expect an in-place update of each container's network
+   settings only (same VMID and MAC; no replace). Then `apply`.
+2. `apb dns.yml --check --diff`, then `apb dns.yml`: only `dns.hosts` changes (the two DNS names).
+3. The laptop's NetworkManager profile `Auto YOUNG`: DNS `10.101.1.21`, `10.101.1.22` (done 2026-11-22 by Aaron).
+4. Check: `dig @10.101.1.21 pve01.int.phoenixstack.net` and `dig @10.101.1.22 dns01.int.phoenixstack.net` answer;
+   `ssh` and the web interface work at the new addresses; a second `plan` and `dns.yml` show no changes.
+   Remove the old host keys (`ssh-keygen -R 10.101.1.201`, `-R 10.101.1.202`).
 
 Dry-run limits (seen 2026-11-21): on a brand-new guest, `--check` doesn't refresh the package lists, so the first
 full upgrade shows nothing to do although the real run upgrades. And Pi-hole settings aren't previewed (they go through
@@ -360,7 +390,7 @@ What the first L5b run found, and fixed:
 1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
 2. Plex, Jellyfin, or both?
 3. Which docker-temp apps are public (to `docker02`) and which internal (to `docker01`)?
-4. AI tier code (proposed 12, `.131`).
+4. AI tier code (proposed 12, `.121`).
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.
 7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.

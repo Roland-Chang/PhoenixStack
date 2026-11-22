@@ -7,7 +7,7 @@
 #   kind      lxc | vm
 #   vmid      1XXYY (tier code XX, instance YY)
 #   mac       02:aa:bb:cc:XX:YY (same code and instance)
-#   ip        10.101.<zone>.<octet>; the last octet is unique across zones
+#   ip        10.101.<zone>.<octet>; octet = code x 10 + instance (dns01 = .21), unique across zones
 #   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
@@ -46,7 +46,7 @@ all:
           kind: lxc
           vmid: 10201
           mac: "02:aa:bb:cc:02:01"
-          ip: 10.101.1.201
+          ip: 10.101.1.21
           startup_order: 1
           description: "DNS: Pi-hole with Unbound (L5b)"
           firewall_in:
@@ -58,7 +58,7 @@ all:
           kind: lxc
           vmid: 10202
           mac: "02:aa:bb:cc:02:02"
-          ip: 10.101.1.202
+          ip: 10.101.1.22
           startup_order: 1
           description: "DNS: Pi-hole with Unbound (L5b), second resolver"
           firewall_in:

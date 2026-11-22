@@ -178,13 +178,13 @@
 
         <rect class="node" x="536" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="548" y="134">docker02</text><text class="t-badge" x="722" y="134" text-anchor="end">VM</text>
-        <text class="t-muted" x="548" y="153">.52 · Docker host</text>
+        <text class="t-muted" x="548" y="153">.102 · Docker host</text>
         <rect class="pill" x="546" y="168" width="176" height="30" rx="5"/><text x="556" y="188">Traefik · public routes</text>
         <rect class="pill" x="546" y="206" width="176" height="30" rx="5"/><text x="556" y="226">public web apps</text>
 
         <rect class="node" x="752" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="764" y="134">amp01</text><text class="t-badge" x="938" y="134" text-anchor="end">VM</text>
-        <text class="t-muted" x="764" y="153">.81 · game servers</text>
+        <text class="t-muted" x="764" y="153">.51 · game servers</text>
         <rect class="pill" x="762" y="168" width="176" height="30" rx="5"/><text x="772" y="188">AMP instances</text>
         <rect class="pill" x="762" y="206" width="176" height="30" rx="5"/><text x="772" y="226">direct UDP / TCP</text>
 
@@ -209,7 +209,7 @@
 
         <rect class="node" x="536" y="360" width="196" height="110" rx="8"/>
         <text class="t-name" x="548" y="383">docker01</text><text class="t-badge" x="722" y="383" text-anchor="end">VM</text>
-        <text class="t-muted" x="548" y="401">.51 · Docker host</text>
+        <text class="t-muted" x="548" y="401">.101 · Docker host</text>
         <rect class="pill" x="546" y="410" width="176" height="24" rx="5"/><text x="556" y="427">Traefik · internal routes</text>
         <rect class="pill" x="546" y="439" width="176" height="24" rx="5"/><text x="556" y="456">media mgmt, apps</text>
 
@@ -220,10 +220,10 @@
         <rect class="pill" x="762" y="439" width="176" height="24" rx="5"/><text x="772" y="456">login for every app</text>
 
         <rect class="node" x="968" y="360" width="196" height="110" rx="8"/>
-        <text class="t-name" x="980" y="383">dns01</text><text class="t-badge" x="1154" y="383" text-anchor="end">LXC</text>
-        <text class="t-muted" x="980" y="401">.201 · Pi-hole</text>
-        <rect class="pill" x="978" y="410" width="176" height="24" rx="5"/><text x="988" y="427">local names, blocking</text>
-        <text class="t-muted" x="980" y="456">dns02 .202 later, off-host</text>
+        <text class="t-name" x="980" y="383">dns01 · dns02</text><text class="t-badge" x="1154" y="383" text-anchor="end">LXC</text>
+        <text class="t-muted" x="980" y="401">.21 · .22 · Pi-hole + Unbound</text>
+        <rect class="pill" x="978" y="410" width="176" height="24" rx="5"/><text x="988" y="427">local names, no blocking yet</text>
+        <text class="t-muted" x="980" y="456">both on pve01; off-host one later</text>
 
         <line class="ln" x1="634" y1="470" x2="634" y2="498" marker-end="url(#ah)"/>
         <text x="640" y="489">SQL</text>
@@ -242,7 +242,7 @@
 
         <rect class="node later" x="968" y="500" width="196" height="100" rx="8"/>
         <text class="t-name" x="980" y="523">ai01</text><text class="t-badge" x="1154" y="523" text-anchor="end">VM · GPU</text>
-        <text class="t-muted" x="980" y="541">.131 · local AI</text>
+        <text class="t-muted" x="980" y="541">.121 · local AI</text>
         <rect class="pill" x="978" y="554" width="176" height="26" rx="5"/><text x="988" y="572">RTX 3070, not fitted</text>
 
         <!-- Management -->
@@ -294,7 +294,7 @@
         <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
         <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
         <li>Each GPU belongs to one VM and is shared by the containers inside it: P2000 for media, RTX 3070 for AI.</li>
-        <li>Addresses follow the original scheme: same last octet per tier in every zone, MAC <code>02:aa:bb:cc:XX:YY</code>, VMID <code>1XXYY</code>.</li>
+        <li>Addresses: MAC <code>02:aa:bb:cc:XX:YY</code>, VMID <code>1XXYY</code>, last octet = code × 10 + instance (<code>pgsql01</code> = <code>10701</code>, <code>.71</code>), the same in every zone.</li>
       </ul>
     </section>
     <section>
@@ -303,8 +303,8 @@
         <li>Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?</li>
         <li>Plex, Jellyfin, or both?</li>
         <li>Which docker-temp apps are public (to <code>docker02</code>) and which internal (to <code>docker01</code>)?</li>
-        <li>AI tier code: proposed 12, address <code>.131</code>.</li>
-        <li>A second Pi-hole off pve01, so DNS survives a host reboot.</li>
+        <li>AI tier code: proposed 12, address <code>.121</code>.</li>
+        <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot.</li>
         <li>Monitoring (uptime and service alerts): which zone and when.</li>
         <li>Install the 990 Pro drives (<code>data</code> pool) and the RTX 3070.</li>
       </ul>
