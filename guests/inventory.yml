@@ -1,7 +1,8 @@
 # PhoenixStack guests: the one list both tools read.
 #   Terraform (guests/terraform) creates each host below as a guest on pve01.
 #   Ansible  (guests/ansible)   configures them; this file is its inventory.
-# Design and address scheme: guests/README.md. Add a guest by adding one host entry.
+# Design and address scheme: guests/README.md. Add a guest by adding one host entry, then
+# follow the "New guest checklist" there (Terraform, Ansible, DNS name, UniFi alias, docs).
 #
 # Per host:
 #   kind      lxc | vm

@@ -289,6 +289,28 @@ PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/passw
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
 | Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
+### New guest checklist
+
+Every new guest, in this order (each Terraform and Ansible step dry-run first):
+
+1. **Inventory:** one host entry in [inventory.yml](inventory.yml), addressed by the [scheme](#address-scheme)
+   (MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, octet = code × 10 + instance).
+2. **Terraform:** `./guests/tf.sh plan` (only the new guest and its firewall), then `apply`.
+3. **Baseline:** `apb site.yml -l <guest> -e ansible_user=root` (first run only connects as root).
+4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, ...).
+5. **DNS name:** `apb dns.yml -l dns01`, then `-l dns02`. Pi-hole learns names only from the inventory, so a guest
+   has no name until this runs. One resolver at a time, since clients use them.
+6. **UniFi alias** (by hand, decided 2026-11-22): in UniFi Network, open the client with the guest's MAC, set its
+   name to the guest's name (`pgsql01`) and its note to the inventory `description`. Guests have static addresses,
+   so UniFi never learns their names from DHCP and lists them by MAC only. The alias is a label; DNS doesn't use it.
+   Not scripted: that would need a UniFi account with write access (which can also change firewall rules) for a
+   label on a handful of clients.
+7. **Docs:** the guest's section in this file, the [topology](topology.html) page, and
+   [REBUILD_STATE](../proxmox/REBUILD_STATE.md).
+
+When a guest is destroyed: remove its inventory entry (Terraform destroys it on the next `apply`), re-run step 5,
+and remove its UniFi client entry ("Forget").
+
 ## Done when (test guests)
 
 Run 2026-11-21 on `test01` (LXC, Services, `10.101.1.249`) and `test02` (VM, DMZ, `10.101.2.248`):
@@ -346,7 +368,7 @@ Steps (each one dry-run first):
    (away from home the laptop can't reach them). **Done 2026-11-21 on Aaron's laptop** (Linux Mint, NetworkManager profile
    `Auto YOUNG`: `ipv4.dns`, `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`).
    Checked: names resolve through Pi-hole, internal and public. The Young admin workstation is still to do.
-5. Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record, so there's only one copy. Found 2026-11-21: it
+5. ~~Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record~~ **Done 2026-11-22** (Aaron removed the UDM's local records; the export shows none). Found 2026-11-21: it
    was never used on the Young LAN, because the LAN's DHCP hands out `8.8.8.8`/`8.8.4.4`; the laptop's `/etc/hosts` entry did the work.
    Keep that hosts entry while VPN clients are forced onto public DNS (REBUILD_STATE item 1).
 6. Later, the LAN-wide rollout (a UniFi change): the Young LAN's DHCP DNS from `8.8.8.8` to `10.101.1.21`/`.22`, and a
