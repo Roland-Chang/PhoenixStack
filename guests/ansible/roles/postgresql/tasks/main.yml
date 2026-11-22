@@ -1,0 +1,103 @@
+# PostgreSQL (L5c) from Debian, with the PhoenixStack settings, access rules and nightly dumps.
+# Application databases and their pg_hba lines are added with each application (first: Authentik).
+#
+# A dry run on a brand-new guest only pretends to install the packages, so the steps that need
+# the cluster's folders, the postgres user or the service skip in that one case.
+
+- name: PostgreSQL {{ postgresql_version }} and the snakeoil certificate for TLS
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_version }}"
+      - ssl-cert
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: postgresql_packages
+
+- name: New-guest dry run (nothing installed yet to check against)
+  ansible.builtin.set_fact:
+    postgresql_dry_new: "{{ ansible_check_mode and postgresql_packages.changed }}"
+
+- name: PhoenixStack settings (conf.d/phoenix.conf)
+  ansible.builtin.template:
+    src: phoenix.conf.j2
+    dest: "{{ postgresql_conf_dir }}/conf.d/phoenix.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: Restart postgresql
+  when: not postgresql_dry_new
+
+- name: Access rules (pg_hba.conf)
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reload postgresql
+  when: not postgresql_dry_new
+
+- name: Run PostgreSQL
+  ansible.builtin.service:
+    name: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}"
+    enabled: true
+    state: started
+  when: not postgresql_dry_new
+
+- name: Apply settings now (the dump below needs the running server)
+  ansible.builtin.meta: flush_handlers
+
+# --- Database dump standard -------------------------------------------------
+
+- name: Dump folder, readable by postgres only
+  ansible.builtin.file:
+    path: "{{ db_dump_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+  when: not postgresql_dry_new
+
+- name: Dump script
+  ansible.builtin.copy:
+    src: db-dump
+    dest: /usr/local/sbin/db-dump
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Dump service and nightly timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - db-dump.service
+    - db-dump.timer
+  notify: Reload systemd
+
+- name: Load the new units now
+  ansible.builtin.meta: flush_handlers
+
+- name: Run the timer
+  ansible.builtin.systemd_service:
+    name: db-dump.timer
+    enabled: true
+    state: started
+  when: not postgresql_dry_new
+
+# A new guest gets its first dump at once, so the dump path is proven at setup and the weekly
+# freshness check in patch.yml has something to check before the first night.
+- name: Has a dump ever succeeded?
+  ansible.builtin.stat:
+    path: "{{ db_dump_dir }}/last-ok"
+  register: db_dump_last_ok
+
+- name: First dump (new guests only)
+  ansible.builtin.systemd_service:
+    name: db-dump.service
+    state: started
+  when: not db_dump_last_ok.stat.exists and not postgresql_dry_new

@@ -65,6 +65,19 @@ all:
             - {port: 53, proto: udp, source: lan}
             - {port: 53, proto: tcp, source: lan}
             - {port: 443, proto: tcp, source: admin}
+        # PostgreSQL (L5c). Port 5432 opens per client, together with that client's database
+        # (first: Authentik, in the Authentik step). Until then only SSH and ping.
+        pgsql01:
+          kind: lxc
+          vmid: 10701
+          mac: "02:aa:bb:cc:07:01"
+          ip: 10.101.1.71
+          cores: 2
+          memory: 2048
+          disk_gb: 32
+          storage: nvme
+          startup_order: 2
+          description: "Database: PostgreSQL 17 (L5c)"
     dmz:
       vars:
         zone: dmz

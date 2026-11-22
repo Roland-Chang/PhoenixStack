@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# PhoenixStack settings for PostgreSQL {{ postgresql_version }} (role postgresql). Read after
+# postgresql.conf through Debian's include_dir 'conf.d', so these values win.
+
+# The guest's own address only; who may connect is decided by pg_hba.conf and the Proxmox firewall.
+listen_addresses = 'localhost,{{ ip }}'
+
+# Passwords stored and checked as SCRAM only; network connections must use TLS (pg_hba: hostssl).
+password_encryption = scram-sha-256
+ssl = on
+ssl_cert_file = '/etc/ssl/certs/ssl-cert-snakeoil.pem'
+ssl_key_file = '/etc/ssl/private/ssl-cert-snakeoil.key'
+ssl_min_protocol_version = 'TLSv1.2'
+
+# Memory, sized from the guest's {{ memory }} MiB
+shared_buffers = {{ postgresql_shared_buffers_mb }}MB
+effective_cache_size = {{ postgresql_effective_cache_mb }}MB
+
+# Who connected, from where: worth having on a shared database server.
+log_connections = on

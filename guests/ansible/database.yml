@@ -1,0 +1,13 @@
+# Databases (L5c): PostgreSQL on the pgsql guests. Run after site.yml has set up the guest.
+# Always with --check --diff first.
+#
+#   apb database.yml -l pgsql01 --check --diff
+#   apb database.yml -l pgsql01
+#
+# Application databases are added with each application (first: Authentik). MariaDB (mariadb01)
+# gets its own play here when an app needs it, with the same dump standard.
+
+- name: PostgreSQL
+  hosts: pgsql*
+  roles:
+    - postgresql

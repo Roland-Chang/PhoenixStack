@@ -71,6 +71,24 @@ supported data-centre cards; neither the P2000 nor the 3070 qualifies).
   MySQL/MariaDB. Apps that ship their own special database (Immich) keep it.
 - Nightly database dumps on top of the guest backups: a snapshot of a running database is only crash-consistent.
 
+#### Database dumps
+
+The standard for every database guest (decided 2026-11-22). PostgreSQL first (role `postgresql`); MariaDB gets the
+same when it arrives.
+
+| | Standard | Why |
+| --- | --- | --- |
+| When | Nightly at **00:30**, systemd timer `db-dump.timer` (`Persistent=true`: a run missed while the guest was off happens at boot). | Before `nightly-pbs` (01:00) and `nightly-nas` (03:30), so both carry that night's dumps. |
+| What | Each database separately (PostgreSQL: `pg_dump --format=custom`), plus the roles (`pg_dumpall --globals-only`). | One database or one table can be restored alone; without the roles a restore has no owners. |
+| Check | Each dump is read back (`pg_restore --list`). The day's folder appears only when every dump succeeded. | A bad night never leaves a half set that looks complete. |
+| Where | `/var/backups/db-dump/<YYYY-MM-DD>/` on the guest, owner `postgres`, mode `0700`. Script `/usr/local/sbin/db-dump`. | No NAS mount in the guest (Services can't reach mgmt); the guest backups copy the folder off. |
+| Keep | 7 day folders on the guest. | Each of the 7 nightly guest backups holds its own 7 days, so older dumps can be recovered from a backup. |
+| Watch | A good run writes `last-ok`. The weekly `patch.yml` fails if it's older than 26 hours. | Real alerts come with monitoring (open decision 6). |
+| Restore test | At setup, and after every major version upgrade. | A dump nobody has restored is a hope. |
+
+Restore one database: `sudo -u postgres pg_restore --create --dbname=postgres /var/backups/db-dump/<day>/<db>.dump`
+(drop the old one first, or restore under a new name).
+
 ## Decisions
 
 | Area | Decision | Why |
@@ -269,7 +287,7 @@ PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/passw
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)). `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
+| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ## Done when (test guests)
 
@@ -384,6 +402,43 @@ What the first L5b run found, and fixed:
 | --- | --- |
 | A dry run on a new guest pretends to install packages and users, so service, handler and file-owner steps failed | Those steps skip, or check as root, only in that case |
 | Pi-hole moves `adlists.list` into `/etc/pihole/migration_backup/` when it builds its database, so Ansible re-created it | The two pre-seed files are written only before the install |
+
+## L5c: PostgreSQL (`pgsql01`)
+
+**Applied 2026-11-22** and checked (results below). No application databases yet.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `pgsql01`: unprivileged LXC `10701`, MAC `02:aa:bb:cc:07:01`, `10.101.1.71`, Services. 2 cores, 2 GiB, 32 GB on **`nvme`**, start order 2. | Address scheme tier 07. Databases are I/O-heavy (see Storage). Starts after DNS, before the apps. |
+| Version | **PostgreSQL 17 from Debian 13** (decided 2026-11-22), not the PGDG repository. | Debian's stable major; Authentik needs 14 or later. Security fixes come from Debian's security archive with the daily automatic updates; the PostgreSQL project supports 17 until 2029-11. |
+| Settings | `conf.d/phoenix.conf`: listens on `localhost` and `10.101.1.71`; SCRAM passwords; TLS on (Debian's snakeoil certificate), TLS 1.2 or newer; `shared_buffers` ¼ and `effective_cache_size` ¾ of the guest's memory; connections logged. | Debian's `postgresql.conf` stays untouched, so package updates don't conflict. |
+| Access | `pg_hba.conf`: the `postgres` superuser only locally as the `postgres` OS user (`sudo -u postgres psql`); local SCRAM on `127.0.0.1`. Network clients get one `hostssl … scram-sha-256` line per application database, from that client's address. | Least privilege; no remote superuser, no network login without TLS. |
+| Firewall (PVE) | SSH and ping from admin sources only, for now. `5432/tcp` opens per client, with its database. | Guest-to-guest traffic in VLAN 100 never passes the UDM, so this firewall is the boundary between guests. No UDM change. |
+| Databases | **None yet** (decided 2026-11-22). Authentik's database, role and password (1Password) come with the Authentik step. | One step at a time. |
+| Dumps | The [database dump standard](#database-dumps). | |
+| Ansible | Role `postgresql`, playbook `database.yml` (hosts `pgsql*`; MariaDB later as its own play). `patch.yml` checks the dumps weekly. Minor PostgreSQL updates come with `apt full-upgrade` and restart the server briefly. | Named like `dns.yml`: playbook by function, role by software. |
+| `pgsql02` (`.72`) | Not now (decided 2026-11-22). | A replica on the same host only covers a broken guest, which the dumps and guest backups already cover; it adds patching, lag monitoring, and WAL that piles up while the replica is down. Revisit with a second physical host: then streaming replication (`pg_basebackup -R` with a replication slot capped by `max_slot_wal_keep_size`, TLS and SCRAM) and manual failover (`pg_promote()`). |
+| Service name | Applications connect to **`postgres.int.phoenixstack.net`**, not to `pgsql01` (decided 2026-11-22). Added to `dns_records` in the Authentik step. | A move or a failover is then one DNS change, not a change in every app. |
+
+Steps (each one dry-run first):
+
+1. `./guests/tf.sh plan`: expect only `pgsql01` and its firewall to be created. Then `apply`.
+2. `apb site.yml -l pgsql01 -e ansible_user=root` (`--check --diff`, then for real).
+3. `apb database.yml -l pgsql01` (`--check --diff`, then for real). The real run makes the first dump.
+4. `apb dns.yml -l dns01`, then `-l dns02`: Pi-hole learns the new guest's name from the inventory. Every new guest
+   needs this step (missed at first on 2026-11-22). One resolver at a time, since clients use them.
+
+Done when:
+
+- [x] `terraform plan` after the apply shows no changes (state copy in 1Password matches); `site.yml` and `database.yml` repeat runs: `changed=0`; root SSH refused.
+- [x] `select version()`: PostgreSQL 17.12 (Debian 17.12-0+deb13u1). 5432 on `127.0.0.1`, `[::1]` (both `localhost`) and `10.101.1.71` only. `ssl = on`, TLS 1.2 minimum, SCRAM, `shared_buffers` 512 MB, `effective_cache_size` 1.5 GB, no `pg_hba` errors.
+- [x] `pgsql01.int.phoenixstack.net` resolves to `10.101.1.71` on both resolvers (after step 4).
+- [x] Network login from the guest itself is refused, with and without TLS (`no pg_hba.conf entry`; the TLS attempt shows TLS works). From the laptop, 5432 is dropped.
+- [x] `db-dump.timer` next run 2026-11-23 00:30. The first dump (at setup) wrote `2026-11-22/globals.sql` and `postgres.dump` and `last-ok`; a second run the same day replaced the folder, with no partial folder left.
+- [x] Restore test: scratch database `dumptest` (1,000 rows) dumped, dropped, restored with `pg_restore --create` (1,000 rows back), dropped again, dumps re-run.
+- [x] `apb patch.yml --check -l pgsql01` passes the dump check ("Last good dump: 2026-11-22 11:57").
+- [ ] The next morning: a dump folder from 00:30 (`sudo -u postgres ls /var/backups/db-dump`).
+- [ ] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`).
 
 ## Open decisions
 

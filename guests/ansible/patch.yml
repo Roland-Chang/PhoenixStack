@@ -5,6 +5,8 @@
 #   apb patch.yml --check --diff
 #   apb patch.yml                    (all guests; -l dns01 for one)
 #
+# It also checks that each database guest dumped its databases last night.
+#
 # A guest reboots only when Debian asks for it (/var/run/reboot-required).
 
 - name: Debian updates
@@ -82,3 +84,21 @@
       ansible.builtin.file:
         path: /etc/pihole/adlists.list
         state: absent
+
+# Database dump standard (guests/README.md, "Database dumps"): every database guest writes
+# last-ok after a good nightly dump. Older than 26 hours means last night's dump didn't happen.
+- name: Database dumps are current
+  hosts: pgsql*:mariadb*
+  tasks:
+    - name: When did the last dump succeed?
+      ansible.builtin.stat:
+        path: /var/backups/db-dump/last-ok
+      register: db_dump_last_ok
+
+    - name: Last night's dump succeeded (last-ok under 26 hours old)
+      ansible.builtin.assert:
+        that:
+          - db_dump_last_ok.stat.exists
+          - (ansible_date_time.epoch | int - db_dump_last_ok.stat.mtime | int) < 26 * 3600
+        fail_msg: "No good dump in 26 hours: see 'journalctl -u db-dump' on {{ inventory_hostname }}"
+        success_msg: "Last good dump: {{ '%Y-%m-%d %H:%M' | strftime(db_dump_last_ok.stat.mtime | int) }}"

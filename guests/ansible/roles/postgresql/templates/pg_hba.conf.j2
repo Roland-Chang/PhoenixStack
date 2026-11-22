@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Who may connect, and how (role postgresql). Anything not listed is refused.
+#
+# TYPE    DATABASE  USER      ADDRESS        METHOD
+
+# On the guest: the postgres superuser only as the postgres OS user (sudo -u postgres psql).
+local     all       postgres                 peer
+local     all       all                      peer
+host      all       all       127.0.0.1/32   scram-sha-256
+
+# Network clients: one hostssl line per application database, from that client's address only,
+# added with the application (first: Authentik). Never the postgres superuser, never without TLS.

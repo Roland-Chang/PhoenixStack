@@ -1,0 +1,16 @@
+# PostgreSQL (L5c). Debian 13's own major version, so security updates come from Debian's
+# security archive with the daily unattended upgrades (see guests/README.md, L5c).
+postgresql_version: 17
+postgresql_cluster: main
+postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
+
+# Memory: a quarter of the guest's RAM for shared buffers, three quarters as the planner's
+# estimate of the file cache. `memory` (MiB) comes from the inventory.
+postgresql_shared_buffers_mb: "{{ (memory | int * 0.25) | int }}"
+postgresql_effective_cache_mb: "{{ (memory | int * 0.75) | int }}"
+
+# Database dump standard (guests/README.md, "Database dumps"): nightly at 00:30, before the
+# host's nightly-pbs job at 01:00. Seven day folders are kept on the guest.
+db_dump_dir: /var/backups/db-dump
+db_dump_time: "00:30"
+db_dump_keep_days: 7
