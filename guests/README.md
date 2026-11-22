@@ -315,12 +315,19 @@ Steps (each one dry-run first):
 1. 1Password: create item `(Pi-hole) - DNS Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
 2. `guests/tf.sh plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
 3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
-4. Check (below), then set the admin laptop's DNS to `10.101.1.201`.
-5. Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record once every admin machine uses `dns01` (REBUILD_STATE item 1).
+4. Check (below), then set the admin machines' DNS to `10.101.1.201` and `10.101.1.202`, on the home network's profile only
+   (away from home the laptop can't reach them). **Done 2026-11-21 on Aaron's laptop** (Linux Mint, NetworkManager profile
+   `Auto YOUNG`: `ipv4.dns`, `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`).
+   Checked: names resolve through Pi-hole, internal and public. The Young admin workstation is still to do.
+5. Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record, so there's only one copy. Found 2026-11-21: it
+   was never used on the Young LAN, because the LAN's DHCP hands out `8.8.8.8`/`8.8.4.4`; the laptop's `/etc/hosts` entry did the work.
+   Keep that hosts entry while VPN clients are forced onto public DNS (REBUILD_STATE item 1).
+6. Later, the LAN-wide rollout (a UniFi change): the Young LAN's DHCP DNS from `8.8.8.8` to `10.101.1.201`/`.202`, and a
+   UDM rule letting LAN and VPN clients reach port 53 on both (today only admin sources get into Services).
 
 Done when:
 
-- [ ] `terraform plan` after the apply shows no changes.
+- [x] `terraform plan` after the apply shows no changes (2026-11-21, with `dns01` and `dns02`).
 - [x] `dns.yml` repeat runs: `changed=0` (twice, 2026-11-21).
 - [x] From an admin machine: `dig @10.101.1.201 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.201 nothing.int.phoenixstack.net` returns NXDOMAIN.
 - [x] `dig @10.101.1.201 example.com` resolves. `dig @10.101.1.201 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
@@ -328,7 +335,7 @@ Done when:
       Unbound's SERVFAIL on bad signatures is the protection.
 - [x] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123. (Also present, both harmless: the template's Postfix on localhost:25, and Pi-hole on `[::]:53`
       with no IPv6 address on the guest.) Port 80 from the laptop times out (dropped).
-- [ ] `https://10.101.1.201/admin` asks for the password (`302` to the login page seen with curl; browser login to confirm); a non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
+- [x] `https://10.101.1.201/admin` asks for the password; browser login works on both (2026-11-21). A non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
 - [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
 
 `dns02` (added 2026-11-21, **applied 2026-11-21**; `dns01` re-run to learn its name: only `dns.hosts` changed;
