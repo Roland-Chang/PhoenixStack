@@ -4,7 +4,7 @@ Purpose: how PhoenixStack guests are placed on the network, created (Terraform) 
 This is **L5a**: the groundwork every service builds on. The first service on it is DNS (L5b, Pi-hole).
 The host (L0–L4) is in [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status: **design, 2026-11-20.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
+Status: **L5a done 2026-11-21; L5b (DNS) written 2026-11-21, not applied.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
 its pools and VLANs 100/200, the Debian 13 container template and VM template `10001`. The topology diagram is [topology.html](topology.html)
 (published: <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -235,13 +235,14 @@ From an admin workstation or laptop (Young or Porter, or over Teleport), with `O
 guests/tf.sh plan
 guests/tf.sh apply
 
-# Ansible: first run on a NEW container connects as root (VMs already have the admin user)
+# Ansible: baseline first. The first run on a NEW container connects as root (VMs already have the admin user)
 cd guests/ansible
 ansible-galaxy collection install -r requirements.yml      # once
-ansible-playbook site.yml -l test01 -e ansible_user=root --check --diff
-ansible-playbook site.yml -l test01 -e ansible_user=root
-ansible-playbook site.yml -l test02 --check --diff
-ansible-playbook site.yml -l test02
+ansible-playbook site.yml -l dns01 -e ansible_user=root --check --diff
+ansible-playbook site.yml -l dns01 -e ansible_user=root
+# Then the service's own playbook, as the admin user (here: DNS, see L5b below)
+ansible-playbook dns.yml -l dns01 --check --diff
+PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/password')" ansible-playbook dns.yml -l dns01
 ```
 
 | Piece | Where | Notes |
@@ -249,7 +250,7 @@ ansible-playbook site.yml -l test02
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `base` role: admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
+| Ansible | [ansible/](ansible/) | `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ## Done when (test guests)
 
@@ -280,13 +281,48 @@ What the first run found, and fixed:
 | The Debian container template has systemd hold port 22 (`ssh.socket`), so reloading sshd stops it | The `base` role restarts sshd there and reloads it elsewhere |
 | A dry run on a new container can't check the admin user's keys (the user isn't created yet) | Skipped in that one case |
 
+## L5b: DNS (`dns01`)
+
+Written 2026-11-21, **not applied yet**.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.201` (Services), 1 core, 512 MiB, 8 GB on `ssd`, start order 1. | Address scheme tier 02. Pi-hole and Unbound install natively. |
+| Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, both on `dns01`. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
+| Upstream | **Option A** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of the DNS path. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT (option D), a config change only. |
+| Blocking | **Off** (decided 2026-11-21): no blocklists installed, `dns.blocking.active = false`. | Local names first; turn blocking on later as its own step. |
+| Local names | `dns.hosts` from the inventory: every guest plus `dns_records` (`pve01`). `int.phoenixstack.net` is answered only here (`local=/int.phoenixstack.net/`), so an unknown name gets NXDOMAIN instead of the public wildcard record. | One source of truth. Adding a guest to the inventory adds its name. |
+| Listening | `dns.listeningMode = SINGLE` on `eth0`: answers any source network, on that interface only. | Pi-hole's default (`LOCAL`) ignores clients outside `10.101.1.0/24`. The Proxmox firewall and the UDM decide who gets in. |
+| Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources`; `443/tcp` (web interface) and SSH from admin sources. | The UDM only lets admin sources into Services today. Opening `53` to all LAN and VPN clients is a UDM rule, added at rollout. |
+| Web interface | `https://dns01.int.phoenixstack.net/admin` on port 443 only, with Pi-hole's self-signed certificate for that name. Password from 1Password item `(Pi-hole) - dns01 Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`), set on the first run only. | An unattended install sets no password, and without one the web interface is open. |
+| Install | The installer is pinned to a Pi-hole release tag (`v6.6`) and checked by SHA-256 before it runs. It installs the current release, and FTL is checked against Pi-hole's own checksum. Updates are `pihole -up` in the weekly window. | Pi-hole has no Debian package. |
+| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.201` by hand. LAN DHCP stays on the UDM until `dns01` has run for a while. | No `dns02` yet: when pve01 reboots, DNS goes down with it. |
+| Own resolver | `dns01` itself resolves through its gateway (`.254`), not through Pi-hole. | It still has working DNS for updates if Pi-hole is down. |
+
+Steps (each one dry-run first):
+
+1. 1Password: create item `(Pi-hole) - dns01 Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
+2. `guests/tf.sh plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
+3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
+4. Check (below), then set the admin laptop's DNS to `10.101.1.201`.
+5. Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record once every admin machine uses `dns01` (REBUILD_STATE item 1).
+
+Done when:
+
+- [ ] `terraform plan` after the apply shows no changes; `dns.yml` run twice: second run `changed=0`.
+- [ ] From an admin machine: `dig @10.101.1.201 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.201 nothing.int.phoenixstack.net` returns NXDOMAIN.
+- [ ] `dig @10.101.1.201 example.com` resolves. `dig @10.101.1.201 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
+- [ ] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123.
+- [ ] `https://10.101.1.201/admin` asks for the password; a non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
+- [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
+
 ## Open decisions
 
 1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
 2. Plex, Jellyfin, or both?
 3. Which docker-temp apps are public (to `docker02`) and which internal (to `docker01`)?
 4. AI tier code (proposed 12, `.131`).
-5. A second Pi-hole off pve01, so DNS survives a host reboot. Who uses Pi-hole first, and whether it blocks ads.
+5. A second Pi-hole off pve01, so DNS survives a host reboot. (Settled 2026-11-21: admin machines first, no ad blocking yet, recursive Unbound upstream; see L5b.)
 6. Monitoring (uptime and service alerts): which zone and when.
 7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
 

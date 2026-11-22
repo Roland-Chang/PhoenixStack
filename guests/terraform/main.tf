@@ -21,6 +21,8 @@ locals {
         disk_gb     = try(h.disk_gb, 8)
         storage     = try(h.storage, "ssd")
         description = try(h.description, "")
+        # Boot order on pve01 (DNS 1, databases 2); null leaves it unset.
+        startup_order = try(h.startup_order, null)
         firewall_in = [
           for r in try(h.firewall_in, []) : {
             port   = tostring(r.port)

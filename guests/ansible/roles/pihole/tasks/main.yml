@@ -1,0 +1,108 @@
+# Pi-hole v6 on Debian 13, installed unattended, with no blocklists, Unbound as upstream and the
+# lab's local names. Needs the unbound role first.
+#
+# First run only: the web password comes from the PIHOLE_PASSWORD environment variable
+# (read from 1Password, see guests/README.md). Later runs don't need it.
+#
+# In --check mode only the files before the install are checked: the settings are applied
+# through Pi-hole's own command, which a dry run can't preview.
+
+- name: Pi-hole's system user (owns /etc/pihole; the installer keeps it)
+  ansible.builtin.user:
+    name: pihole
+    system: true
+    shell: /usr/sbin/nologin
+    home: /nonexistent
+    create_home: false
+
+- name: Pi-hole's config folder
+  ansible.builtin.file:
+    path: /etc/pihole
+    state: directory
+    owner: pihole
+    group: pihole
+    mode: "0755"
+
+- name: Empty blocklist file (without it, the unattended installer adds a default blocklist)
+  ansible.builtin.copy:
+    dest: /etc/pihole/adlists.list
+    content: ""
+    owner: pihole
+    group: pihole
+    mode: "0644"
+    force: false
+
+- name: Pre-seeded pihole.toml (without it, the installer asks questions)
+  ansible.builtin.template:
+    src: pihole.toml.j2
+    dest: /etc/pihole/pihole.toml
+    owner: pihole
+    group: pihole
+    mode: "0640"
+    force: false
+
+- name: Download the Pi-hole installer (pinned tag, checked)
+  ansible.builtin.get_url:
+    url: "{{ pihole_installer_url }}"
+    dest: /root/pihole-basic-install.sh
+    checksum: "sha256:{{ pihole_installer_sha256 }}"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install Pi-hole (once)
+  ansible.builtin.command:
+    cmd: bash /root/pihole-basic-install.sh --unattended
+    creates: /usr/bin/pihole-FTL
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+
+# pihole-FTL --config writes pihole.toml (FTL reloads it). The file's header holds a time stamp,
+# so "changed" compares the settings without comment lines.
+- name: Pi-hole settings
+  ansible.builtin.shell: |
+    set -eu
+    toml=/etc/pihole/pihole.toml
+    before=$(grep -vE '^[[:space:]]*#' "$toml" | sha256sum)
+    pihole-FTL --config {{ item.key | quote }} {{ (item.value if item.value is string else item.value | to_json) | quote }} >/dev/null
+    after=$(grep -vE '^[[:space:]]*#' "$toml" | sha256sum)
+    if [ "$before" != "$after" ]; then echo CHANGED; fi
+  args:
+    executable: /bin/bash
+  loop: "{{ pihole_config | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: pihole_setting
+  changed_when: "'CHANGED' in pihole_setting.stdout"
+  notify: Restart pihole-FTL
+  when: not ansible_check_mode
+
+- name: Is the web password set?
+  ansible.builtin.command: pihole-FTL --config webserver.api.pwhash
+  register: pihole_pwhash
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Set the web password (first run only)
+  when:
+    - not ansible_check_mode
+    - pihole_pwhash.stdout | trim | length == 0
+  block:
+    - name: PIHOLE_PASSWORD is set
+      ansible.builtin.assert:
+        that: lookup('ansible.builtin.env', 'PIHOLE_PASSWORD') | length >= 16
+        fail_msg: >-
+          The Pi-hole web interface has no password yet (and without one it's open).
+          Run with PIHOLE_PASSWORD from 1Password (16+ characters); see guests/README.md.
+        quiet: true
+    - name: Set the web password
+      ansible.builtin.command:
+        argv: [pihole, setpassword, "{{ lookup('ansible.builtin.env', 'PIHOLE_PASSWORD') }}"]
+      no_log: true
+      changed_when: true
+
+- name: Run Pi-hole
+  ansible.builtin.service:
+    name: pihole-FTL
+    enabled: true
+    state: started

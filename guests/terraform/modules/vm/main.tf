@@ -21,6 +21,12 @@ locals {
     lan   = join(",", local.c.lan_sources)
     any   = null
   }
+  # Rule comments name the source the same way as the built-in SSH and ping rules.
+  source_labels = {
+    admin = "admin sources"
+    lan   = "LAN sources"
+    any   = "anywhere"
+  }
 }
 
 resource "proxmox_virtual_environment_vm" "this" {
@@ -145,7 +151,7 @@ resource "proxmox_virtual_environment_firewall_rules" "this" {
     content {
       type    = "in"
       action  = "ACCEPT"
-      comment = "${rule.value.proto}/${rule.value.port} from ${rule.value.source}"
+      comment = "${rule.value.proto}/${rule.value.port} from ${lookup(local.source_labels, rule.value.source, rule.value.source)}"
       proto   = rule.value.proto
       dport   = rule.value.port
       source  = lookup(local.sources, rule.value.source, rule.value.source)

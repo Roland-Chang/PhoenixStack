@@ -9,6 +9,7 @@
 #   mac       02:aa:bb:cc:XX:YY (same code and instance)
 #   ip        10.101.<zone>.<octet>; the last octet is unique across zones
 #   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
+#   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
 #                 admin | lan | any | a CIDR. SSH and ping from admin sources are always allowed.
 all:
@@ -24,6 +25,9 @@ all:
       - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDALPhbtjtcR5Pn46UQLyQ7rKWhUp9LzJklbRvH0C/BIBEQuvZYixpnc3eBkLfmN7xPKUKuEF5cgzvPGhAOA5Jflup3Klwa19iSDSbLiOn9kZAWFHL0TwFM2BudrWdlPm7111ueeVQ04PVfHilz6SygzEohlWVhWqGZU5U9rELuEUZYcWQZgmz/oCR+6XVGP7nLFlhV5ZD9S2d776n7goGYKIG5FDb/owDktFbSFXYn2EnYFCf+khF2lHGMVgO9LeawJ80CeGYD6y/TvkfRVQM5u849H1l6YiqA8/IEeoWHfrwuMB6ECYolcGznX894flRZUobYBA2QcFe2xL9KNJhwrqiClDB4BZ34GBKTRDNZedJ0ie2RcsyYob2dPnSNvyYcHg+RYnbJRkfOGbZkCzX3mNe0bMGGraTub2b0DOfo9bjUW+/H9Bv/Ln0qKjBHP7eGGuoCwKAYu/blcAwwSHlk5X1kFpSoDGEuiE5igIFJAsJ2QivVWlU+KoUE5D7Mgg5+f3wME5A6eiZwKfoIX7Trwyc2LCo4X4iFCbp602afD7krFOaWgX3MML6k1aBCTFqHTwzDJrK0KpomBqQO5vHVpHmxQocS/ZJKpuqC0rIUmaRuUkNTKQkQ83Cj+6BDcTQo+GNPUCgNPGu7XXoSML/UC6qAcVo9227h9wqaQebc5w== pve01 root key"
       - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILrvkAKsD6jDuWegn2puiYvJH1Uds+5W+jwteNwmILEm aaron@ayoung-lap"
     admin_user: aaron
+    # DNS names that aren't guests in this file (Pi-hole serves these plus every guest's name).
+    dns_records:
+      pve01: 10.101.0.11
     timezone: America/Denver
     # Ansible connects to the guest's static IP as the admin user. A brand-new container only
     # has root: the first run passes -e ansible_user=root (see guests/README.md).
@@ -38,23 +42,20 @@ all:
         vlan: 100
         gateway: 10.101.1.254
       hosts:
-        test01:
+        dns01:
           kind: lxc
-          vmid: 19901
-          mac: "02:aa:bb:cc:99:01"
-          ip: 10.101.1.249
-          description: "L5a test container (throwaway)"
+          vmid: 10201
+          mac: "02:aa:bb:cc:02:01"
+          ip: 10.101.1.201
+          startup_order: 1
+          description: "DNS: Pi-hole with Unbound (L5b)"
+          firewall_in:
+            - {port: 53, proto: udp, source: lan}
+            - {port: 53, proto: tcp, source: lan}
+            - {port: 443, proto: tcp, source: admin}
     dmz:
       vars:
         zone: dmz
         vlan: 200
         gateway: 10.101.2.254
-      hosts:
-        test02:
-          kind: vm
-          vmid: 19902
-          mac: "02:aa:bb:cc:99:02"
-          ip: 10.101.2.248
-          memory: 1024
-          disk_gb: 10
-          description: "L5a test VM (throwaway)"
+      hosts: {}

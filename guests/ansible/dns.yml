@@ -1,0 +1,14 @@
+# DNS (L5b): Pi-hole with Unbound on the dns guests. Run after site.yml has set up the guest.
+# Always with --check --diff first.
+#
+#   cd guests/ansible
+#   ansible-playbook dns.yml -l dns01 --check --diff
+#   PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/password')" ansible-playbook dns.yml -l dns01
+#
+# PIHOLE_PASSWORD is only needed the first time (it sets the web password).
+
+- name: DNS
+  hosts: dns*
+  roles:
+    - unbound
+    - pihole

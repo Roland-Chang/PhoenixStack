@@ -1,0 +1,45 @@
+# Unbound as a recursive resolver on 127.0.0.1:5335, Pi-hole's only upstream (L5b, option A).
+# Runs before the pihole role: a fresh unbound package listens on 127.0.0.1:53 until its
+# config moves it to 5335, and Pi-hole needs port 53.
+
+- name: Unbound and the DNS test tools (dig)
+  ansible.builtin.apt:
+    name:
+      - unbound
+      - dnsutils
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Unbound listens on 127.0.0.1:5335 for Pi-hole
+  ansible.builtin.copy:
+    src: pi-hole.conf
+    dest: /etc/unbound/unbound.conf.d/pi-hole.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: unbound-checkconf %s
+  notify: Restart unbound
+
+# Debian's unbound-resolvconf would point the guest's resolv.conf at Unbound. The guest itself
+# resolves through its gateway (set by Proxmox), so dns01 keeps working if Pi-hole is down.
+- name: Look for unbound-resolvconf
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/unbound-resolvconf.service
+  register: unbound_resolvconf
+
+- name: Unbound doesn't touch resolv.conf
+  ansible.builtin.systemd_service:
+    name: unbound-resolvconf
+    enabled: false
+    state: stopped
+  when: unbound_resolvconf.stat.exists
+
+- name: Run Unbound
+  ansible.builtin.service:
+    name: unbound
+    enabled: true
+    state: started
+
+- name: Apply Unbound's config now (Pi-hole needs port 53 free)
+  ansible.builtin.meta: flush_handlers
