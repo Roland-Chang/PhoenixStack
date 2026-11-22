@@ -25,8 +25,9 @@ How things got here is in the git history (`git log -- proxmox/`).
 ## Open items
 
 1. Name resolution over VPN: the UDM now has the local record `pve01.int.phoenixstack.net → 10.101.0.11` (added 2026-11-16; checked: the GUI answers by name with a valid certificate when the UDM is asked). VPN clients still use public DNS, where the zone's wildcard record answers instead: the WiFiman app builds the tunnel with `8.8.8.8` for all lookups and recreates it on every connect, so editing the tunnel's settings doesn't last. Until VPN DNS is solved properly (worth doing at L5, when there are more names), a client needs a hosts entry: `10.101.0.11 pve01.int.phoenixstack.net` (done on Aaron's laptop 2026-11-16; the GUI opens by name over VPN with a valid certificate).
-2. Check that the 01:00 `nightly-pbs` run on 2026-11-19 succeeded: it's the first backup through the re-created `pbs-local` storage.
-3. NAS space: it was 77% full before the nightly archives started. Check around 2026-11-21.
+2. ~~Check that the 01:00 `nightly-pbs` run on 2026-11-19 succeeded~~ **Done 2026-11-21:** `pbs-local` has backups of 100, 999 and 9999 from 11-19, 11-20 and 11-21 (01:00 local).
+3. ~~NAS space~~ **Checked 2026-11-21:** `nas-dump` 79.6% used, about 13 TiB free (was 77%). Pruning works: 7 nightly archives per guest (11-15 to 11-21), about 1.65 TiB in all, so usage should now stay flat.
+   Retention never removes the last backups of a guest that no longer exists: delete the 11-21 backups of the test guests `19901`/`19902` on `pbs-local` and `nas-dump` by hand. Also on `nas-dump`, not protected and never pruned: `vzdump-qemu-101-2026_05_08` (45 GB, an older guest that reused ID 101) and `vzdump-qemu-9000-2026_11_10` (10.5 GB, FTP01, retired); decide with item 4. The VM template `10001` is backed up nightly too (296 MB on the NAS); left as is.
 4. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
    `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups
    have a few weeks of history.
