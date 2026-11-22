@@ -38,9 +38,15 @@
       # Read-only, so it runs in --check too and the dry run shows whether an update is due.
       check_mode: false
 
-    - name: Pi-hole versions
+    - name: Pi-hole versions before (installed and latest)
+      ansible.builtin.command: pihole version
+      register: pihole_version_before
+      changed_when: false
+      check_mode: false
+
+    - name: Show Pi-hole versions before
       ansible.builtin.debug:
-        msg: "{{ pihole_check.stdout_lines | select('search', 'Core|Web Interface|FTL|up to date') | list }}"
+        msg: "{{ pihole_version_before.stdout_lines + (pihole_check.stdout_lines | select('search', 'up to date') | list) }}"
 
     # pihole -up (v6.6) exits 1 after a successful core or FTL update (its update.sh ends the
     # installer call with "|| echo ... && exit 1"), so its exit code isn't trusted: the check
@@ -57,6 +63,17 @@
       register: pihole_after
       changed_when: false
       failed_when: "'Everything is up to date' not in pihole_after.stdout"
+      when: pihole_update is changed
+
+    - name: Pi-hole versions after the update
+      ansible.builtin.command: pihole version
+      register: pihole_version_after
+      changed_when: false
+      when: pihole_update is changed
+
+    - name: Show Pi-hole versions after the update
+      ansible.builtin.debug:
+        var: pihole_version_after.stdout_lines
       when: pihole_update is changed
 
     # The installer re-creates the default blocklist file on every update. Pi-hole doesn't read it

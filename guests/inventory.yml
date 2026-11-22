@@ -53,6 +53,18 @@ all:
             - {port: 53, proto: udp, source: lan}
             - {port: 53, proto: tcp, source: lan}
             - {port: 443, proto: tcp, source: admin}
+        # Second resolver on the same host: covers dns01's maintenance, not pve01's (decided 2026-11-21).
+        dns02:
+          kind: lxc
+          vmid: 10202
+          mac: "02:aa:bb:cc:02:02"
+          ip: 10.101.1.202
+          startup_order: 1
+          description: "DNS: Pi-hole with Unbound (L5b), second resolver"
+          firewall_in:
+            - {port: 53, proto: udp, source: lan}
+            - {port: 53, proto: tcp, source: lan}
+            - {port: 443, proto: tcp, source: admin}
     dmz:
       vars:
         zone: dmz

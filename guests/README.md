@@ -101,7 +101,7 @@ From the archived design, kept as it was where its sources agree. Where they dis
 | --- | --- | --- | --- | --- | --- |
 | 00 | Templates | 100YY | — | — | New. `10001` = Debian 13 cloud-init VM template. |
 | 01 | Bastion / Ansible | 101YY | Services | `.21`, `.22` | Archive also had `.20`/`.21` (Terraform); the scheme document's `.21`/`.22` kept. |
-| 02 | DNS (Pi-hole) | 102YY | Services | `.201`, `.202` | `dns02` later, off pve01. |
+| 02 | DNS (Pi-hole) | 102YY | Services | `.201`, `.202` | Both on pve01 (2026-11-21). Off-host DNS: a Pi-hole on the Porter network, later. |
 | 03 | Proxy | 103YY | — | `.31`, `.32` | Reserved. Traefik runs as a container on each zone's Docker host. |
 | 04 | Authentik | 104YY | Services | `.41`, `.42` | |
 | 05 | Game server (AMP) | 105YY | DMZ | `.81`, `.82` | Archived Terraform used code 11. |
@@ -297,21 +297,22 @@ What the first run found, and fixed:
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Guest | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.201` (Services), 1 core, 512 MiB, 8 GB on `ssd`, start order 1. | Address scheme tier 02. Pi-hole and Unbound install natively. |
+| Guests | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.201`. `dns02` (added 2026-11-21): LXC `10202`, MAC `02:aa:bb:cc:02:02`, `10.101.1.202`. Both in Services, 1 core, 512 MiB, 8 GB on `ssd`, start order 1, configured identically by the same roles. | Address scheme tier 02. Pi-hole and Unbound install natively. Two resolvers keep DNS up while one is patched (`patch.yml` does one guest at a time). |
 | Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, both on `dns01`. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
 | Upstream | **Option A** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of the DNS path. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT (option D), a config change only. |
 | Blocking | **Off** (decided 2026-11-21): no blocklists installed, `dns.blocking.active = false`. | Local names first; turn blocking on later as its own step. |
 | Local names | `dns.hosts` from the inventory: every guest plus `dns_records` (`pve01`). `int.phoenixstack.net` is answered only here (`local=/int.phoenixstack.net/`), so an unknown name gets NXDOMAIN instead of the public wildcard record. | One source of truth. Adding a guest to the inventory adds its name. |
 | Listening | `dns.listeningMode = SINGLE` on `eth0`: answers any source network, on that interface only. | Pi-hole's default (`LOCAL`) ignores clients outside `10.101.1.0/24`. The Proxmox firewall and the UDM decide who gets in. |
 | Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources`; `443/tcp` (web interface) and SSH from admin sources. | The UDM only lets admin sources into Services today. Opening `53` to all LAN and VPN clients is a UDM rule, added at rollout. |
-| Web interface | `https://dns01.int.phoenixstack.net/admin` on port 443 only, with Pi-hole's self-signed certificate for that name. Password from 1Password item `(Pi-hole) - dns01 Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`), set on the first run only. | An unattended install sets no password, and without one the web interface is open. |
+| Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), set on the first run only. | An unattended install sets no password, and without one the web interface is open. |
 | Install | The installer is pinned to a Pi-hole release tag (`v6.6`) and checked by SHA-256 before it runs. It installs the current release, and FTL is checked against Pi-hole's own checksum. Updates are `pihole -up` in the weekly window. | Pi-hole has no Debian package. |
-| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.201` by hand. LAN DHCP stays on the UDM until `dns01` has run for a while. | No `dns02` yet: when pve01 reboots, DNS goes down with it. |
+| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.201` and `10.101.1.202` by hand. LAN DHCP stays on the UDM until they have run for a while. | |
+| Redundancy | **Accepted risk** (2026-11-21, Aaron): both resolvers are on pve01, so a pve01 reboot or failure takes DNS down. Off-host DNS will be a Pi-hole on the Porter network, later. | Covers guest maintenance now; host outages wait for the Porter instance. |
 | Own resolver | `dns01` itself resolves through its gateway (`.254`), not through Pi-hole. | It still has working DNS for updates if Pi-hole is down. |
 
 Steps (each one dry-run first):
 
-1. 1Password: create item `(Pi-hole) - dns01 Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
+1. 1Password: create item `(Pi-hole) - DNS Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
 2. `guests/tf.sh plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
 3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
 4. Check (below), then set the admin laptop's DNS to `10.101.1.201`.
@@ -330,6 +331,16 @@ Done when:
 - [ ] `https://10.101.1.201/admin` asks for the password (`302` to the login page seen with curl; browser login to confirm); a non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
 - [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
 
+`dns02` (added 2026-11-21, **applied 2026-11-21**; `dns01` re-run to learn its name: only `dns.hosts` changed;
+each resolves the other's name): `./guests/tf.sh plan` (expect only `dns02` and its firewall), `apply`,
+then `apb site.yml -l dns02 -e ansible_user=root` and `apb dns.yml -l dns02` (each `--check --diff` first; the
+web password from the same 1Password item), then the same checks against `10.101.1.202`.
+
+Dry-run limits (seen 2026-11-21): on a brand-new guest, `--check` doesn't refresh the package lists, so the first
+full upgrade shows nothing to do although the real run upgrades. And Pi-hole settings aren't previewed (they go through
+`pihole-FTL --config`); compare `dns.hosts` and the other values in `roles/pihole/defaults/main.yml` by eye before a
+real run that changes them.
+
 What the first L5b run found, and fixed:
 
 | Found | Fix |
@@ -343,7 +354,7 @@ What the first L5b run found, and fixed:
 2. Plex, Jellyfin, or both?
 3. Which docker-temp apps are public (to `docker02`) and which internal (to `docker01`)?
 4. AI tier code (proposed 12, `.131`).
-5. A second Pi-hole off pve01, so DNS survives a host reboot. (Settled 2026-11-21: admin machines first, no ad blocking yet, recursive Unbound upstream; see L5b.)
+5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.
 7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
 
