@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+# Shared middlewares (role traefik).
+http:
+  middlewares:
+    # Admin sources only: the same list as pve01's ADMIN_SOURCES and the UDM's Management rules.
+    admin-only:
+      ipAllowList:
+        sourceRange:
+{% for s in admin_sources %}
+          - "{{ s }}"
+{% endfor %}

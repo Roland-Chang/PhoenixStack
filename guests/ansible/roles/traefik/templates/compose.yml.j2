@@ -1,0 +1,48 @@
+# {{ ansible_managed }}
+# Internal Traefik (role traefik). Routes: dynamic/*.yml, from the inventory. No Docker socket.
+name: traefik
+
+services:
+  traefik:
+    image: traefik:{{ traefik_version }}
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    networks:
+      - proxy
+    environment:
+      CF_DNS_API_TOKEN_FILE: /run/secrets/cloudflare_token
+    secrets:
+      - cloudflare_token
+    volumes:
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./dynamic:/etc/traefik/dynamic:ro
+      - ./letsencrypt:/letsencrypt
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+{% if traefik_whoami %}
+
+  # Smoke test (route "whoami" in the inventory); removed with that route.
+  whoami:
+    image: traefik/whoami:{{ whoami_version }}
+    restart: unless-stopped
+    networks:
+      - proxy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+{% endif %}
+
+# Apps on this host join "proxy" to be reached by Traefik.
+networks:
+  proxy:
+    name: proxy
+
+secrets:
+  cloudflare_token:
+    file: ./secrets/cloudflare-token

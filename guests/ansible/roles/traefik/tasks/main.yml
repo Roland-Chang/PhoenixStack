@@ -1,0 +1,108 @@
+# Internal Traefik as a compose stack in {{ traefik_dir }}: wildcard certificate from Let's Encrypt
+# (Cloudflare DNS-01), routes from the inventory as files. Needs the docker_host role first.
+#
+# The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once from
+# CLOUDFLARE_DNS_TOKEN; later runs keep the file. To rotate it, run again with the new token set.
+
+- name: Stack folders
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: "{{ traefik_dir }}", mode: "0755"}
+    - {path: "{{ traefik_dir }}/dynamic", mode: "0755"}
+    - {path: "{{ traefik_dir }}/letsencrypt", mode: "0700"}
+    - {path: "{{ traefik_dir }}/secrets", mode: "0700"}
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Is the Cloudflare token there?
+  ansible.builtin.stat:
+    path: "{{ traefik_dir }}/secrets/cloudflare-token"
+  register: traefik_token_file
+
+- name: CLOUDFLARE_DNS_TOKEN is set (needed the first time)
+  ansible.builtin.assert:
+    that: lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') | length > 0
+    fail_msg: >-
+      No token on the guest yet. Run with
+      CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')"
+    quiet: true
+  when: not traefik_token_file.stat.exists
+
+- name: Cloudflare token (root only)
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') }}"
+    dest: "{{ traefik_dir }}/secrets/cloudflare-token"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') | length > 0
+  notify: Restart traefik
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ traefik_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Static settings (traefik.yml)
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_dir }}/traefik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart traefik
+
+- name: Shared middlewares
+  ansible.builtin.template:
+    src: middlewares.yml.j2
+    dest: "{{ traefik_dir }}/dynamic/middlewares.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: One route file per inventory route
+  ansible.builtin.template:
+    src: route.yml.j2
+    dest: "{{ traefik_dir }}/dynamic/route-{{ route.name }}.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ routes | default([]) }}"
+  loop_control:
+    loop_var: route
+    label: "{{ route.name }}"
+
+- name: Route files on the guest
+  ansible.builtin.find:
+    paths: "{{ traefik_dir }}/dynamic"
+    patterns: "route-*.yml"
+  register: traefik_route_files
+
+- name: Remove routes no longer in the inventory
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ traefik_route_files.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  # route-<name>.yml → <name>
+  when: >-
+    (item.path | basename | splitext | first)[6:]
+    not in (routes | default([]) | map(attribute='name') | list)
+
+- name: Run the stack (docker compose up)
+  community.docker.docker_compose_v2:
+    project_src: "{{ traefik_dir }}"
+    state: present
+    pull: missing
+    remove_orphans: true
+  when: not docker_dry_new

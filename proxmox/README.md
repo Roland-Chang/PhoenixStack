@@ -119,7 +119,7 @@ new decision to make, not something already covered by this one.
   - new root password
   - `svc_proxmox` SMB credentials
   - the Brevo SMTP login and SMTP key (`xsmtpsib-…`, not the API key), and the From address, which must be a verified sender in Brevo
-  - a Cloudflare API token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (item `Cloudflare PVE Token`)
+  - a Cloudflare API token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (item `(Cloudflare) - PVE DNS Token`)
   - empty items to receive the new API tokens later
 - [ ] The alert mailbox `alerts@phoenixstack.net` exists and receives mail.
 - [ ] Download the latest **Proxmox VE 9.x ISO** to the NAS: share `Media`, folder `Software/ISO/template/iso` (PVE looks for ISOs in `template/iso` under the storage path).
@@ -347,4 +347,4 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
   - **Drives 3 and 4: add a second mirror.** Dry run first, and check the output shows two `mirror` groups: `zpool add -n data mirror <990-3-by-id> <990-4-by-id>`. Then run it without `-n`. Leaving out the word `mirror` would add two unprotected disks. Existing data stays on the first mirror; new writes spread across both.
   - **After each step:** update `ZFS_POOL_data_LAYOUT` to the pool's real layout (`zpool status data`) and commit, so the config matches the host.
 - **Changing admin networks:** edit `ADMIN_SOURCES`, then run `--apply --stage firewall`.
-- **ACME:** covers the PVE GUI (8006) and the PBS GUI (8007); each product renews its own certificate. The stage also re-creates the `pbs-local` storage so PVE reaches PBS by name: a pinned fingerprint would break backups at every renewal. Set `ACME_ENABLE="yes"`. This needs a Cloudflare token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (1Password: `infrastructure` / `Cloudflare PVE Token`). Then run `--apply --stage acme`.
+- **ACME:** covers the PVE GUI (8006) and the PBS GUI (8007); each product renews its own certificate. The stage also re-creates the `pbs-local` storage so PVE reaches PBS by name: a pinned fingerprint would break backups at every renewal. Set `ACME_ENABLE="yes"`. This needs a Cloudflare token limited to the `phoenixstack.net` zone, with `DNS:Edit` and `Zone:Read` (1Password: `infrastructure` / `(Cloudflare) - PVE DNS Token`). Then run `--apply --stage acme`.

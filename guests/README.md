@@ -287,7 +287,7 @@ PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/passw
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
+| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ### New guest checklist
 
@@ -296,10 +296,11 @@ Every new guest, in this order (each Terraform and Ansible step dry-run first):
 1. **Inventory:** one host entry in [inventory.yml](inventory.yml), addressed by the [scheme](#address-scheme)
    (MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, octet = code × 10 + instance).
 2. **Terraform:** `./guests/tf.sh plan` (only the new guest and its firewall), then `apply`.
-3. **Baseline:** `apb site.yml -l <guest> -e ansible_user=root` (first run only connects as root).
-4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, ...).
+3. **Baseline:** `apb site.yml -l <guest> -e ansible_user=root` (containers' first run only; VMs connect as the admin user).
+   If the first full upgrade leaves `/var/run/reboot-required`, reboot the guest now (`ansible <guest> -m reboot`).
+4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, `docker.yml`, ...).
 5. **DNS name:** `apb dns.yml -l dns01`, then `-l dns02`. Pi-hole learns names only from the inventory, so a guest
-   has no name until this runs. One resolver at a time, since clients use them.
+   (or a Docker host's new route) has no name until this runs. One resolver at a time, since clients use them.
 6. **UniFi alias** (by hand, decided 2026-11-22): in UniFi Network, open the client with the guest's MAC, set its
    name to the guest's name (`pgsql01`) and its note to the inventory `description`. Guests have static addresses,
    so UniFi never learns their names from DHCP and lists them by MAC only. The alias is a label; DNS doesn't use it.
@@ -462,7 +463,52 @@ Done when:
 - [ ] The next morning: a dump folder from 00:30 (`sudo -u postgres ls /var/backups/db-dump`).
 - [ ] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`).
 
-## Open decisions
+## L5d: Docker host and internal Traefik (`docker01`)
+
+**Applied 2026-11-22** and checked (results below). No apps yet; Traefik serves only its dashboard.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `docker01`: VM `11001`, MAC `02:aa:bb:cc:10:01`, `10.101.1.101`, Services, cloned from `10001`. **8 cores, 32 GiB, 64 GB** on `nvme` (decided 2026-11-22). | Tier 10. Room for the apps moving off docker-temp and the AI agents' helper containers (models run on `ai01`). pve01 has 24 cores / 48 threads and 251 GiB. The disk grows online when needed. |
+| Docker | **Docker CE from Docker's apt repository** (decided 2026-11-22), with the Compose plugin. The signing key must match Docker's published fingerprint `9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`. Updates come with the weekly `patch.yml`. | Debian's `docker.io` lags behind what current images and Compose files expect. |
+| Daemon | `live-restore` (containers keep running while the engine updates); `local` log driver, 5 × 20 MB per container; container networks only from `172.20.0.0/14`. | Default logs never shrink. Docker's default pools include `192.168.x.0/24`, which would collide with Teleport (`192.168.2.0/24`). |
+| Admins | `sudo docker`; nobody is in the `docker` group. | The group is root without a password. |
+| Firewall (PVE) | `443/tcp` from LAN sources; SSH and ping from admin sources. | Docker rewrites the firewall inside the VM; the Proxmox firewall on the NIC is outside its reach. Until the LAN-wide UDM rule, only admin sources get into Services anyway. |
+| Traefik | Internal Traefik `v3.7.19` as the stack `/opt/stacks/traefik` (role `traefik`). Port 443 only, no port-80 redirect. Versions pinned in `roles/traefik/defaults/main.yml`. | |
+| Routes | **File provider, no Docker socket** (decided 2026-11-22). Each Docker host lists `routes: [{name, url, admin_only}]` in the inventory: Ansible writes `dynamic/route-<name>.yml` and removes routes that are gone; Pi-hole points `<name>.int.phoenixstack.net` at the host (after `dns.yml`). Apps join the Docker network `proxy`. | Socket access is root on the host. Routes live in git, next to the guest. |
+| Certificate | One wildcard, `*.int.phoenixstack.net` (plus the bare name), from Let's Encrypt over Cloudflare DNS-01. The challenge check uses `1.1.1.1` and `9.9.9.9`. Stored in `/opt/stacks/traefik/letsencrypt/acme.json` (root only); Traefik renews it 30 days before expiry. | Certificate transparency logs publish every certificate's names; a wildcard publishes only `*.int`. Pi-hole answers NXDOMAIN for anything under `int.`, so the check must ask public resolvers. |
+| Cloudflare token | Its own token (decided 2026-11-22): Zone DNS Edit + Zone Read on `phoenixstack.net`, no IP filter. 1Password `(Cloudflare) - Traefik DNS Token` (item ID `6jwbiosa4zf5wg32uh333srn2m`). On the guest as `secrets/cloudflare-token` (root, `0600`), passed to Traefik as a Compose secret. | Revocable without touching PVE's token. No IP filter: the home address may change, and a failed renewal would go unnoticed until monitoring exists. |
+| Dashboard | `https://traefik.int.phoenixstack.net`, admin sources only (`admin-only` IP allow-list). | Authentik can protect it later. |
+| Smoke test | `whoami` (`traefik/whoami:v1.12.0`) at `https://whoami.int.phoenixstack.net` while its route is in the inventory; removing the route removes the container. | Proves the name, the route and the certificate before a real app relies on them. |
+| Not in this step | The NAS mount (with the media apps), `docker02`, and the UDM rule opening `443` to LAN and VPN clients (with the DNS rollout). | One step at a time. |
+
+Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
+
+1. `./guests/tf.sh plan`: expect only `docker01` and its firewall. Then `apply`.
+2. `apb site.yml -l docker01` (a VM already has the admin user from cloud-init).
+3. `apb docker.yml -l docker01`, the real run with
+   `CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')"`.
+4. `apb dns.yml -l dns01`, then `-l dns02` (names `docker01`, `traefik`, `whoami`).
+5. UniFi alias; docs.
+
+Done when:
+
+- [x] `terraform plan` after the apply: no changes (state copy in 1Password matches). `site.yml` and `docker.yml` repeat runs: `changed=0` (`docker.yml` without the token). Root SSH refused.
+- [x] Docker 29.10.0 from `download.docker.com` (trixie/stable); live-restore on, `local` log driver; network `proxy` is `172.20.0.0/24`.
+- [x] Certificate issued at the first start (DNS-01 validated in about 20 s): `int.phoenixstack.net` + `*.int.phoenixstack.net`, Let's Encrypt, valid until 2027-02-20, verifies from the laptop. `whoami` showed `X-Real-Ip: 10.1.1.169`, the laptop's own address.
+- [x] Dashboard: `200` from the laptop; `403` from `10.101.1.101` (not an admin source), while `whoami` answered `200` there.
+- [x] An unknown name gets `404`.
+- [x] From the laptop: 80, 2375, 2376 and 8080 don't answer. IPv6: link-local addresses only (as on `dns01`).
+- [x] `whoami` route removed: `docker.yml` removed the container and `route-whoami.yml`, `dns.yml` the name (NXDOMAIN on both resolvers); repeat run `changed=0`.
+
+Found on the way:
+
+| Found | Fix |
+| --- | --- |
+| `cloud-init status` says "degraded done": Proxmox's generated user-data uses the deprecated `user:` key | Harmless (no errors); nothing to do until Proxmox changes it |
+| The first full upgrade installed a new kernel, so Debian asked for a reboot | Rebooted before installing Docker; now a step in the new guest checklist |
+| A new guest's first `docker.yml` dry run needs the token too (it stops at the token check) | As with Pi-hole's password: run the first dry run with `CLOUDFLARE_DNS_TOKEN` set |
+
 
 1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
 2. Plex, Jellyfin, or both?

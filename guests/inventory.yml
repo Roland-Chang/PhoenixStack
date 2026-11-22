@@ -13,6 +13,8 @@
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
 #                 admin | lan | any | a CIDR. SSH and ping from admin sources are always allowed.
+#   routes        Docker hosts only: [{name, url, admin_only}], names served by its Traefik
+#                 (Pi-hole points <name>.<domain> at the guest)
 all:
   vars:
     domain: int.phoenixstack.net
@@ -79,6 +81,23 @@ all:
           storage: nvme
           startup_order: 2
           description: "Database: PostgreSQL 17 (L5c)"
+        # Docker host for Services (L5d): the internal Traefik and the apps behind it.
+        docker01:
+          kind: vm
+          vmid: 11001
+          mac: "02:aa:bb:cc:10:01"
+          ip: 10.101.1.101
+          cores: 8
+          memory: 32768
+          disk_gb: 64
+          storage: nvme
+          description: "Docker host, Services: internal Traefik and apps (L5d)"
+          firewall_in:
+            - {port: 443, proto: tcp, source: lan}
+          # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
+          # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
+          routes:
+            - {name: traefik, url: "api@internal", admin_only: true}
     dmz:
       vars:
         zone: dmz

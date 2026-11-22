@@ -1,0 +1,25 @@
+# Docker Engine from Docker's own apt repository (L5d). Updates come with the weekly patch.yml.
+docker_repo_url: https://download.docker.com/linux/debian
+docker_key_url: https://download.docker.com/linux/debian/gpg
+# Docker's release signing key, as published in Docker's install docs. The downloaded key must match.
+docker_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
+docker_key_path: /etc/apt/keyrings/docker.asc
+
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# Networks for containers. Docker's defaults include 192.168.x.0/24 ranges, which would collide with
+# the Teleport VPN clients (192.168.2.0/24); this keeps every compose network in 172.20.0.0/14.
+docker_address_pool: 172.20.0.0/14
+docker_address_pool_size: 24
+
+# Container logs: Docker's "local" driver, capped per container (default json-file logs never shrink).
+docker_log_max_size: 20m
+docker_log_max_file: 5
+
+# Compose stacks live here, one folder per stack.
+docker_stacks_dir: /opt/stacks
