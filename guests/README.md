@@ -203,6 +203,16 @@ window. Docker images are updated in the same window, by pulling pinned versions
 Why: the reason the host patches by hand (one kernel or QEMU update takes every guest down) doesn't apply to a
 guest. A bad update breaks one guest, and the nightly backups restore it.
 
+How (2026-11-21):
+
+- **New guests:** the `base` role's first run does an `apt full-upgrade` before anything else is installed, then
+  leaves a marker (`/etc/phoenix/initial-upgrade`) so it never runs again. The templates' packages can be weeks old.
+- **Weekly:** `apb patch.yml --check --diff`, then `apb patch.yml`, after the host's patching. One guest at a time:
+  `apt full-upgrade`, a reboot only when Debian asks for one (`/var/run/reboot-required`), then `pihole -up` on the
+  DNS guests. `pihole -up` (v6.6) exits 1 even after a successful update, so the playbook checks the result with
+  `pihole -up --check-only` instead. The `base` role and the service playbooks never upgrade anything themselves, so a
+  repeat run stays `changed=0`.
+
 ### Name resolution until L5b
 
 Until Pi-hole exists, each guest's name is added by hand to the UDM's local DNS, as `pve01` was. Guests use
@@ -250,7 +260,7 @@ PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/passw
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
+| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)). `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ## Done when (test guests)
 

@@ -1,0 +1,67 @@
+# Weekly patch window for the guests: everything that isn't a Debian security update
+# (those install daily by themselves, see the base role). One guest at a time.
+# Run it in the same window as the host's patching, after pve01. Dry run first.
+#
+#   apb patch.yml --check --diff
+#   apb patch.yml                    (all guests; -l dns01 for one)
+#
+# A guest reboots only when Debian asks for it (/var/run/reboot-required).
+
+- name: Debian updates
+  hosts: all
+  serial: 1
+  tasks:
+    - name: Upgrade every package (apt full-upgrade)
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        autoremove: true
+
+    - name: Does Debian ask for a reboot?
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+      register: reboot_required
+
+    - name: Reboot (only when Debian asks for it)
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+      when: reboot_required.stat.exists
+
+- name: Pi-hole updates
+  hosts: dns*
+  serial: 1
+  tasks:
+    - name: Is a Pi-hole update available?
+      ansible.builtin.command: pihole -up --check-only
+      register: pihole_check
+      changed_when: false
+      # Read-only, so it runs in --check too and the dry run shows whether an update is due.
+      check_mode: false
+
+    - name: Pi-hole versions
+      ansible.builtin.debug:
+        msg: "{{ pihole_check.stdout_lines | select('search', 'Core|Web Interface|FTL|up to date') | list }}"
+
+    # pihole -up (v6.6) exits 1 after a successful core or FTL update (its update.sh ends the
+    # installer call with "|| echo ... && exit 1"), so its exit code isn't trusted: the check
+    # below decides whether the update worked.
+    - name: Update Pi-hole (pihole -up)
+      ansible.builtin.command: pihole -up
+      register: pihole_update
+      changed_when: true
+      failed_when: false
+      when: "'Everything is up to date' not in pihole_check.stdout"
+
+    - name: Pi-hole is up to date afterwards
+      ansible.builtin.command: pihole -up --check-only
+      register: pihole_after
+      changed_when: false
+      failed_when: "'Everything is up to date' not in pihole_after.stdout"
+      when: pihole_update is changed
+
+    # The installer re-creates the default blocklist file on every update. Pi-hole doesn't read it
+    # once its database exists; removing it keeps "no blocklists" unambiguous.
+    - name: No blocklist file
+      ansible.builtin.file:
+        path: /etc/pihole/adlists.list
+        state: absent

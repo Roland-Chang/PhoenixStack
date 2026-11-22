@@ -332,6 +332,7 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
   2. If a new kernel was installed, reboot at a quiet time. Guests shut down and come back by themselves (`onboot: 1`); expect a few minutes of downtime.
   3. `$B --stage verify`: "no package updates pending" and "running newest installed kernel" should both pass.
   4. After a kernel or BIOS change, run the recheck under "Accepted risks".
+  5. Then the guests, from the admin workstation: `apb patch.yml --check --diff`, then `apb patch.yml` (see [../guests/README.md](../guests/README.md#guest-patching)).
 - **Re-runnable.** Every stage checks the current state first. Running it again on a correct host changes nothing.
 - **Backups of replaced files** are kept in `/var/backups/phoenix-bootstrap/<run-id>/`, along with `run.log`.
 - **Adding onboard port 2 / LACP:**

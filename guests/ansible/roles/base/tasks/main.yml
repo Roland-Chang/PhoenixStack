@@ -1,6 +1,37 @@
-# Baseline for every PhoenixStack guest (Debian 13): admin user, SSH hardening, time,
+# Baseline for every PhoenixStack guest (Debian 13): a first full upgrade, admin user, SSH hardening, time,
 # journal size, automatic security updates, and the QEMU guest agent on VMs.
 # Order matters: the admin user and its keys exist before root's SSH login is turned off.
+
+# A new guest starts from the template's packages, which can be weeks old. Bring it up to date
+# once, before anything is installed on it. After that, updates go through the weekly window
+# (patch.yml) and the daily security updates below, never through this role.
+- name: Has this guest had its first full upgrade?
+  ansible.builtin.stat:
+    path: /etc/phoenix/initial-upgrade
+  register: initial_upgrade
+
+- name: First full upgrade (new guests only)
+  when: not initial_upgrade.stat.exists
+  block:
+    - name: Upgrade every package (apt full-upgrade)
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        autoremove: true
+    - name: PhoenixStack marker folder
+      ansible.builtin.file:
+        path: /etc/phoenix
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+    - name: Record the first full upgrade
+      ansible.builtin.copy:
+        dest: /etc/phoenix/initial-upgrade
+        content: "First full upgrade by Ansible (base role). Later updates: guests/ansible/patch.yml.\n"
+        owner: root
+        group: root
+        mode: "0644"
 
 - name: Packages every guest needs
   ansible.builtin.apt:
