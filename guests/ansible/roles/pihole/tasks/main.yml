@@ -14,32 +14,48 @@
     shell: /usr/sbin/nologin
     home: /nonexistent
     create_home: false
+  register: pihole_user
+
+# A dry run on a new guest only pretends to create the user, and files can't be checked against
+# an owner that doesn't exist; the dry run checks them as root's instead.
+- name: Owner of Pi-hole's files
+  ansible.builtin.set_fact:
+    pihole_owner: "{{ 'root' if (ansible_check_mode and pihole_user is changed) else 'pihole' }}"
 
 - name: Pi-hole's config folder
   ansible.builtin.file:
     path: /etc/pihole
     state: directory
-    owner: pihole
-    group: pihole
+    owner: "{{ pihole_owner }}"
+    group: "{{ pihole_owner }}"
     mode: "0755"
 
+- name: Is Pi-hole installed?
+  ansible.builtin.stat:
+    path: /usr/bin/pihole-FTL
+  register: pihole_ftl
+
+# The next two files only steer the first install. Afterwards FTL owns pihole.toml, and Pi-hole
+# moves adlists.list into /etc/pihole/migration_backup/ when it builds its blocklist database.
 - name: Empty blocklist file (without it, the unattended installer adds a default blocklist)
   ansible.builtin.copy:
     dest: /etc/pihole/adlists.list
     content: ""
-    owner: pihole
-    group: pihole
+    owner: "{{ pihole_owner }}"
+    group: "{{ pihole_owner }}"
     mode: "0644"
     force: false
+  when: not pihole_ftl.stat.exists
 
 - name: Pre-seeded pihole.toml (without it, the installer asks questions)
   ansible.builtin.template:
     src: pihole.toml.j2
     dest: /etc/pihole/pihole.toml
-    owner: pihole
-    group: pihole
+    owner: "{{ pihole_owner }}"
+    group: "{{ pihole_owner }}"
     mode: "0640"
     force: false
+  when: not pihole_ftl.stat.exists
 
 - name: Download the Pi-hole installer (pinned tag, checked)
   ansible.builtin.get_url:
@@ -56,6 +72,7 @@
     creates: /usr/bin/pihole-FTL
   environment:
     DEBIAN_FRONTEND: noninteractive
+  register: pihole_install
 
 # pihole-FTL --config writes pihole.toml (FTL reloads it). The file's header holds a time stamp,
 # so "changed" compares the settings without comment lines.
@@ -106,3 +123,5 @@
     name: pihole-FTL
     enabled: true
     state: started
+  # A dry run before the install has no service to check yet.
+  when: not (ansible_check_mode and pihole_install is changed)

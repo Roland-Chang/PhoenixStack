@@ -2,3 +2,5 @@
   ansible.builtin.service:
     name: unbound
     state: restarted
+  # A dry run on a new guest only pretends to install Unbound, so there's nothing to restart.
+  when: not (ansible_check_mode and unbound_packages.changed)

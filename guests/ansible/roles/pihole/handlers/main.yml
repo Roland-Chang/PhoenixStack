@@ -2,3 +2,4 @@
   ansible.builtin.service:
     name: pihole-FTL
     state: restarted
+  when: not ansible_check_mode

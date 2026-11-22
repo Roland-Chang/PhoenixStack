@@ -10,6 +10,7 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: unbound_packages
 
 - name: Unbound listens on 127.0.0.1:5335 for Pi-hole
   ansible.builtin.copy:
@@ -40,6 +41,8 @@
     name: unbound
     enabled: true
     state: started
+  # A dry run on a new guest only pretends to install Unbound, so there's no service to check yet.
+  when: not (ansible_check_mode and unbound_packages.changed)
 
 - name: Apply Unbound's config now (Pi-hole needs port 53 free)
   ansible.builtin.meta: flush_handlers

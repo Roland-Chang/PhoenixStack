@@ -4,7 +4,7 @@ Purpose: how PhoenixStack guests are placed on the network, created (Terraform) 
 This is **L5a**: the groundwork every service builds on. The first service on it is DNS (L5b, Pi-hole).
 The host (L0–L4) is in [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status: **L5a done 2026-11-21; L5b (DNS) written 2026-11-21, not applied.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
+Status: **L5a done 2026-11-21; L5b (DNS, `dns01`) applied and checked 2026-11-21.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
 its pools and VLANs 100/200, the Debian 13 container template and VM template `10001`. The topology diagram is [topology.html](topology.html)
 (published: <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -283,7 +283,7 @@ What the first run found, and fixed:
 
 ## L5b: DNS (`dns01`)
 
-Written 2026-11-21, **not applied yet**.
+**Applied 2026-11-21** and checked from the admin laptop (results below). Not in use by any client yet.
 
 | Area | Decision | Why |
 | --- | --- | --- |
@@ -309,12 +309,23 @@ Steps (each one dry-run first):
 
 Done when:
 
-- [ ] `terraform plan` after the apply shows no changes; `dns.yml` run twice: second run `changed=0`.
-- [ ] From an admin machine: `dig @10.101.1.201 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.201 nothing.int.phoenixstack.net` returns NXDOMAIN.
-- [ ] `dig @10.101.1.201 example.com` resolves. `dig @10.101.1.201 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
-- [ ] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123.
-- [ ] `https://10.101.1.201/admin` asks for the password; a non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
+- [ ] `terraform plan` after the apply shows no changes.
+- [x] `dns.yml` repeat runs: `changed=0` (twice, 2026-11-21).
+- [x] From an admin machine: `dig @10.101.1.201 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.201 nothing.int.phoenixstack.net` returns NXDOMAIN.
+- [x] `dig @10.101.1.201 example.com` resolves. `dig @10.101.1.201 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
+      Answers carry no `ad` flag: Pi-hole clears it unless it validates too (`dns.dnssec`). Left off on purpose (2026-11-21);
+      Unbound's SERVFAIL on bad signatures is the protection.
+- [x] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123. (Also present, both harmless: the template's Postfix on localhost:25, and Pi-hole on `[::]:53`
+      with no IPv6 address on the guest.) Port 80 from the laptop times out (dropped).
+- [ ] `https://10.101.1.201/admin` asks for the password (`302` to the login page seen with curl; browser login to confirm); a non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
 - [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
+
+What the first L5b run found, and fixed:
+
+| Found | Fix |
+| --- | --- |
+| A dry run on a new guest pretends to install packages and users, so service, handler and file-owner steps failed | Those steps skip, or check as root, only in that case |
+| Pi-hole moves `adlists.list` into `/etc/pihole/migration_backup/` when it builds its database, so Ansible re-created it | The two pre-seed files are written only before the install |
 
 ## Open decisions
 
