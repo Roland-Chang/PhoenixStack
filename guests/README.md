@@ -82,7 +82,7 @@ same when it arrives.
 | What | Each database separately (PostgreSQL: `pg_dump --format=custom`), plus the roles (`pg_dumpall --globals-only`). | One database or one table can be restored alone; without the roles a restore has no owners. |
 | Check | Each dump is read back (`pg_restore --list`). The day's folder appears only when every dump succeeded. | A bad night never leaves a half set that looks complete. |
 | Where | `/var/backups/db-dump/<YYYY-MM-DD>/` on the guest, owner `postgres`, mode `0700`. Script `/usr/local/sbin/db-dump`. | No NAS mount in the guest (Services can't reach mgmt); the guest backups copy the folder off. |
-| Keep | 7 day folders on the guest. | Each of the 7 nightly guest backups holds its own 7 days, so older dumps can be recovered from a backup. |
+| Keep | 7 day folders on the guest. | Older dumps live on in the guest backups: PBS keeps 14 daily, 8 weekly and 6 monthly, the NAS 7 nightly. |
 | Watch | A good run writes `last-ok`. The weekly `patch.yml` fails if it's older than 26 hours. | Real alerts come with monitoring (open decision 6). |
 | Restore test | At setup, and after every major version upgrade. | A dump nobody has restored is a hope. |
 
