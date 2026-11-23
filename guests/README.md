@@ -649,7 +649,7 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 
 ## L5f: DMZ Docker host and public Traefik (`docker02`)
 
-**Steps 1–4 applied 2026-11-23**; UniFi (step 5) and Authentik (step 6) next. Step A of moving the public apps off docker-temp: the host, the public
+**Step A done 2026-11-23** (all checks below). Step A of moving the public apps off docker-temp: the host, the public
 Traefik and Authentik's public name, proven with a test route on a second port. Step B (later) moves the `443`
 forward from docker-temp to `docker02`; see [Moving the public apps](#moving-the-public-apps).
 
@@ -698,18 +698,20 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
 Done when:
 
-- [ ] `tf plan` and repeat Ansible runs: no changes.
-- [ ] From outside (phone on mobile data): `https://whoami.phoenixstack.net:8443` answers with Cloudflare's edge
-      certificate and shows the phone's address; `https://auth.phoenixstack.net:8443` shows the login page;
-      `/if/admin/` there is refused.
-- [ ] Direct to the home address on `8443` without Cloudflare: refused.
+- [x] `tf plan` and repeat Ansible runs: no changes (2026-11-23).
+- [x] From outside (phone on mobile data, 2026-11-23): `https://whoami.phoenixstack.net:8443` answers with
+      Cloudflare's edge certificate and shows the phone's address; `https://auth.phoenixstack.net:8443` shows the
+      login page; `/if/admin/` there is refused.
+- [x] Direct to the home address on `8443` without Cloudflare: no answer (2026-11-23).
 - [x] `docker02` can't reach Services except `authentik01:9443`, nor mgmt or the client LANs (checked 2026-11-23:
       13 targets; only `authentik01:9443` open, the UDM's admin page closed too).
 - [x] Through Cloudflare on `8443` (2026-11-23, from the LAN): `whoami` answers, `auth` shows the login flow,
       `/if/admin/` → `403`; the home address on `8443` without Cloudflare: no answer. Still to do from a phone on
-      mobile data. `X-Forwarded-For` starts with the visitor's address; `X-Real-Ip` shows Cloudflare's.
-- [ ] From the LAN: `https://auth.int.phoenixstack.net` still works; the Traefik dashboard on `docker01` too.
-- [ ] `whoami` route removed afterwards; the `8443` forward removed.
+      mobile data (done, above). `X-Forwarded-For` starts with the visitor's address; `X-Real-Ip` shows Cloudflare's.
+- [x] From the LAN: `https://auth.int.phoenixstack.net` still works; the Traefik dashboard on `docker01` too (sends
+      to the Authentik login).
+- [x] `whoami` route removed (2026-11-23: container and route file gone, repeat run `changed=0`). The `8443`
+      forward stays for now, to try each moved app on `docker02` before the `443` forward moves (Step B).
 
 ### Moving the public apps
 
@@ -825,6 +827,18 @@ Done when:
    scope: log aggregation with alerts (e.g. Grafana + Loki, shared with monitoring) or a full SIEM (e.g. Wazuh:
    agents, detection rules, a search index, much heavier). Tier 08 (`.81`) is the monitoring tier. Until then logs
    stay local (guest journals capped at 200 MB).
+11. **Testing before production** (decided 2026-11-23; pilot: Audiobookshelf). Image versions are pinned in git,
+   so going to a new version is a change to its pin, tried somewhere else first. Two levels:
+   - **App staging:** a copy of the app on `docker01` as `<app>-staging.int.phoenixstack.net` (LAN and VPN only,
+     never public), on the candidate version, with a **copy** of production's data restored from its latest
+     backup; it never touches production's data or database. Once it works, change the production pin in git
+     and apply. In the inventory: a staging flag on the route, which the roles understand.
+   - **Test guests:** for changes to roles, Terraform or a whole host, a throwaway guest in tier 99
+     (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
+   - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
+     drifts from production.
+   - To design with the pilot: how an app's data is copied into its staging copy (restore from backup, scrub or
+     not, where its staging database lives), and the staging app's own OIDC client in Authentik.
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
 the rest weekly), mgmt back to `/24`, three zones (mgmt VLAN 10, Services VLAN 100, DMZ VLAN 200), the archived

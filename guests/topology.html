@@ -296,6 +296,7 @@
         <li>Public apps log in with their own OIDC against Authentik (<code>auth.phoenixstack.net</code>); household groups <code>Family</code>, with <code>Young</code> and <code>Porter</code> below it.</li>
         <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
         <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
+        <li>Testing before production: app upgrades on a staging copy (<code>&lt;app&gt;-staging.int</code>, copied data); role and host changes on throwaway test guests. Pilot: Audiobookshelf.</li>
         <li>Every guest may only send from its own address (Proxmox IP filter), so the rules between guests can trust the source address.</li>
         <li>Each GPU belongs to one VM and is shared by the containers inside it: P2000 for media, RTX 3070 for AI.</li>
         <li>Addresses: MAC <code>02:aa:bb:cc:XX:YY</code>, VMID <code>1XXYY</code>, last octet = code × 10 + instance (<code>pgsql01</code> = <code>10701</code>, <code>.71</code>), the same in every zone.</li>

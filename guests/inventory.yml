@@ -181,6 +181,5 @@ all:
           traefik_op_origin_cert: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-cert.pem"
           traefik_op_origin_key: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-key.pem"
           routes:
-            - {name: whoami, url: "http://whoami:80"}   # L5f smoke test; remove afterwards
             # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}
