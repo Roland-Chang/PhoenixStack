@@ -33,6 +33,7 @@ services:
     volumes:
       - ./data:/data
       - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro
 
   # Upstream runs the worker as root with the Docker socket (for outposts it manages itself).
   # Not here: outposts, if any, are deployed from git like everything else.
@@ -43,3 +44,4 @@ services:
       - ./data:/data
       - ./certs:/certs
       - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro

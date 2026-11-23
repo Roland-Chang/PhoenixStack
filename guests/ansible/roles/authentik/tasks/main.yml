@@ -25,6 +25,25 @@
     - certs
     - custom-templates
 
+- name: Our blueprints folder (mounted read-only at /blueprints/custom)
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}/blueprints"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Authentik notices new or changed files by itself; a removed file leaves its settings in place.
+- name: Our blueprints
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ authentik_dir }}/blueprints/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - phoenix-mfa.yaml
+
 - name: Is the .env file there?
   ansible.builtin.stat:
     path: "{{ authentik_dir }}/.env"
