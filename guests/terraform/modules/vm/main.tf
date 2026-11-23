@@ -16,17 +16,6 @@ variable "vendor_data_id" { type = string }
 locals {
   g = var.guest
   c = var.common
-  sources = {
-    admin = join(",", local.c.admin_sources)
-    lan   = join(",", local.c.lan_sources)
-    any   = null
-  }
-  # Rule comments name the source the same way as the built-in SSH and ping rules.
-  source_labels = {
-    admin = "admin sources"
-    lan   = "LAN sources"
-    any   = "anywhere"
-  }
 }
 
 resource "proxmox_virtual_environment_vm" "this" {
@@ -39,6 +28,10 @@ resource "proxmox_virtual_environment_vm" "this" {
   # token can't set them while creating a guest. Pool `terraform` marks Terraform's guests.
   on_boot = true
   started = true
+  # Never reboot a VM by itself during an apply: a change that needs the VM offline fails
+  # instead, and one that needs a later reboot only warns. (Default true: on 2026-11-22 a DNS
+  # change rebooted both VMs mid-apply.) Reboot by hand: ansible <guest> -m reboot.
+  reboot_after_update = false
 
   # Same hardware as template 10001 (pve-bootstrap.sh), so a clone doesn't drift from it.
   machine       = "q35"
@@ -110,53 +103,24 @@ resource "proxmox_virtual_environment_vm" "this" {
   serial_device {}
 }
 
-resource "proxmox_virtual_environment_firewall_options" "this" {
-  node_name = local.c.node
-  vm_id     = proxmox_virtual_environment_vm.this.vm_id
-
-  enabled       = true
-  input_policy  = "DROP"
-  output_policy = "ACCEPT"
-  log_level_in  = "info"
-  dhcp          = false
-  ndp           = false
-  radv          = false
-  macfilter     = true
-  ipfilter      = false
+# Inbound DROP, the guest's allow rules, and the IP filter (modules/firewall).
+module "firewall" {
+  source        = "../firewall"
+  node          = local.c.node
+  kind          = "vm"
+  vmid          = proxmox_virtual_environment_vm.this.vm_id
+  ip            = local.g.ip
+  admin_sources = join(",", local.c.admin_sources)
+  rules         = local.g.firewall_in
 }
 
-resource "proxmox_virtual_environment_firewall_rules" "this" {
-  node_name = local.c.node
-  vm_id     = proxmox_virtual_environment_vm.this.vm_id
+# The firewall resources lived in this module until 2026-11-22.
+moved {
+  from = proxmox_virtual_environment_firewall_options.this
+  to   = module.firewall.proxmox_virtual_environment_firewall_options.this
+}
 
-  rule {
-    type    = "in"
-    action  = "ACCEPT"
-    comment = "SSH from admin sources"
-    proto   = "tcp"
-    dport   = "22"
-    source  = local.sources.admin
-  }
-
-  rule {
-    type    = "in"
-    action  = "ACCEPT"
-    comment = "Ping from admin sources"
-    proto   = "icmp"
-    source  = local.sources.admin
-  }
-
-  dynamic "rule" {
-    for_each = local.g.firewall_in
-    content {
-      type    = "in"
-      action  = "ACCEPT"
-      comment = "${rule.value.proto}/${rule.value.port} from ${lookup(local.source_labels, rule.value.source, rule.value.source)}"
-      proto   = rule.value.proto
-      dport   = rule.value.port
-      source  = lookup(local.sources, rule.value.source, rule.value.source)
-    }
-  }
-
-  depends_on = [proxmox_virtual_environment_firewall_options.this]
+moved {
+  from = proxmox_virtual_environment_firewall_rules.this
+  to   = module.firewall.proxmox_virtual_environment_firewall_rules.this
 }

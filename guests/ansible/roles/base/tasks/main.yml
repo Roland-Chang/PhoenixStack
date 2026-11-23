@@ -1,5 +1,6 @@
 # Baseline for every PhoenixStack guest (Debian 13): a first full upgrade, admin user, SSH hardening, time,
-# journal size, automatic security updates, and the QEMU guest agent on VMs.
+# journal size, automatic security updates; on VMs also the QEMU guest agent, no LLMNR or mDNS, and
+# SSH host keys that survive cloud-init changes.
 # Order matters: the admin user and its keys exist before root's SSH login is turned off.
 
 # A new guest starts from the template's packages, which can be weeks old. Bring it up to date
@@ -99,6 +100,20 @@
     mode: "0644"
   when: kind == 'vm'
   notify: Restart resolved
+
+# Proxmox gives a VM a new cloud-init instance ID when its cloud-init settings change (DNS,
+# address), and cloud-init then replaces the SSH host keys (2026-11-22: a DNS change did that to
+# both VMs). The first boot has made the VM's own keys by the time this runs; keep them from now on.
+- name: Keep the SSH host keys when cloud-init settings change (VMs)
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed (role base): keep this VM's SSH host keys when its instance ID changes.
+      ssh_deletekeys: false
+    dest: /etc/cloud/cloud.cfg.d/99-phoenix-ssh-host-keys.cfg
+    owner: root
+    group: root
+    mode: "0644"
+  when: kind == 'vm'
 
 - name: Admin user
   ansible.builtin.user:

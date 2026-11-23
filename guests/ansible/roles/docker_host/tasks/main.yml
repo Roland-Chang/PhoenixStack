@@ -76,7 +76,7 @@
     group: root
     mode: "0755"
 
-- name: Docker daemon settings (live-restore, capped logs, address pool)
+- name: Docker daemon settings (live-restore, no-new-privileges, capped logs, address pool)
   ansible.builtin.template:
     src: daemon.json.j2
     dest: /etc/docker/daemon.json

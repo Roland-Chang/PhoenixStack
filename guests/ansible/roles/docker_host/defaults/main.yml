@@ -17,6 +17,9 @@ docker_packages:
 docker_address_pool: 172.20.0.0/14
 docker_address_pool_size: 24
 
+# Every container starts with no-new-privileges (setuid binaries can't gain privileges), whether
+# or not its compose file asks for it; daemon.json sets it.
+
 # Container logs: Docker's "local" driver, capped per container (default json-file logs never shrink).
 docker_log_max_size: 20m
 docker_log_max_file: 5

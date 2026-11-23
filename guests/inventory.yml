@@ -13,7 +13,9 @@
 #   dns_servers   optional; the guest's DNS servers (default: the group's, else the gateway)
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
-#                 admin | lan | any | a CIDR. SSH and ping from admin sources are always allowed.
+#                 admin | lan | any | a guest's name (its address) | a CIDR. SSH and ping from
+#                 admin sources are always allowed. Every guest may only send from its own
+#                 address (Proxmox IP filter), so a source address can be trusted.
 #   pg_databases  PostgreSQL hosts only: [{name, client, password}]. Database and owner role <name>,
 #                 reachable over TLS only from <client> (a guest in this file); <password> is the
 #                 op:// reference of its 1Password item, read once when the role is created.
@@ -99,7 +101,7 @@ all:
           startup_order: 2
           description: "Database: PostgreSQL 17 (L5c)"
           firewall_in:
-            - {port: 5432, proto: tcp, source: 10.101.1.41/32}   # authentik01
+            - {port: 5432, proto: tcp, source: authentik01}
           pg_databases:
             - name: authentik
               client: authentik01
@@ -137,7 +139,7 @@ all:
           storage: nvme
           description: "Identity: Authentik (L5e)"
           firewall_in:
-            - {port: 9443, proto: tcp, source: 10.101.1.101/32}   # docker01 (Traefik)
+            - {port: 9443, proto: tcp, source: docker01}   # Traefik
     dmz:
       vars:
         zone: dmz

@@ -77,6 +77,8 @@ How things got here is in the git history (`git log -- proxmox/`).
     (per destination, for a few minutes; only networks with IPS on, so not Teleport). Fixed by adding `10.1.1.69` and
     `10.1.1.169` to the IPS "Detection Exclusions"; checked with repeated SSH probes to pve01, the NAS and docker-temp.
     An excluded address isn't inspected at all, so keep that list to admin workstations. If the Porter workstation
-    hits the same symptom, add `10.2.1.69`.
+    hits the same symptom, add `10.2.1.69`. Not the IPS: Ansible runs that reported guests unreachable on 2026-11-22
+    ("Timeout waiting for privilege escalation prompt") were waiting for the 1Password SSH agent's approval
+    ([../guests/README.md](../guests/README.md#ansible), SSH agent).
 12. **Offsite backup copy**: both backup copies (PBS and the NAS) are in the same building. An open decision
     (see "Backup design" in [README.md](README.md)).

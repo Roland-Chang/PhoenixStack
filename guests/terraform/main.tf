@@ -4,6 +4,18 @@ locals {
   inventory = yamldecode(file("${path.module}/../inventory.yml"))
   globals   = local.inventory.all.vars
 
+  # firewall_in sources: admin, lan, any, or a guest's name (its address); anything else is taken
+  # as a CIDR. Each has the label the rule's comment uses.
+  hosts = merge([for group in values(local.inventory.all.children) : group.hosts]...)
+  sources = merge(
+    { for name, h in local.hosts : name => { cidrs = "${h.ip}/32", label = name } },
+    {
+      admin = { cidrs = join(",", local.globals.admin_sources), label = "admin sources" }
+      lan   = { cidrs = join(",", local.globals.lan_sources), label = "LAN sources" }
+      any   = { cidrs = null, label = "anywhere" }
+    },
+  )
+
   # One flat map of guests, each with the same attributes (group values and defaults filled in).
   guests = merge([
     for group_name, group in local.inventory.all.children : {
@@ -29,7 +41,8 @@ locals {
           for r in try(h.firewall_in, []) : {
             port   = tostring(r.port)
             proto  = try(r.proto, "tcp")
-            source = try(r.source, "admin")
+            source = try(local.sources[try(r.source, "admin")].cidrs, r.source)
+            label  = try(local.sources[try(r.source, "admin")].label, r.source)
           }
         ]
       }
@@ -43,7 +56,6 @@ locals {
     ssh_public_keys = local.globals.ssh_public_keys
     admin_user      = local.globals.admin_user
     admin_sources   = local.globals.admin_sources
-    lan_sources     = local.globals.lan_sources
   }
 }
 
