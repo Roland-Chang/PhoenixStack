@@ -29,7 +29,7 @@ First written 2026-11-08; later decisions carry their own date.
 | Boot pool use | OS only. `local-zfs` removed, `/var/lib/vz` capped at 32G | 257G of unknown data had filled the old boot pool. |
 | Network | Onboard 10GBASE-T port 1, found by MAC → `bond0` → **VLAN-aware** `vmbr0` | Guests pick a VLAN by tag. Adding onboard port 2 / LACP later is a config change. The GPU kit's external fans block every PCIe slot's rear opening except slot 4, so only a slot-4 card can be cabled. |
 | Mgmt VLAN | Host IP `10.101.0.11/24`, untagged on `vmbr0` (VLAN 10 native on the switch). The UniFi network (PHOENIX-PRIMARY) is `10.101.0.0/24`, gateway `.254`, and its DHCP also serves the restored guests. Back to `/24` on 2026-11-20 (it was `/23`); fixed addresses are below `.100`. | No switch change needed for the rebuild. `MGMT_VLAN=10` switches it to tagged. The mask must match UniFi, or host-to-guest traffic routes asymmetrically through the gateway. |
-| Domain | `int.phoenixstack.net` (was `phoenix.stack`) | Real domain, so real TLS via Cloudflare DNS-01. The real addresses are only in the UDM's local DNS. Public DNS answers too, but with the zone's wildcard record (Cloudflare proxy), never an internal address. Host names in certificates are public (Certificate Transparency logs). |
+| Domain | `int.phoenixstack.net` (was `phoenix.stack`) | Real domain, so real TLS via Cloudflare DNS-01. The real addresses are only in Pi-hole (`dns01`, `dns02`, from L5b), which the UDM forwards the domain to. Public DNS answers too, but with the zone's wildcard record (Cloudflare proxy), never an internal address. Host names in certificates are public (Certificate Transparency logs). |
 | Firewall | Datacenter `policy_in: DROP`; GUI/SSH/SPICE/ping only from the `management` ipset. Dropped inbound packets are logged (`FIREWALL_LOG_LEVEL_IN="info"`, rate-limited) to `/var/log/pve-firewall.log`. | The old firewall was enabled but accepted everything. The log shows who is knocking on the host: a guest probing the admin ports is the thing to look for. |
 | Admin sources | `10.1.1.69/32` (Young admin workstation), `10.1.1.169/32` (Aaron's laptop on the home LAN, added 2026-11-21), `10.2.1.69/32` and `10.2.1.169/32` (Porter admin workstation and laptop, over the BPorter site-to-site VPN; laptop added 2026-11-21) and `192.168.2.0/24` (Teleport VPN clients). Not the mgmt subnet. Narrowed 2026-11-20 from the whole Young and Porter LANs, to match the UDM's Management zone. | Guests get DHCP addresses on the mgmt subnet and must not reach the host's SSH or GUI. The UDM enforces the same list; this is the second lock, so a loosened UniFi rule doesn't expose the host. Anyone holding a Teleport invite can reach the login pages (logins still need the SSH key, or a password plus TOTP), so keep invites few. The iDRAC console is the fallback. |
 | Access | Personal admin users in an `admins` group, with TOTP. Root for break-glass only. Service accounts get privilege-separated tokens with exactly the grants in `SERVICE_ACCOUNTS` (others are removed). Terraform's token works only on guests in pool `terraform` (2026-11-20; see [../guests/README.md](../guests/README.md)). | Named accounts, least privilege. |
@@ -123,7 +123,7 @@ new decision to make, not something already covered by this one.
   - empty items to receive the new API tokens later
 - [ ] The alert mailbox `alerts@phoenixstack.net` exists and receives mail.
 - [ ] Download the latest **Proxmox VE 9.x ISO** to the NAS: share `Media`, folder `Software/ISO/template/iso` (PVE looks for ISOs in `template/iso` under the storage path).
-- [ ] Add a local DNS record on the UDM: `pve01.int.phoenixstack.net → 10.101.0.11`. Without it the name resolves to Cloudflare's addresses (the zone has a wildcard record), and the GUI can't be reached by name.
+- [ ] A hosts entry on the workstation: `10.101.0.11 pve01.int.phoenixstack.net`. Pi-hole, which normally answers that name, runs on pve01, so it's gone while the host is rebuilt; without the entry the name gets public DNS's wildcard record, and the GUI can't be reached by name. (The same entry is needed over the VPN: Operating notes.)
 - [ ] Workstation set up as in "Admin workstation" under Operating notes.
 
 Phases 1–3 run on the host being replaced. If it's already gone, start at Phase 2 (workstation build) and Phase 4.
@@ -131,7 +131,8 @@ Phases 1–3 run on the host being replaced. If it's already gone, start at Phas
 ### Phase 1: Capture and rehearse (on the host being replaced, no downtime)
 
 ```bash
-scp -r proxmox root@10.101.0.11:/root/phoenix
+ssh root@10.101.0.11 mkdir -p /root/phoenix   # once
+pve-sync                             # on the workstation: copies proxmox/ to /root/phoenix
 ssh root@10.101.0.11
 cd /root/phoenix/pre-rebuild
 ./pre-rebuild.sh --capture          # writes to the NAS (storage nas-dump): Backups/pve01/rebuild-<timestamp>/
@@ -327,7 +328,7 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
      - `pve-sync`: copies this folder to the host (`/root/phoenix`). The script copies `proxmox/.`; without the `/.`, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
   2. SSH uses the 1Password agent for the host under every name you type. SSH matches `Host` rules against the name typed, not the address, so list them all in `~/.ssh/config`:
      `Host 10.101.0.* pve01 pve01.int.phoenixstack.net` with `IdentityAgent ~/.1password/agent.sock` and `User root`.
-  3. Over the VPN, a hosts entry `10.101.0.11 pve01.int.phoenixstack.net` (and `pve01`, if you use the short name). The UniFi WiFiman client sends all lookups to public DNS, where the zone's wildcard record answers instead of the UDM. On the home LAN the UDM's record is enough.
+  3. Over the VPN, a hosts entry `10.101.0.11 pve01.int.phoenixstack.net` (and `pve01`, if you use the short name). The UniFi WiFiman client sends all lookups to public DNS, where the zone's wildcard record answers instead of Pi-hole. On the home LAN the UDM forwards the name to Pi-hole; keep the entry anyway, for when pve01 (and with it Pi-hole) is down.
 - **Weekly patch window.** In `tmux` on the host:
   1. `apt update && apt dist-upgrade`. Always `dist-upgrade` (or `full-upgrade`), never plain `apt upgrade`: Proxmox updates often add or replace packages, and `upgrade` would hold them back. This updates PVE and PBS together.
   2. If a new kernel was installed, reboot at a quiet time. Guests shut down and come back by themselves (`onboot: 1`); expect a few minutes of downtime.

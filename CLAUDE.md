@@ -5,8 +5,8 @@ Read [README.md](README.md) first, then [proxmox/REBUILD_STATE.md](proxmox/REBUI
 ## Guardrails
 
 - **No secrets** in code, docs, commits, PRs or chat output. Secrets live in 1Password and are entered at run time.
-- **Dry run first.** Run `pve-bootstrap.sh` without `--apply` (plan mode), and Ansible with `--check --diff`,
-  before any change. Show the plan, then get approval for destructive or outward-facing steps:
+- **Dry run first.** Run `pve-bootstrap.sh` without `--apply` (plan mode), `tf plan`, and Ansible with
+  `--check --diff`, before any change. Show the plan, then get approval for destructive or outward-facing steps:
   `--destroy-data`, network/firewall stages, pushes.
 - **Protect the guest backups** on the NAS (`Backups/pve01`) until the restored guests are verified.
 - **Small steps:** one layer at a time (see the status table in README.md). Don't start new layers or services
@@ -16,7 +16,7 @@ Read [README.md](README.md) first, then [proxmox/REBUILD_STATE.md](proxmox/REBUI
 
 ## Working notes
 
-- Shell scripts and configs under `proxmox/` must keep LF line endings (`proxmox/.gitattributes`).
+- Files keep LF line endings (root `.gitattributes`; `archive/` is left as it is).
 - pve01 is `10.101.0.11` (mgmt VLAN, reached through the UDM from the admin sources in `ADMIN_SOURCES`:
   the Young admin workstation and laptop `10.1.1.69` and `10.1.1.169`, the Porter admin workstation and laptop
   `10.2.1.69` and `10.2.1.169`, and Teleport VPN clients `192.168.2.0/24`).

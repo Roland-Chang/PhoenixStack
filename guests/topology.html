@@ -205,7 +205,7 @@
         <line class="ln" x1="634" y1="340" x2="634" y2="357" marker-end="url(#ah)"/>
         <text x="640" y="354">443 internal</text>
         <line class="ln" x1="1066" y1="340" x2="1066" y2="357" marker-end="url(#ah)"/>
-        <text x="1072" y="354">53 DNS</text>
+        <text x="1072" y="354">53 · UDM forward</text>
 
         <rect class="node" x="536" y="360" width="196" height="110" rx="8"/>
         <text class="t-name" x="548" y="383">docker01</text><text class="t-badge" x="722" y="383" text-anchor="end">VM</text>
@@ -304,8 +304,9 @@
         <li>Plex, Jellyfin, or both?</li>
         <li>Which docker-temp apps are public (to <code>docker02</code>) and which internal (to <code>docker01</code>)?</li>
         <li>AI tier code: proposed 12, address <code>.121</code>.</li>
-        <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot.</li>
-        <li>Monitoring (uptime and service alerts): which zone and when.</li>
+        <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot; ad blocking comes with it.</li>
+        <li>Monitoring (uptime and service alerts) and central logs (SIEM): which zone and when.</li>
+        <li>Authentik groups for household users (proposed: <code>Family</code> with <code>Young</code> and <code>Porter</code> below it).</li>
         <li>Install the 990 Pro drives (<code>data</code> pool) and the RTX 3070.</li>
       </ul>
     </section>
@@ -313,7 +314,7 @@
 
   <section class="matrix-sec">
     <h2>UDM firewall today</h2>
-    <p>From the read-only export of 2026-11-21, 14:51 (UniFi Network 11.0.99): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <p>From the read-only export of 2026-11-21, 14:51 (UniFi Network 11.0.99), updated for the changes of 2026-11-22 below: five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
     <div class="scroll">
       <table class="mx">
         <thead>
@@ -332,7 +333,7 @@
             <td class="c-allow"><b>Allow all</b></td>
             <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69, 10.1.1.169: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · DNS and 443 for everyone at L5b</span></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · 443 for everyone with the first household app (names come through the UDM)</span></td>
             <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · everyone else blocked</span></td>
             <td class="c-allow"><b>Allow all</b><span>control your devices</span></td>
             <td class="c-allow"><b>Allow</b></td>
@@ -382,10 +383,10 @@
             <td class="c-block"><b>Block</b><span>replies only</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-block c-flag"><b>Block</b><span>DNS to Pi-hole at rollout (2)</span></td>
+            <td class="c-block"><b>Block</b><span>names come through the UDM</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">same network</td>
-            <td class="c-allow"><b>Allow</b><span>straight out</span></td>
+            <td class="c-allow c-flag"><b>Allow</b><span>straight out · outbound DNS still open (2)</span></td>
             <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
           </tr>
           <tr><th>Internet</th>
@@ -412,9 +413,10 @@
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
       <li><b>Internet-facing hosts on the management network.</b> The two forwards reach docker-temp and PLEX-TEMP on mgmt, with extra ports for docker-temp's current setup. Accepted until those apps move to the DMZ.</li>
-      <li><b>IOT DNS through Pi-hole</b> (L5b): IOT's DHCP hands out Pi-hole's address, IOT → Services allows DNS to <code>dns01</code> and <code>dns02</code> only, and outbound DNS (53, 853) to the internet is blocked.</li>
+      <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
     </ol>
     <p style="margin-top:14px">Fixed on 2026-11-20: stale port forwards removed; Services DHCP limited to <code>.150</code>–<code>.199</code>; mgmt and IOT each moved to a zone of their own; every zone's access to the UDM limited to DNS, DHCP and ICMP; SSH is off on the UDM and the iDRAC; the Temp site-to-site VPN and unused port lists deleted; pve01's own admin allowlist narrowed to the same sources as the UDM (Young and Porter admin workstations, Teleport).</p>
     <p style="margin-top:8px">Fixed on 2026-11-21: Services and the DMZ open to the admin sources only (Young and Porter admin workstations and laptops, Teleport), with <code>Internal -&gt; DMZ (Block)</code> and <code>VPN -&gt; DMZ (Block)</code> for everyone else; the admin laptops added to the Management rules and to pve01's allowlist; the admin workstations and laptops on the IPS "Detection Exclusions" list, so repeated SSH isn't taken for a scan. Checked with two test guests (one per zone), since destroyed.</p>
+    <p style="margin-top:8px">Changed on 2026-11-22: household DNS through the UDM, which forwards <code>int.phoenixstack.net</code> to Pi-hole (Young LAN first); the Gateway block rules of Services, Management and IOT match new and invalid connections only, so replies to the UDM's own queries get back.</p>
   </section>
 </div>

@@ -1,20 +1,21 @@
 # Guests (L5): design
 
-Purpose: how PhoenixStack guests are placed on the network, created (Terraform) and configured (Ansible).
-This is **L5a**: the groundwork every service builds on. The first service on it is DNS (L5b, Pi-hole).
-The host (L0–L4) is in [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
+Purpose: how PhoenixStack guests are placed on the network, created (Terraform) and configured (Ansible), and
+the services built on them, one layer at a time (L5a groundwork, then L5b onwards). The host (L0–L4) is in
+[../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status: **L5a done 2026-11-21; L5b (DNS, `dns01`) applied and checked 2026-11-21.** Applied so far: mgmt back to `/24`, UniFi zones, the Terraform token narrowed to
-its pools and VLANs 100/200, the Debian 13 container template and VM template `10001`. The topology diagram is [topology.html](topology.html)
-(published: <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
+Status (2026-11-22): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
+and internal Traefik (`docker01`), Authentik (`authentik01`). [Household DNS](#household-dns) through Pi-hole is
+rolling out. The topology diagram is [topology.html](topology.html) (published:
+<https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
 ## Scope
 
 - In: the zones and their firewall rules, guest templates, IDs and addresses, Terraform and Ansible layout,
-  secrets, the API token's privileges, the per-guest firewall, guest patching, and test guests that prove it all.
+  secrets, the API token's privileges, the per-guest firewall, guest patching, the test guests that proved it, and
+  each service's section (L5b onwards).
 - Out: the three -TEMP guests (AMP-TEMP 100, docker-temp 999, PLEX-TEMP 9999). They stay as they are, on
   the mgmt network, untouched by Terraform, until their services move to new guests.
-- Out: any service. L5a ends with two throwaway test guests, created and destroyed.
 
 ## Architecture
 
@@ -42,7 +43,8 @@ without passing any firewall the UDM controls. With its own zone, everything it 
   DMZ holds.
 - **Authentik lives in Services.** The public Traefik asks it to log people in (forward-auth) through one allowed
   port; its server and database stay off the DMZ.
-- **LAN and VPN clients** use Pi-hole (`53`) and the internal Traefik (`443`) in Services.
+- **LAN and VPN clients** use the internal Traefik (`443`) in Services, and get names from the UDM, which forwards
+  `int.phoenixstack.net` to Pi-hole ([Household DNS](#household-dns)). Admin machines ask Pi-hole directly.
 - **Media files** stay on the NAS (mgmt): read-write for media management (`docker01`), read-only for the media
   server (`plex01`). Mounted inside those VMs, not bind-mounted from the host.
 
@@ -94,7 +96,7 @@ Restore one database: `sudo -u postgres pg_restore --create --dbname=postgres /v
 | Area | Decision | Why |
 | --- | --- | --- |
 | Network | Three zones (see [Zones](#zones)). Every new guest is in Services or the DMZ; none on mgmt. Decided 2026-11-20. | The host has no address in Services or the DMZ, so a guest can only reach its admin ports through the UDM, where they're blocked. |
-| Addressing | The original scheme (see [Address scheme](#address-scheme)): MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, a fixed last octet per guest. Terraform sets the MAC and a static IP. UDM DHCP on VLANs 100 and 200 limited to `.150–.199`; `.254` gateway. | Kept from the archived design (`archive/legacy/docs/roadmap/MAC_ADDRESS_SCHEME.md`), reconciled 2026-11-20. A DNS server's address is handed out to every client, so it can't move. |
+| Addressing | The original scheme (see [Address scheme](#address-scheme)): MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, a fixed last octet per guest. Terraform sets the MAC and a static IP. UDM DHCP on VLANs 100 and 200 limited to `.150–.199`; `.254` gateway. | Kept from the archived design (`archive/legacy/docs/roadmap/MAC_ADDRESS_SCHEME.md`), reconciled 2026-11-20. Pi-hole's addresses are set on the UDM and on admin machines, so they shouldn't move. |
 | UDM firewall | One zone per VLAN, default block between zones, then the allows in [UDM rules](#udm-rules). | UniFi allows traffic between internal networks by default. These rules are the real boundary; the PVE guest firewall is a second layer. Set by hand in the UniFi UI and recorded here. |
 | Guest firewall (PVE) | Every Terraform guest has its firewall on (`firewall=1` on the NIC), `policy_in: DROP`, and only the rules its service needs, defined in Terraform next to the guest. | Defense in depth: also covers traffic between guests in the same zone, which the UDM never sees. |
 | Guest type | See [Guest types](#guest-types). | |
@@ -149,20 +151,27 @@ gateway `.254`. The -TEMP guests keep their IDs and DHCP addresses until they ar
 
 Default: block between zones. Then allow only these (each by port, to the named guest where it says so).
 "Admin sources" are the Young admin workstation and laptop (`10.1.1.69`, `10.1.1.169`), the Porter admin workstation and laptop (`10.2.1.69`, `10.2.1.169`), and Teleport VPN clients `192.168.2.0/24` (the same list as pve01's `ADMIN_SOURCES`).
+**One exception:** `10.2.1.175`, a temporary production system at the Porter site, is in the UDM's Porter Admin
+rules (into Management, Services and DMZ) but isn't an admin source, and pve01 still drops it. Replace it with a
+NAS-only rule when that system retires (REBUILD_STATE item 9).
 
-| From | To | Allow |
-| --- | --- | --- |
-| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` |
-| LAN and VPN clients | Services | `53` → `dns01`, `dns02`; `443` → `docker01` |
-| LAN and VPN clients | DMZ | The same ports as the internet (so public names also work at home) |
-| Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page |
-| Admin sources | Management | As today (pve01's own firewall also limits to admin sources) |
-| Services, DMZ | Internet | Allowed (updates, Plex, game server lists) |
-| DMZ `docker02` | Services | Authentik's port on `authentik01` (forward-auth); each published app's port on `docker01` |
-| DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access |
-| Services `docker01` | Management | NAS file sharing to `10.101.0.101` |
-| Services | DMZ | Nothing (add monitoring later, by port) |
-| Services, DMZ | Management, client LANs | Nothing else |
+| From | To | Allow (design) | Today (UniFi export, 2026-11-22) |
+| --- | --- | --- | --- |
+| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | Not yet: the forwards still go to docker-temp on mgmt (REBUILD_STATE item 7) |
+| LAN and VPN clients | Services | `443` → `docker01`. DNS goes through the UDM ([Household DNS](#household-dns)), so no `53` | Not yet: with the first app for household users |
+| LAN and VPN clients | DMZ | The same ports as the internet (so public names also work at home) | Blocked (`Internal -> DMZ (Block)`, `VPN -> DMZ (Block)`) until `docker02` |
+| Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page | **All ports** (`Young/Porter/VPN Admin -> Services/DMZ`); narrow to the design once the services settle |
+| Admin sources | Management | As today (pve01's own firewall also limits to admin sources) | All ports |
+| Services, Management, IOT | The UDM itself (Gateway) | DNS (`53`), DHCP (`67`), ping | As designed. The block rules after them match `New` and `Invalid` connections only (since 2026-11-22), so replies to queries the UDM sends itself (its forwarding to Pi-hole) get back |
+| Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
+| DMZ `docker02` | Services | Authentik's port on `authentik01` (forward-auth); each published app's port on `docker01` | Not yet (no `docker02`) |
+| DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
+| Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
+| Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
+| Services, DMZ | Management, client LANs | Nothing else | Nothing |
+
+The -TEMP guests' rules (the Young LAN and the site VPNs to the NAS's SMB and to PLEX-TEMP's Plex, the Young LAN to
+docker-temp) go when those guests do.
 
 ### Terraform
 
@@ -170,10 +179,10 @@ Default: block between zones. Then allow only these (each by port, to the named 
 | --- | --- | --- |
 | Provider | `bpg/proxmox`, exact version pinned in `required_providers`; Terraform version pinned in `required_version`. | Maintained, covers LXC, VMs and firewall rules. The archive used `telmate/proxmox`. |
 | Connection | `https://pve01.int.phoenixstack.net:8006/` with normal certificate checking. No SSH from Terraform. | The GUI has a Let's Encrypt certificate. Without SSH, the provider is limited to the API token's privileges. |
-| Credentials | Token `terraform@pve!automation`, read from 1Password at run time: `op run --env-file=… -- terraform plan`. | No secrets on disk or in git. |
+| Credentials | Token `terraform@pve!automation`, read from 1Password by the wrapper [tf.sh](tf.sh) (`op read`) and passed to Terraform in its environment, for that run only. | No secrets on disk or in git. |
 | Inventory | One file, `guests/inventory.yml`, lists each guest (kind, VMID, MAC, zone, IP, cores, memory, disk, storage, ports). Terraform reads it with `yamldecode()`; Ansible uses it as its inventory. | One source of truth. Adding a guest is one entry. |
 | Layout | `guests/terraform/`: one root module, two small modules (`lxc`, `vm`), `for_each` over the inventory. | Small enough to read in one sitting. No modules per tier. |
-| State | Local state, git-ignored, saved to 1Password (document item) by the wrapper after each `apply` (decided 2026-11-20). | State can hold sensitive values and is the only record of what Terraform owns. A lost state is recoverable here (`terraform import` of a few guests), so a simple backup is enough. |
+| State | The copy of record is a 1Password document; the local file (git-ignored, owner-only) is a working copy. The wrapper checks it against 1Password's before every command, fetches it when it's missing or older (2026-11-22), and saves it back after every command that can change it. | State can hold sensitive values and is the only record of what Terraform owns. Fetching first means a second workstation never plans from an empty state. A lost state is recoverable here (`terraform import` of a few guests). |
 | Workflow | `plan`, review, `apply`, by hand from an admin workstation. No CI. | The archive's CI applied on every push to main. |
 | Tags | None. Proxmox checks tag changes against `/vms/<vmid>` only, not the pool, so the pool-scoped token can't set them while creating a guest (found by the first test apply, 2026-11-20). Pool `terraform` marks Terraform's guests; the VLAN shows the zone. | Keeps the token pool-scoped instead of granting it rights on every guest. |
 | Hand-made exceptions | Bind mounts and LXC feature flags other than `nesting` need `root@pam`, which no token has. Guests that need them get those lines by hand, recorded in this file, and Terraform ignores them (`lifecycle.ignore_changes`). | Keeps root out of automation. The design avoids bind mounts (NAS shares are mounted inside VMs). |
@@ -217,8 +226,8 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
 | Control node | An admin workstation (Young LAN, Porter LAN or VPN). | Those are the networks the UDM lets reach guests' SSH. |
 | First login | Terraform puts Aaron's SSH public key in the guest (container root, or the cloud-init user on VMs). The first `base` run creates user `aaron` (sudo, key only) and sets `PermitRootLogin no`. Later runs connect as `aaron`. | Named admin account; root only during the first run. |
 | Host keys | Checking stays on, with `StrictHostKeyChecking=accept-new`. A rebuilt guest's old key is removed by hand. | The archive turned host key checking off. |
-| Secrets | 1Password, read at deploy time: the lookup plugin (`community.general.onepassword`) or `op run`, with a 1Password service account limited to one vault. **No Ansible Vault files.** | The archive committed Vault files to a public repo. |
-| `base` role | Timezone, locale, NTP (`systemd-timesyncd`), journald size cap, sshd hardening, admin user, unattended security updates (see Patching), QEMU guest agent on VMs; no LLMNR or mDNS on VMs (systemd-resolved; names come from Pi-hole only, since 2026-11-22). | The same baseline on every guest. |
+| Secrets | 1Password, read on the admin machine with `op read` (Ansible's `pipe` lookup), only when a guest needs a secret it doesn't have yet: a new resolver's web password, a new database role, Traefik's Cloudflare token, Authentik's `.env`. Dry runs never read secrets. **No Ansible Vault files.** | The archive committed Vault files to a public repo. |
+| `base` role | A first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, journal cap 200 MB, automatic Debian security updates without reboots (see [Guest patching](#guest-patching)); on VMs also the QEMU guest agent, time sync (`systemd-timesyncd`), and no LLMNR or mDNS (systemd-resolved; names come from Pi-hole only). | The same baseline on every guest. |
 | Runs | Always `--check --diff` first, then the real run. | Repo guardrail. |
 
 ### Guest patching
@@ -272,26 +281,26 @@ From an admin workstation or laptop (Young or Porter, or over Teleport), with `O
 1Password account (the `phx` shortcut; `tf` and `apb` below are shortcuts too, see the admin-workstation notes in [../proxmox/README.md](../proxmox/README.md)) and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
 
 ```bash
-# Terraform: the wrapper reads the API token from 1Password and saves the state there after changes
+# Terraform: the wrapper reads the API token from 1Password and keeps the state in step with 1Password's copy
 tf plan        # guests/tf.sh, from any directory
 tf apply
 
-# Ansible: baseline first. The first run on a NEW container connects as root (VMs already have the admin user)
-cd guests/ansible
-ansible-galaxy collection install -r requirements.yml      # once
-ansible-playbook site.yml -l dns01 -e ansible_user=root --check --diff
-ansible-playbook site.yml -l dns01 -e ansible_user=root
-# Then the service's own playbook, as the admin user (here: DNS, see L5b below)
-ansible-playbook dns.yml -l dns01 --check --diff
-PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/password')" ansible-playbook dns.yml -l dns01
+# Ansible (apb = ansible-playbook in guests/ansible). Baseline first: a NEW container's first run connects as root
+ansible-galaxy collection install -r guests/ansible/requirements.yml   # once
+apb site.yml -l dns01 -e ansible_user=root --check --diff
+apb site.yml -l dns01 -e ansible_user=root
+# Then the service's own playbook, as the admin user (here: DNS, see L5b). A secret it needs on a first run
+# is read from 1Password by the playbook itself.
+apb dns.yml -l dns01 --check --diff
+apb dns.yml -l dns01
 ```
 
 | Piece | Where | Notes |
 | --- | --- | --- |
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN, static IP and DNS servers, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. **Changing a guest's cloud-init settings (DNS servers, address) restarts it during `apply`**, and a VM's cloud-init then makes new SSH host keys: compare them through pve01 (`qm guest exec <vmid> -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before `ssh-keygen -R`. |
-| Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs; no LLMNR or mDNS on VMs (systemd-resolved; names come from Pi-hole only, since 2026-11-22). |
+| Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State: `infrastructure` / `(Terraform) - Guests State` is the copy of record; fetched when the local copy is missing or older, saved after apply, destroy, import and state commands (see [Terraform](#terraform)). |
+| Ansible | [ansible/](ansible/) | `site.yml` runs the `base` role (see [Ansible](#ansible)) on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`), run after it as the admin user, because `base` turns root's SSH login off. `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. |
 
 ### New guest checklist
 
@@ -349,88 +358,59 @@ What the first run found, and fixed:
 
 ## L5b: DNS (`dns01`, `dns02`)
 
-**Applied 2026-11-21** and checked from the admin laptop (results below). Not in use by any client yet.
+**Applied 2026-11-21** and checked from the admin laptop (results below). Used by the admin machines, the Services
+guests and, through the UDM, household devices ([Household DNS](#household-dns)).
 
 | Area | Decision | Why |
 | --- | --- | --- |
 | Guests | `dns01`: unprivileged LXC `10201`, MAC `02:aa:bb:cc:02:01`, `10.101.1.21`. `dns02` (added 2026-11-21): LXC `10202`, MAC `02:aa:bb:cc:02:02`, `10.101.1.22`. (Both were `.201`/`.202` until the re-address of 2026-11-22.) Both in Services, 1 core, 512 MiB, 8 GB on `ssd`, start order 1, configured identically by the same roles. | Address scheme tier 02. Pi-hole and Unbound install natively. Two resolvers keep DNS up while one is patched (`patch.yml` does one guest at a time). |
-| Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, both on `dns01`. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
-| Upstream | **Option A** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of the DNS path. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT (option D), a config change only. |
+| Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, on each resolver. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
+| Upstream | **Recursive Unbound** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of Pi-hole's own lookups. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT, a config change only. |
 | Blocking | **Off** (decided 2026-11-21): no blocklists installed, `dns.blocking.active = false`. | Local names first; turn blocking on later as its own step. |
 | Local names | `dns.hosts` from the inventory: every guest plus `dns_records` (`pve01`). `int.phoenixstack.net` is answered only here (`local=/int.phoenixstack.net/`), so an unknown name gets NXDOMAIN instead of the public wildcard record. | One source of truth. Adding a guest to the inventory adds its name. |
 | Listening | `dns.listeningMode = SINGLE` on `eth0`: answers any source network, on that interface only. | Pi-hole's default (`LOCAL`) ignores clients outside `10.101.1.0/24`. The Proxmox firewall and the UDM decide who gets in. |
-| Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources`; `443/tcp` (web interface) and SSH from admin sources. | The UDM only lets admin sources into Services today. Opening `53` to all LAN and VPN clients is a UDM rule, added at rollout. |
-| Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), set on the first run only. | An unattended install sets no password, and without one the web interface is open. |
+| Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources` and from the Services VLAN (the guests, and the UDM forwarding household lookups from `.254`); `443/tcp` (web interface) and SSH from admin sources. | The UDM decides which clients reach Services; household devices don't need to, since the UDM asks for them. |
+| Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), read by the playbook on a resolver's first run only. | An unattended install sets no password, and without one the web interface is open. |
 | Install | The installer is pinned to a Pi-hole release tag (`v6.6`) and checked by SHA-256 before it runs. It installs the current release, and FTL is checked against Pi-hole's own checksum. Updates are `pihole -up` in the weekly window. | Pi-hole has no Debian package. |
-| Rollout | **Admin machines only** (decided 2026-11-21): point the admin workstation and laptop at `10.101.1.21` and `10.101.1.22` by hand. LAN DHCP stays on the UDM until they have run for a while. | |
+| Rollout | Admin machines first (2026-11-21, by hand), then the Services guests (2026-11-22, `dns_servers`), then household devices through the UDM (2026-11-22, [Household DNS](#household-dns)). | |
 | Redundancy | **Accepted risk** (2026-11-21, Aaron): both resolvers are on pve01, so a pve01 reboot or failure takes DNS down. Off-host DNS will be a Pi-hole on the Porter network, later. | Covers guest maintenance now; host outages wait for the Porter instance. |
 | Own resolver | `dns01` itself resolves through its gateway (`.254`), not through Pi-hole. | It still has working DNS for updates if Pi-hole is down. |
 
-Steps (each one dry-run first):
+Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first); specific to DNS:
 
-1. 1Password: create item `(Pi-hole) - DNS Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
-2. `tf plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
-3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
-4. Check (below), then set the admin machines' DNS to `10.101.1.21` and `10.101.1.22` (were `.201`/`.202`), on the home network's profile only
-   (away from home the laptop can't reach them). **Done 2026-11-21 on Aaron's laptop** (Linux Mint, NetworkManager profile
-   `Auto YOUNG`: `ipv4.dns`, `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`).
-   Checked: names resolve through Pi-hole, internal and public. The Young admin workstation is still to do.
-5. ~~Afterwards: remove the UDM's manual `pve01.int.phoenixstack.net` record~~ **Done 2026-11-22** (Aaron removed the UDM's local records; the export shows none). Found 2026-11-21: it
-   was never used on the Young LAN, because the LAN's DHCP hands out `8.8.8.8`/`8.8.4.4`; the laptop's `/etc/hosts` entry did the work.
-   Keep that hosts entry while VPN clients are forced onto public DNS (REBUILD_STATE item 1).
-6. Later, the LAN-wide rollout (a UniFi change): the Young LAN's DHCP DNS from `8.8.8.8` to `10.101.1.21`/`.22`, and a
-   UDM rule letting LAN and VPN clients reach port 53 on both (today only admin sources get into Services).
+1. 1Password: item `(Pi-hole) - DNS Admin` in `infrastructure` (generated, 16+ characters). The playbook reads it on a
+   resolver's first run.
+2. One resolver at a time: `tf plan` and `apply`, `apb site.yml -l dns01 -e ansible_user=root`, `apb dns.yml -l dns01`;
+   then the same for `dns02`, and `dns.yml` once more on `dns01` so each knows the other's name.
+3. Admin machines: DNS `10.101.1.21` and `10.101.1.22` on the home network's profile only (away from home they're out
+   of reach). Done 2026-11-21 on Aaron's laptop (NetworkManager profile `Auto YOUNG`: `ipv4.dns`,
+   `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`); the Young admin
+   workstation is still to do.
+4. The UDM's manual `pve01` record: removed 2026-11-22 (Pi-hole holds it). Admin machines keep their hosts entry for
+   VPN use and host rebuilds (REBUILD_STATE item 1).
+5. Household devices: [Household DNS](#household-dns).
 
-Done when (run 2026-11-21, against the old addresses `.201`/`.202`):
+Done when (first run 2026-11-21 at the old addresses `.201`/`.202`; the name, NXDOMAIN, public-name, DNSSEC and
+web-interface checks were repeated at `.21`/`.22` on 2026-11-22):
 
-- [x] `terraform plan` after the apply shows no changes (2026-11-21, with `dns01` and `dns02`).
-- [x] `dns.yml` repeat runs: `changed=0` (twice, 2026-11-21).
-- [x] From an admin machine: `dig @10.101.1.201 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.201 nothing.int.phoenixstack.net` returns NXDOMAIN.
-- [x] `dig @10.101.1.201 example.com` resolves. `dig @10.101.1.201 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
+- [x] `terraform plan` after the apply shows no changes; `dns.yml` repeat runs: `changed=0`.
+- [x] From an admin machine: `dig @10.101.1.21 pve01.int.phoenixstack.net` returns `10.101.0.11`; `dig @10.101.1.21 nothing.int.phoenixstack.net` returns NXDOMAIN.
+- [x] `dig @10.101.1.21 example.com` resolves. `dig @10.101.1.21 dnssec-failed.org` returns SERVFAIL (DNSSEC works).
       Answers carry no `ad` flag: Pi-hole clears it unless it validates too (`dns.dnssec`). Left off on purpose (2026-11-21);
       Unbound's SERVFAIL on bad signatures is the protection.
 - [x] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123. (Also present, both harmless: the template's Postfix on localhost:25, and Pi-hole on `[::]:53`
       with no IPv6 address on the guest.) Port 80 from the laptop times out (dropped).
-- [x] `https://10.101.1.201/admin` asks for the password; browser login works on both (2026-11-21). A non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
+- [x] `https://10.101.1.21/admin` asks for the password; browser login works on both. A non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
 - [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
 
-`dns02` (added 2026-11-21, **applied 2026-11-21**; `dns01` re-run to learn its name: only `dns.hosts` changed;
-each resolves the other's name): `tf plan` (expect only `dns02` and its firewall), `apply`,
-then `apb site.yml -l dns02 -e ansible_user=root` and `apb dns.yml -l dns02` (each `--check --diff` first; the
-web password from the same 1Password item), then the same checks against `10.101.1.202`.
-
-**Re-address to `.21`/`.22`** (decided 2026-11-22, with the [address scheme](#address-scheme) realignment; done
-before the LAN rollout, while only the admin laptop uses them). **Applied 2026-11-22**: Terraform updated both
-containers in place (a second `plan`: no changes; state copy in 1Password matches), `dns.yml` changed only
-`dns.hosts` (repeat run `changed=0`). Checked at both new addresses: local names (including each other's), NXDOMAIN
-for unknown names, `example.com`, SERVFAIL for `dnssec-failed.org`, and the web interface. Old host keys removed.
-
-**What went wrong:** one `apply` moved both resolvers at once while the laptop still pointed at the old
-addresses, so the laptop lost DNS (and with it 1Password, which `tf.sh` needs). Aaron switched it back to the UDM's
-DNS. Next time a resolver moves: move one at a time (`tf apply -target='module.lxc["dns01"]'`),
-point clients at the moved one, then move the other.
-
-Steps as run:
-
-1. `inventory.yml`: the new IPs. `tf plan`: expect an in-place update of each container's network
-   settings only (same VMID and MAC; no replace). Then `apply`.
-2. `apb dns.yml --check --diff`, then `apb dns.yml`: only `dns.hosts` changes (the two DNS names).
-3. The laptop's NetworkManager profile `Auto YOUNG`: DNS `10.101.1.21`, `10.101.1.22` (done 2026-11-22 by Aaron).
-4. Check: `dig @10.101.1.21 pve01.int.phoenixstack.net` and `dig @10.101.1.22 dns01.int.phoenixstack.net` answer;
-   `ssh` and the web interface work at the new addresses; a second `plan` and `dns.yml` show no changes.
-   Remove the old host keys (`ssh-keygen -R 10.101.1.201`, `-R 10.101.1.202`).
-
-Dry-run limits (seen 2026-11-21): on a brand-new guest, `--check` doesn't refresh the package lists, so the first
-full upgrade shows nothing to do although the real run upgrades. And Pi-hole settings aren't previewed (they go through
-`pihole-FTL --config`); compare `dns.hosts` and the other values in `roles/pihole/defaults/main.yml` by eye before a
-real run that changes them.
-
-What the first L5b run found, and fixed:
+What L5b found, and fixed:
 
 | Found | Fix |
 | --- | --- |
 | A dry run on a new guest pretends to install packages and users, so service, handler and file-owner steps failed | Those steps skip, or check as root, only in that case |
 | Pi-hole moves `adlists.list` into `/etc/pihole/migration_backup/` when it builds its database, so Ansible re-created it | The two pre-seed files are written only before the install |
+| Dry runs can't preview Pi-hole's settings (they go through `pihole-FTL --config`), and on a new guest `--check` doesn't refresh the package lists | Compare `dns.hosts` and the other values in `roles/pihole/defaults/main.yml` by eye before a real run that changes them |
+| Re-addressing both resolvers in one `apply` (2026-11-22, `.201`/`.202` to `.21`/`.22`) cut the laptop's DNS, and with it 1Password | Move one resolver at a time (`tf apply -target='module.lxc["dns01"]'`), point clients at it, then the other |
 
 ## L5c: PostgreSQL (`pgsql01`)
 
@@ -484,17 +464,16 @@ Done when:
 | Traefik | Internal Traefik `v3.7.19` as the stack `/opt/stacks/traefik` (role `traefik`). Port 443 only, no port-80 redirect. Versions pinned in `roles/traefik/defaults/main.yml`. | |
 | Routes | **File provider, no Docker socket** (decided 2026-11-22). Each Docker host lists `routes: [{name, url, admin_only}]` in the inventory: Ansible writes `dynamic/route-<name>.yml` and removes routes that are gone; Pi-hole points `<name>.int.phoenixstack.net` at the host (after `dns.yml`). Apps join the Docker network `proxy`. | Socket access is root on the host. Routes live in git, next to the guest. |
 | Certificate | One wildcard, `*.int.phoenixstack.net` (plus the bare name), from Let's Encrypt over Cloudflare DNS-01. The challenge check uses `1.1.1.1` and `9.9.9.9`. Stored in `/opt/stacks/traefik/letsencrypt/acme.json` (root only); Traefik renews it 30 days before expiry. | Certificate transparency logs publish every certificate's names; a wildcard publishes only `*.int`. Pi-hole answers NXDOMAIN for anything under `int.`, so the check must ask public resolvers. |
-| Cloudflare token | Its own token (decided 2026-11-22): Zone DNS Edit + Zone Read on `phoenixstack.net`, no IP filter. 1Password `(Cloudflare) - Traefik DNS Token` (item ID `6jwbiosa4zf5wg32uh333srn2m`). On the guest as `secrets/cloudflare-token` (root, `0600`), passed to Traefik as a Compose secret. | Revocable without touching PVE's token. No IP filter: the home address may change, and a failed renewal would go unnoticed until monitoring exists. |
+| Cloudflare token | Its own token (decided 2026-11-22): Zone DNS Edit + Zone Read on `phoenixstack.net`, no IP filter. 1Password `(Cloudflare) - Traefik DNS Token` (item ID `6jwbiosa4zf5wg32uh333srn2m`). Written on the first real run (the playbook reads it with `op read`; dry runs don't need it) to `secrets/cloudflare-token` on the guest (root, `0600`), passed to Traefik as a Compose secret. To rotate: change the item, delete that file, run again. | Revocable without touching PVE's token. No IP filter: the home address may change, and a failed renewal would go unnoticed until monitoring exists. |
 | Dashboard | `https://traefik.int.phoenixstack.net`, admin sources only (`admin-only` IP allow-list), and since L5e an Authentik login (`authentik Admins`). | Two checks: the right address and the right person. |
 | Smoke test | `whoami` (`traefik/whoami:v1.12.0`) at `https://whoami.int.phoenixstack.net` while its route is in the inventory; removing the route removes the container. | Proves the name, the route and the certificate before a real app relies on them. |
-| Not in this step | The NAS mount (with the media apps), `docker02`, and the UDM rule opening `443` to LAN and VPN clients (with the DNS rollout). | One step at a time. |
+| Not in this step | The NAS mount (with the media apps), `docker02`, and the UDM rule opening `443` to LAN and VPN clients (with the first app for household users). | One step at a time. |
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
 1. `tf plan`: expect only `docker01` and its firewall. Then `apply`.
 2. `apb site.yml -l docker01` (a VM already has the admin user from cloud-init).
-3. `apb docker.yml -l docker01`, the real run with
-   `CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')"`.
+3. `apb docker.yml -l docker01` (the first real run reads the Cloudflare token from 1Password).
 4. `apb dns.yml -l dns01`, then `-l dns02` (names `docker01`, `traefik`, `whoami`).
 5. UniFi alias; docs.
 
@@ -514,7 +493,7 @@ Found on the way:
 | --- | --- |
 | `cloud-init status` says "degraded done": Proxmox's generated user-data uses the deprecated `user:` key | Harmless (no errors); nothing to do until Proxmox changes it |
 | The first full upgrade installed a new kernel, so Debian asked for a reboot | Rebooted before installing Docker; now a step in the new guest checklist |
-| A new guest's first `docker.yml` dry run needs the token too (it stops at the token check) | As with Pi-hole's password: run the first dry run with `CLOUDFLARE_DNS_TOKEN` set |
+| A new guest's first `docker.yml` dry run needs the token too (it stops at the token check) | Since 2026-11-22 the playbook reads the token from 1Password itself, and dry runs don't need it |
 
 ## L5e: Identity (`authentik01`)
 
@@ -532,7 +511,7 @@ Found on the way:
 | Secrets | `.env` on the guest (root, `0600`), written once from 1Password: `(Authentik) - Secret Key` (`433bhnakbk4j55mkyrtnv3uhce`), `(PostgreSQL) - authentik` (`b7ycchopd2lagrf3jg4samuk5q`), `(Authentik) - akadmin` (`gc5okp343bflwbgpv53o4ypm6i`, the bootstrap password). Later runs keep the file; a dry run doesn't read 1Password. | To rotate: change the item (and, for the database, `ALTER ROLE authentik PASSWORD`), delete `.env`, run again. A new secret key logs everyone out. |
 | Admin | **`akadmin`** is break-glass only: both YubiKeys plus TOTP in Microsoft Authenticator on a phone, outside 1Password (decided 2026-11-22). **`aaron`** is the daily admin (group `authentik Admins`): both YubiKeys plus TOTP in 1Password. Devices are named after where they live ("TOTP Authenticator (MS Auth)", "TOTP Authenticator (1Password)"), so a lost phone or a 1Password compromise says which one to remove. | `akadmin` relies on 1Password only for its password; no single lost device locks either account. The YubiKeys are the phishing-resistant factor, which matters once the public Traefik sends internet users to Authentik. |
 | Last resort | Both of `akadmin`'s factors lost: on `authentik01`, `sudo docker exec authentik-server-1 ak create_recovery_key 10 akadmin` prints a one-time login link, valid for 10 minutes (the number is minutes). Then enrol new factors. | SSH to the VM doesn't depend on Authentik. |
-| MFA | **Required for every account** (decided 2026-11-22): the login flow accepts WebAuthn (YubiKey, passkey) or TOTP, and an account without either must enrol one before it can finish logging in. Set by our blueprint `roles/authentik/files/phoenix-mfa.yaml`, mounted read-only at `/blueprints/custom`; Authentik re-applies it hourly, so a change by hand in the UI is put back. | The default skipped MFA for accounts without a device. Static codes, Duo, SMS and email aren't offered: SMS and email are the weakest second factors. |
+| MFA | **Required for every account** (decided 2026-11-22): the login flow accepts WebAuthn (YubiKey, passkey) or TOTP, and an account without either must enrol one before it can finish logging in. Set by our blueprint `roles/authentik/templates/blueprints/phoenix-mfa.yaml.j2`, mounted read-only at `/blueprints/custom`; Authentik re-applies it hourly, so a change by hand in the UI is put back. | The default skipped MFA for accounts without a device. Static codes, Duo, SMS and email aren't offered: SMS and email are the weakest second factors. |
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
@@ -658,6 +637,28 @@ Before the first app depends on Authentik, and after each major Authentik upgrad
 
 What it doesn't prove: WebAuthn after a restore (only on the real name, so only in a real recovery) and the
 `data` folder (empty today; covered by the VM backups).
+
+## Household DNS
+
+**Started 2026-11-22** on the Young LAN; watching it for a day before the other networks.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| How | **The UDM forwards `int.phoenixstack.net` to Pi-hole** (decided 2026-11-22). Household devices keep the UDM as their DNS server; two UniFi DNS policies ("Forward Domain") send the internal domain to `dns01` and `dns02`, and the UDM resolves everything else itself, as before. | A pve01 reboot or failure takes only the internal names down, not the household's internet. Turning the forward off works at once. |
+| Not chosen, for now | Pi-hole directly, handed out by DHCP. | Every pve01 reboot would take the household offline. Revisit with ad blocking and the Porter Pi-hole (open decision 9). |
+| Young LAN | DHCP DNS: automatic, so the gateway (was `8.8.8.8`/`8.8.4.4`); domain `int.phoenixstack.net` (was `young.stack`), so short names like `pgsql01` work. | Devices switch as their leases renew (24 hours). |
+| UDM rules | No new rule for DNS: the UDM asks Pi-hole from `10.101.1.254`, which the resolvers accept. The zone rules `Services/Management/IOT -> Gateway (Block)` now match `New` and `Invalid` connections only. | Set to all states, they also dropped Pi-hole's replies to the UDM's own queries, and forwarded names timed out. |
+| Admin machines | Unchanged: they ask Pi-hole directly. | |
+| Not yet | Porter and RYoung (their own gateways, over the site-to-site tunnels: the same forward, plus a rule letting those gateways reach port `53`); IOT already uses the UDM, so it gets the names too (the zone rules still keep it out of Services); VPN clients (WiFiman forces public DNS, REBUILD_STATE item 1); the `443` rule into Services (with the first app for household users). | One network at a time. |
+
+Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
+
+- [x] Internal names answer (`auth`, `postgres`, `pve01`, `authentik01`) over UDP and TCP; `AAAA` is empty (no public
+      wildcard); an unknown internal name gets NXDOMAIN; public names resolve.
+- [x] Failover: with either resolver stopped, the other answers at once; with both stopped, internal names fail and
+      public names still resolve.
+- [x] A phone rejoined the Young Wi-Fi: DNS `10.1.1.254`, websites load.
+- [ ] A day later: Pi-hole's logs show the UDM's queries, and nothing broke for the household.
 
 ## Open decisions
 
