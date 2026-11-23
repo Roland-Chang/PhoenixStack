@@ -668,6 +668,10 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.
 7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
+8. Authentik audiences (groups) for non-admin users, before the first app for them. Proposal (2026-11-22): groups
+   describe people, not apps; nested households, `Family` with `Young` and `Porter` below it (a binding to a group
+   also admits its child groups), plus outside audiences if needed (`Guests`?). Group definitions in a blueprint,
+   memberships in the UI; routes get a list, `authentik_groups`. New users by invitation link or created by hand.
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
 the rest weekly), mgmt back to `/24`, three zones (mgmt VLAN 10, Services VLAN 100, DMZ VLAN 200), the archived
