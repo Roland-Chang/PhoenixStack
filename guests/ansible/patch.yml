@@ -99,6 +99,6 @@
       ansible.builtin.assert:
         that:
           - db_dump_last_ok.stat.exists
-          - (ansible_date_time.epoch | int - db_dump_last_ok.stat.mtime | int) < 26 * 3600
+          - (ansible_facts['date_time']['epoch'] | int - db_dump_last_ok.stat.mtime | int) < 26 * 3600
         fail_msg: "No good dump in 26 hours: see 'journalctl -u db-dump' on {{ inventory_hostname }}"
         success_msg: "Last good dump: {{ '%Y-%m-%d %H:%M' | strftime(db_dump_last_ok.stat.mtime | int) }}"

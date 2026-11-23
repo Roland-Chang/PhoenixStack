@@ -2,9 +2,9 @@
 # Always with --check --diff first.
 #
 #   apb docker.yml -l docker01 --check --diff
-#   CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')" apb docker.yml -l docker01
+#   apb docker.yml -l docker01
 #
-# CLOUDFLARE_DNS_TOKEN is only needed the first time (or to rotate the token).
+# The first real run reads the Cloudflare token from 1Password (op read, on this computer).
 # After adding or removing a route in the inventory, also run dns.yml (one resolver at a time).
 
 - name: Docker hosts

@@ -1,2 +1,0 @@
-# Scripts run on Linux — never convert to CRLF on Windows checkouts.
-*.sh text eol=lf

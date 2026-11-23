@@ -1,8 +1,9 @@
 # Internal Traefik as a compose stack in {{ traefik_dir }}: wildcard certificate from Let's Encrypt
 # (Cloudflare DNS-01), routes from the inventory as files. Needs the docker_host role first.
 #
-# The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once from
-# CLOUDFLARE_DNS_TOKEN; later runs keep the file. To rotate it, run again with the new token set.
+# The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once, read with
+# op read on this computer; dry runs and later runs don't read it. To rotate it: change the item,
+# delete secrets/cloudflare-token on the guest, run again.
 
 - name: Stack folders
   ansible.builtin.file:
@@ -24,24 +25,15 @@
     path: "{{ traefik_dir }}/secrets/cloudflare-token"
   register: traefik_token_file
 
-- name: CLOUDFLARE_DNS_TOKEN is set (needed the first time)
-  ansible.builtin.assert:
-    that: lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') | length > 0
-    fail_msg: >-
-      No token on the guest yet. Run with
-      CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')"
-    quiet: true
-  when: not traefik_token_file.stat.exists
-
-- name: Cloudflare token (root only)
+- name: Cloudflare token (root only), from 1Password the first time
   ansible.builtin.copy:
-    content: "{{ lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') }}"
+    content: "{{ '(dry run: token not read)' if ansible_check_mode else lookup('ansible.builtin.pipe', 'op read ' ~ (traefik_op_cloudflare_token | quote)) }}"
     dest: "{{ traefik_dir }}/secrets/cloudflare-token"
     owner: root
     group: root
     mode: "0600"
   no_log: true
-  when: lookup('ansible.builtin.env', 'CLOUDFLARE_DNS_TOKEN') | length > 0
+  when: not traefik_token_file.stat.exists
   notify: Restart traefik
 
 - name: Compose file

@@ -21,14 +21,17 @@
 if [ -n "${BASH_VERSION:-}" ]; then
   _phx_self="${BASH_SOURCE[0]}"
 elif [ -n "${ZSH_VERSION:-}" ]; then
+  # shellcheck disable=SC2296  # zsh's own syntax (this file's path); only zsh reaches this line
   _phx_self="${(%):-%x}"
 else
   echo "phx-shell.sh: needs bash or zsh" >&2
+  # shellcheck disable=SC2317  # exit only when the file is run instead of sourced (return fails then)
   return 1 2>/dev/null || exit 1
 fi
 PHX_ROOT="$(cd "$(dirname "$_phx_self")/.." && pwd)"
 unset _phx_self
 
+# shellcheck source=/dev/null  # per-person settings, outside the repo
 [ -f "$HOME/.config/phoenixstack/env" ] && . "$HOME/.config/phoenixstack/env"
 
 # Earlier versions were aliases; an alias with the same name would break these definitions.

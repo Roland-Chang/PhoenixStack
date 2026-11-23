@@ -53,7 +53,9 @@ capture() {
       "$(basename "$n")" "$(cat "$n/address")" "$(cat "$n/speed" 2>/dev/null || echo ?)" "$(cat "$n/carrier" 2>/dev/null || echo ?)"; done
     echo; echo "### ip -br addr";        ip -br addr
     echo; echo "### disks";              lsblk -o NAME,SIZE,TYPE,MODEL,SERIAL,WWN,TRAN,FSTYPE,MOUNTPOINTS
-    echo; echo "### /dev/disk/by-id";    ls -l /dev/disk/by-id/ | grep -v -- '-part[0-9]'
+    echo; echo "### /dev/disk/by-id"
+    # shellcheck disable=SC2010  # a listing for people to read (where each link points), not parsed
+    ls -l /dev/disk/by-id/ | grep -v -- '-part[0-9]'
     echo; echo "### zpool status";       zpool status
     echo; echo "### zfs list";           zfs list -o name,used,avail,refer,mountpoint
     echo; echo "### /var/lib/vz usage";  du -xh --max-depth=2 /var/lib/vz 2>/dev/null | sort -h | tail -25
@@ -115,6 +117,7 @@ backup_guests() {
   echo "== Verifying archives"
   local f fail=0
   for id in "${ids[@]}"; do
+    # shellcheck disable=SC2012  # vzdump's own file names (no spaces); ls -t gives the newest
     f=$(ls -1t "${STORE_PATH}"/dump/vzdump-*-"${id}"-*.zst 2>/dev/null | head -1 || true)
     if [[ -z $f ]]; then echo "  ✗ ${id}: no archive found"; fail=1; continue; fi
     if zstd -tq "$f"; then echo "  ✓ ${id}: $(du -h "$f" | cut -f1)  ${f##*/}"

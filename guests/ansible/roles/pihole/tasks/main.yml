@@ -1,8 +1,8 @@
 # Pi-hole v6 on Debian 13, installed unattended, with no blocklists, Unbound as upstream and the
 # lab's local names. Needs the unbound role first.
 #
-# First run only: the web password comes from the PIHOLE_PASSWORD environment variable
-# (read from 1Password, see guests/README.md). Later runs don't need it.
+# First run only: the web password is read from 1Password (op read, on this computer). Dry runs
+# and later runs don't read it.
 #
 # In --check mode only the files before the install are checked: the settings are applied
 # through Pi-hole's own command, which a dry run can't preview.
@@ -78,7 +78,7 @@
 # so "changed" compares the settings without comment lines.
 - name: Pi-hole settings
   ansible.builtin.shell: |
-    set -eu
+    set -euo pipefail
     toml=/etc/pihole/pihole.toml
     before=$(grep -vE '^[[:space:]]*#' "$toml" | sha256sum)
     pihole-FTL --config {{ item.key | quote }} {{ (item.value if item.value is string else item.value | to_json) | quote }} >/dev/null
@@ -100,23 +100,15 @@
   changed_when: false
   when: not ansible_check_mode
 
-- name: Set the web password (first run only)
+# Without a password the web interface is open, so a new resolver gets one on its first run.
+- name: Set the web password from 1Password (first run only)
+  ansible.builtin.command:
+    argv: [pihole, setpassword, "{{ lookup('ansible.builtin.pipe', 'op read ' ~ (pihole_op_password | quote)) }}"]
+  no_log: true
+  changed_when: true
   when:
     - not ansible_check_mode
     - pihole_pwhash.stdout | trim | length == 0
-  block:
-    - name: PIHOLE_PASSWORD is set
-      ansible.builtin.assert:
-        that: lookup('ansible.builtin.env', 'PIHOLE_PASSWORD') | length >= 16
-        fail_msg: >-
-          The Pi-hole web interface has no password yet (and without one it's open).
-          Run with PIHOLE_PASSWORD from 1Password (16+ characters); see guests/README.md.
-        quiet: true
-    - name: Set the web password
-      ansible.builtin.command:
-        argv: [pihole, setpassword, "{{ lookup('ansible.builtin.env', 'PIHOLE_PASSWORD') }}"]
-      no_log: true
-      changed_when: true
 
 - name: Run Pi-hole
   ansible.builtin.service:

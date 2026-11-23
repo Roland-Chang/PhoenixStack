@@ -11,5 +11,5 @@ host      all       all       127.0.0.1/32   scram-sha-256
 # Network clients: one hostssl line per application database, from that client's address only,
 # from the inventory's pg_databases. Never the postgres superuser, never without TLS.
 {% for db in pg_databases | default([]) %}
-hostssl   {{ db.name }}  {{ db.name }}  {{ db.client }}  scram-sha-256
+hostssl   {{ db.name }}  {{ db.name }}  {{ hostvars[db.client].ip }}/32  scram-sha-256
 {% endfor %}

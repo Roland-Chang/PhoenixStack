@@ -59,10 +59,11 @@ CURL=(curl --silent --show-error --max-time 20 --cookie "$JAR" --cookie-jar "$JA
 [[ $INSECURE == yes ]] && CURL+=(--insecure)
 BASE="https://${HOST}"
 
-# --- Login (credentials go to curl on stdin, never on the command line) -------
+# --- Login (credentials never on a command line: jq reads them from its environment, which only
+# this user can see, and curl from stdin) ----------------------------------------------------
 user=$(op read "${OP_ITEM}/username")
 pass=$(op read "${OP_ITEM}/password")
-status=$(jq -n --arg u "$user" --arg p "$pass" '{username: $u, password: $p, rememberMe: false}' |
+status=$(UNIFI_USER=$user UNIFI_PASS=$pass jq -n '{username: env.UNIFI_USER, password: env.UNIFI_PASS, rememberMe: false}' |
   "${CURL[@]}" -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
     --data-binary @- "${BASE}/api/auth/login") || status="curl-failed"
 unset user pass

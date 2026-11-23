@@ -41,6 +41,7 @@ if grep -v '^[[:space:]]*#' "$CONFIG" | grep -q REPLACE_ME; then die "config sti
 source "$CONFIG"
 
 FQDN="${NODE_NAME}.${NODE_DOMAIN}"
+# shellcheck disable=SC2153  # UPLINK_MACS comes from the sourced config
 UPLINK_MAC=${UPLINK_MACS%% *}
 MAC_FILTER="*$(tr -d ':' <<<"${UPLINK_MAC,,}")"
 DNS1=${DNS_SERVERS%% *}

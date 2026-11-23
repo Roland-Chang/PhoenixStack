@@ -6,6 +6,10 @@ pihole_installer_tag: v6.6
 pihole_installer_url: "https://raw.githubusercontent.com/pi-hole/pi-hole/{{ pihole_installer_tag }}/automated%20install/basic-install.sh"
 pihole_installer_sha256: 4627fc5209064039a3b2ee615119db93b2c9ca8f9d69dea7967b7fdf67df71c8
 
+# Web password, 1Password item "(Pi-hole) - DNS Admin" (one password for both resolvers). Read
+# with op read only when a resolver has none yet.
+pihole_op_password: "op://infrastructure/6rgmkyk7enemcundji75k7omeu/password"
+
 # Local names: inventory's dns_records (e.g. pve01), every guest in the inventory, and each
 # Docker host's routes (app names served by its Traefik, pointing at the host), as "<ip> <name>.<domain>".
 pihole_hosts: >-

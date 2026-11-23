@@ -5,7 +5,9 @@ whoami_version: v1.12.0
 
 traefik_dir: "{{ docker_stacks_dir }}/traefik"
 
-# Let's Encrypt over Cloudflare DNS-01: one wildcard certificate for the internal domain.
+# Let's Encrypt over Cloudflare DNS-01: one wildcard certificate for the internal domain. The token
+# is 1Password item "(Cloudflare) - Traefik DNS Token", read only when the guest has none yet.
+traefik_op_cloudflare_token: "op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential"
 traefik_acme_email: alerts@phoenixstack.net
 traefik_acme_ca: https://acme-v02.api.letsencrypt.org/directory
 # The challenge check asks public resolvers: Pi-hole answers NXDOMAIN for anything under the

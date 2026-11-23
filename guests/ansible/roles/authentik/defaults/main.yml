@@ -19,7 +19,7 @@ authentik_db_user: authentik
 authentik_db_sslmode: require
 
 # Only docker01's Traefik may set X-Forwarded-For (Authentik then logs the real client address).
-authentik_trusted_proxies: ["10.101.1.101/32"]
+authentik_trusted_proxies: ["{{ hostvars['docker01'].ip }}/32"]
 
 # akadmin's email on first start (the password comes from 1Password, below).
 authentik_bootstrap_email: alerts@phoenixstack.net

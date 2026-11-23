@@ -23,7 +23,7 @@
     group: root
     mode: "0644"
 
-- name: PostgreSQL {{ postgresql_version }} and the snakeoil certificate for TLS
+- name: PostgreSQL and the snakeoil certificate for TLS (version {{ postgresql_version }})
   ansible.builtin.apt:
     name:
       - "postgresql-{{ postgresql_version }}"
@@ -147,7 +147,7 @@
 # By default every role may connect to every database; pg_hba already limits that, this too.
 - name: Only the owner connects (no CONNECT for PUBLIC)
   community.postgresql.postgresql_privs:
-    database: "{{ item.name }}"
+    login_db: "{{ item.name }}"
     type: database
     privs: CONNECT
     roles: PUBLIC
