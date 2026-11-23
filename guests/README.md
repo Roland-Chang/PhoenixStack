@@ -14,7 +14,7 @@ rolling out. The topology diagram is [topology.html](topology.html) (published:
 - In: the zones and their firewall rules, guest templates, IDs and addresses, Terraform and Ansible layout,
   secrets, the API token's privileges, the per-guest firewall, guest patching, the test guests that proved it, and
   each service's section (L5b onwards).
-- Out: the three -TEMP guests (AMP-TEMP 100, docker-temp 999, PLEX-TEMP 9999). They stay as they are, on
+- Out: the -TEMP guests (docker-temp 999, PLEX-TEMP 9999; AMP-TEMP 100 deleted 2026-11-23, backups kept). They stay as they are, on
   the mgmt network, untouched by Terraform, until their services move to new guests.
 
 ## Architecture
@@ -688,7 +688,13 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
    `docker02` only. On the guest: Origin CA certificate served, `whoami` answers, `/if/admin` → `403`, unknown
    name → `404`, `auth` → `504` until the UDM rule (step 5).
 5. UniFi: the `8443` forward and the `docker02` → `authentik01` rule.
-6. Authentik: base URL, the public route, the blocked admin path (`apb authentik.yml`).
+5. ~~UniFi: the `8443` forward and the `docker02` → `authentik01` rule.~~ Done 2026-11-23: forward
+   "Cloudflare - 8443 (docker02 test)" from the "Cloudflare IPv4 Ranges" group (the same 15 ranges); rule
+   `docker02 -> authentik01` (DMZ → Services, TCP `9443`; first set with source port `9443` too, which matched
+   nothing).
+6. ~~Authentik: trusts `docker02`'s Traefik for `X-Forwarded-For`.~~ Applied 2026-11-23. **The base URL moves to
+   `auth.phoenixstack.net` with the `443` forward (Step B):** until then that name on `443` still goes to
+   docker-temp (Cloudflare `520`), and Authentik's links would point there.
 
 Done when:
 
@@ -697,7 +703,11 @@ Done when:
       certificate and shows the phone's address; `https://auth.phoenixstack.net:8443` shows the login page;
       `/if/admin/` there is refused.
 - [ ] Direct to the home address on `8443` without Cloudflare: refused.
-- [ ] `docker02` can't reach Services except `authentik01:9443`, nor mgmt or the client LANs.
+- [x] `docker02` can't reach Services except `authentik01:9443`, nor mgmt or the client LANs (checked 2026-11-23:
+      13 targets; only `authentik01:9443` open, the UDM's admin page closed too).
+- [x] Through Cloudflare on `8443` (2026-11-23, from the LAN): `whoami` answers, `auth` shows the login flow,
+      `/if/admin/` → `403`; the home address on `8443` without Cloudflare: no answer. Still to do from a phone on
+      mobile data. `X-Forwarded-For` starts with the visitor's address; `X-Real-Ip` shows Cloudflare's.
 - [ ] From the LAN: `https://auth.int.phoenixstack.net` still works; the Traefik dashboard on `docker01` too.
 - [ ] `whoami` route removed afterwards; the `8443` forward removed.
 
