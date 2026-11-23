@@ -649,7 +649,7 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 
 ## L5f: DMZ Docker host and public Traefik (`docker02`)
 
-**Designed and agreed 2026-11-23, not applied.** Step A of moving the public apps off docker-temp: the host, the public
+**Steps 1–4 applied 2026-11-23**; UniFi (step 5) and Authentik (step 6) next. Step A of moving the public apps off docker-temp: the host, the public
 Traefik and Authentik's public name, proven with a test route on a second port. Step B (later) moves the `443`
 forward from docker-temp to `docker02`; see [Moving the public apps](#moving-the-public-apps).
 
@@ -677,9 +677,16 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
    `deny-all` middleware (`traefik.yml` and the routes render as before); `docker02`'s files render with the Origin
    CA and Cloudflare as trusted proxies; Pi-hole's list gains only `docker02` (not its public routes). The
    Authentik base URL change waits for step 6.
-2. Cloudflare: check the SSL mode is Full (strict); create the Origin CA certificate; store it in 1Password.
-3. `tf plan`: expect `docker02` and its firewall, and `authentik01`'s firewall. Then `apply`.
-4. `apb site.yml -l docker02`; reboot if the first upgrade brought a new kernel; `apb docker.yml -l docker02`.
+2. ~~Cloudflare: check the SSL mode is Full (strict); create the Origin CA certificate; store it in 1Password.~~
+   Done 2026-11-23: SSL mode changed from Full to **Full (strict)**; 1Password `(Cloudflare) - Origin CA Certificate`
+   (`lztixhdcrujfgcjpqkqnzq2kym`) holds two files, `origin-cert.pem` and `origin-key.pem` (ECC, valid until
+   2041-11-19). Files, not fields: 1Password's concealed fields turn PEM line breaks into spaces.
+3. ~~`tf plan`: expect `docker02` and its firewall, and `authentik01`'s firewall. Then `apply`.~~ Applied 2026-11-23
+   (4 added; changed: `authentik01`'s firewall and `docker01`'s description).
+4. ~~`apb site.yml -l docker02`; reboot if the first upgrade brought a new kernel; `apb docker.yml -l docker02`.~~
+   Done 2026-11-23 (rebooted to 6.12.118); repeat runs `changed=0`; `dns.yml` on both resolvers adds the name
+   `docker02` only. On the guest: Origin CA certificate served, `whoami` answers, `/if/admin` → `403`, unknown
+   name → `404`, `auth` → `504` until the UDM rule (step 5).
 5. UniFi: the `8443` forward and the `docker02` → `authentik01` rule.
 6. Authentik: base URL, the public route, the blocked admin path (`apb authentik.yml`).
 

@@ -175,10 +175,11 @@ all:
             - {port: 443, proto: tcp, source: cloudflare}
           routes_domain: phoenixstack.net
           # Cloudflare Origin CA certificate (phoenixstack.net, *.phoenixstack.net) instead of
-          # Let's Encrypt: no Cloudflare token on this host. op:// references set in L5f step 2.
+          # Let's Encrypt: no Cloudflare token on this host. 1Password "(Cloudflare) - Origin CA
+          # Certificate", two file attachments (PEM keeps its line breaks only in files, not in fields).
           traefik_cert: origin_ca
-          traefik_op_origin_cert: ""
-          traefik_op_origin_key: ""
+          traefik_op_origin_cert: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-cert.pem"
+          traefik_op_origin_key: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-key.pem"
           routes:
             - {name: whoami, url: "http://whoami:80"}   # L5f smoke test; remove afterwards
             # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
