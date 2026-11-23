@@ -719,6 +719,13 @@ broken app reaches only the DMZ, or `docker01` behind the public Traefik), their
 temporary rule (`docker02` → docker-temp's app ports), so the internet stops reaching mgmt the day the forward
 moves.
 
+docker-temp today (read 2026-11-23): Deployrr layout in `~/docker` (one compose file including one file per app,
+`appdata/`, Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools).
+Its Traefik has internal (`80`/`443`) and external (`81`/`444`) entry points, but the UDM forwards the internet's
+`443` to the internal one, so LAN-only routes (e.g. glances) answer from outside, behind basic auth. Fixed the
+same day: `8080` (Traefik's dashboard and API without a login, `--api.insecure`) taken out of the forward by
+Aaron; checked closed through Cloudflare. Stale: the `amp` route (AMP-TEMP deleted).
+
 ## Household DNS
 
 **Started 2026-11-22** on the Young LAN; watching it for a day before the other networks.
@@ -788,15 +795,17 @@ Done when:
    name, mail included).
 2. Plex, Jellyfin, or both?
 3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)? Started 2026-11-23
-   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, Calibre. Admins only
+   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, MyBibliotheca, Calibre. Admins only
    (Aaron and Ben, for now): the *arr apps, libraforge, libation, metube, glances. These are **LAN and VPN only**
    (`<app>.int.phoenixstack.net` on `docker01`), reached from outside over Teleport, not published (decided
    2026-11-23). Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). Calibre: later,
-   maybe a fresh design rather than a move. Logins: each app's **built-in OIDC** with
+   maybe a fresh design rather than a move. Not moved: the Audiobookshelf dev copy (`absdev`). Logins: each app's **built-in OIDC** with
    Authentik wherever it has one (as on docker-temp today), forward-auth only for browser-only apps without it.
    Authentik's public name: **`auth.phoenixstack.net`** (through the public Traefik). When Audiobookshelf moves,
    its existing users must carry over as seamlessly as possible (e.g. matching them to Authentik by username or
-   email through OIDC claim mapping): design that with the move.
+   email through OIDC claim mapping): design that with the move. Found 2026-11-23: no app on docker-temp uses
+   OIDC yet (Audiobookshelf local logins, Immich password login, Mealie none) and docker-temp has no Authentik,
+   so every app's move includes its first OIDC setup.
 4. AI tier code (proposed 12, `.121`).
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.

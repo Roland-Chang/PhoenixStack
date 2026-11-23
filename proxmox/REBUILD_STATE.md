@@ -38,7 +38,8 @@ How things got here is in the git history (`git log -- proxmox/`).
    of 2026-11-12 exists only on that machine's disk (its NAS mount folders were empty local directories). Keep its
    disks until the pve01 guests are verified and anything newer has been copied over, then wipe it.
 7. **Port forwards** (fixed 2026-11-20 by Aaron): the UDM's port forwards still pointed at the migration host's
-   docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`).
+   docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`). 2026-11-23: `8080` removed from that forward (it exposed
+   docker-temp's Traefik API without a login); the rest move to `docker02` in L5f Step B.
    That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
    VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
 8. **Mgmt network back to `/24`** (decided 2026-11-20). **Done 2026-11-20** (reported by Aaron): UniFi changed, then
