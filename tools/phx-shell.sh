@@ -8,6 +8,8 @@
 #   phx        use the PhoenixStack 1Password account in this terminal, and go to the repo
 #   apb ...    ansible-playbook, run from guests/ansible from any directory
 #                e.g.  apb dns.yml -l dns01 --check --diff
+#   tf ...     Terraform for the guests (guests/tf.sh) from any directory
+#                e.g.  tf plan, tf apply
 #   pve-sync   copy the repo's proxmox/ folder to pve01 (/root/phoenix)
 #
 # Per-person settings live outside the repo, in ~/.config/phoenixstack/env:
@@ -30,7 +32,7 @@ unset _phx_self
 [ -f "$HOME/.config/phoenixstack/env" ] && . "$HOME/.config/phoenixstack/env"
 
 # Earlier versions were aliases; an alias with the same name would break these definitions.
-unalias phx apb pve-sync 2>/dev/null
+unalias phx apb tf pve-sync 2>/dev/null
 
 phx() {
   if [ -z "${PHX_OP_ACCOUNT:-}" ]; then
@@ -43,6 +45,10 @@ phx() {
 
 apb() {
   (cd "$PHX_ROOT/guests/ansible" && ansible-playbook "$@")
+}
+
+tf() {
+  "$PHX_ROOT/guests/tf.sh" "$@"
 }
 
 # The "/." matters: without it, a second run nests a copy in /root/phoenix/proxmox.

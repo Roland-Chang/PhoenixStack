@@ -17,4 +17,12 @@ http:
       loadBalancer:
         servers:
           - url: "{{ route.url }}"
+{% if route.self_signed | default(false) %}
+        serversTransport: {{ route.name }}
+  # The backend has its own self-signed certificate: encrypted, not verified. Its firewall
+  # accepts this Docker host only.
+  serversTransports:
+    {{ route.name }}:
+      insecureSkipVerify: true
+{% endif %}
 {% endif %}

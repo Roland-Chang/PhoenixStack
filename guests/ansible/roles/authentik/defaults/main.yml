@@ -1,0 +1,30 @@
+# Authentik (L5e) as a compose stack. The image version is pinned here; updating it is a change in
+# git, deployed in the weekly window after reading Authentik's release notes (some need steps).
+authentik_image: ghcr.io/goauthentik/server
+authentik_version: "2026.8.6"
+
+authentik_dir: "{{ docker_stacks_dir }}/authentik"
+
+# The address people use (docker01's Traefik, route "auth"). Authentik builds links from it, and a
+# future release requires it.
+authentik_base_url: "https://auth.{{ domain }}"
+# The image runs as this user; its folders belong to it.
+authentik_uid: 1000
+
+# Database on pgsql01 (pg_databases there), over TLS. "require", not "verify-full": the server has
+# Debian's self-signed snakeoil certificate.
+authentik_db_host: "postgres.{{ domain }}"
+authentik_db_name: authentik
+authentik_db_user: authentik
+authentik_db_sslmode: require
+
+# Only docker01's Traefik may set X-Forwarded-For (Authentik then logs the real client address).
+authentik_trusted_proxies: ["10.101.1.101/32"]
+
+# akadmin's email on first start (the password comes from 1Password, below).
+authentik_bootstrap_email: alerts@phoenixstack.net
+
+# 1Password references for the .env file, read once when the file is first written.
+authentik_op_secret_key: "op://infrastructure/433bhnakbk4j55mkyrtnv3uhce/password"
+authentik_op_db_password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
+authentik_op_bootstrap_password: "op://infrastructure/gc5okp343bflwbgpv53o4ypm6i/password"

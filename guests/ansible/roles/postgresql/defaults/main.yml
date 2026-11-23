@@ -4,6 +4,11 @@ postgresql_version: 17
 postgresql_cluster: main
 postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster }}"
 
+# New clusters are UTF-8 with PostgreSQL's builtin C.UTF-8 locale (sorting doesn't change with glibc
+# updates). Without this, the cluster takes the guest's locale: C in a container, so SQL_ASCII,
+# which Authentik (and most apps) can't use. Found in L5e, see guests/README.md.
+postgresql_initdb_options: "--encoding=UTF8 --locale-provider=builtin --builtin-locale=C.UTF-8 --locale=C.UTF-8"
+
 # Memory: a quarter of the guest's RAM for shared buffers, three quarters as the planner's
 # estimate of the file cache. `memory` (MiB) comes from the inventory.
 postgresql_shared_buffers_mb: "{{ (memory | int * 0.25) | int }}"

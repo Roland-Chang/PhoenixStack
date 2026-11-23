@@ -1,0 +1,68 @@
+# Authentik server and worker as a compose stack in {{ authentik_dir }}. Needs the docker_host role
+# first. Differences from Authentik's own compose file: no bundled PostgreSQL (pgsql01 instead),
+# no Docker socket and no root for the worker, only 9443 published.
+#
+# Secrets go into .env (root only), written once from 1Password. To rotate one: change it in
+# 1Password (and in PostgreSQL for the database password), delete .env on the guest, run again.
+
+- name: Stack folder
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Data folders, owned by the container user
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ authentik_uid }}"
+    group: "{{ authentik_uid }}"
+    mode: "0750"
+  loop:
+    - data
+    - certs
+    - custom-templates
+
+- name: Is the .env file there?
+  ansible.builtin.stat:
+    path: "{{ authentik_dir }}/.env"
+  register: authentik_env_file
+
+# A dry run doesn't read 1Password: it only reports that the file would be written.
+- name: Secrets (.env, root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      {% if ansible_check_mode %}
+      (dry run: secrets not read)
+      {% else %}
+      AUTHENTIK_SECRET_KEY={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_secret_key | quote)) }}
+      AUTHENTIK_POSTGRESQL__PASSWORD={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_db_password | quote)) }}
+      AUTHENTIK_BOOTSTRAP_PASSWORD={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_bootstrap_password | quote)) }}
+      {% endif %}
+    dest: "{{ authentik_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not authentik_env_file.stat.exists
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ authentik_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+# The first start migrates the empty database, which takes a few minutes.
+- name: Run the stack (docker compose up), wait until healthy
+  community.docker.docker_compose_v2:
+    project_src: "{{ authentik_dir }}"
+    state: present
+    pull: missing
+    remove_orphans: true
+    wait: true
+    wait_timeout: 600
+  when: not docker_dry_new

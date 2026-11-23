@@ -21,6 +21,8 @@ locals {
         disk_gb     = try(h.disk_gb, 8)
         storage     = try(h.storage, "ssd")
         description = try(h.description, "")
+        # Host, then group, then the gateway (see inventory.yml).
+        dns_servers = try(h.dns_servers, group.vars.dns_servers, [group.vars.gateway])
         # Boot order on pve01 (DNS 1, databases 2); null leaves it unset.
         startup_order = try(h.startup_order, null)
         firewall_in = [

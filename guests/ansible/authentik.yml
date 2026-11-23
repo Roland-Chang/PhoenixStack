@@ -1,0 +1,15 @@
+# Identity provider (L5e): Docker Engine, then Authentik. Run after site.yml has set up the guest,
+# and after database.yml has created its database on pgsql01. Always with --check --diff first.
+#
+#   apb authentik.yml -l authentik01 --check --diff
+#   apb authentik.yml -l authentik01
+#
+# The first real run reads three secrets from 1Password (op read, on this computer) to write the
+# guest's .env; later runs keep that file. Reached as https://auth.int.phoenixstack.net through
+# docker01's Traefik (route "auth" in the inventory).
+
+- name: Authentik
+  hosts: authentik*
+  roles:
+    - docker_host
+    - authentik

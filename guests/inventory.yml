@@ -10,11 +10,16 @@
 #   mac       02:aa:bb:cc:XX:YY (same code and instance)
 #   ip        10.101.<zone>.<octet>; octet = code x 10 + instance (dns01 = .21), unique across zones
 #   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
+#   dns_servers   optional; the guest's DNS servers (default: the group's, else the gateway)
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
 #                 admin | lan | any | a CIDR. SSH and ping from admin sources are always allowed.
-#   routes        Docker hosts only: [{name, url, admin_only}], names served by its Traefik
-#                 (Pi-hole points <name>.<domain> at the guest)
+#   pg_databases  PostgreSQL hosts only: [{name, client, password}]. Database and owner role <name>,
+#                 reachable over TLS from <client> (a /32) only; <password> is the op:// reference of
+#                 its 1Password item, read once when the role is created. Open 5432 from <client> too.
+#   routes        Docker hosts only: [{name, url, admin_only, self_signed}], names served by its
+#                 Traefik (Pi-hole points <name>.<domain> at the guest). self_signed: the backend's
+#                 HTTPS certificate isn't checked (firewall it to the Docker host instead).
 all:
   vars:
     domain: int.phoenixstack.net
@@ -31,6 +36,8 @@ all:
     # DNS names that aren't guests in this file (Pi-hole serves these plus every guest's name).
     dns_records:
       pve01: 10.101.0.11
+      # Service name apps connect to (guests/README.md, L5c): moves with the primary database.
+      postgres: 10.101.1.71
     timezone: America/Denver
     # Ansible connects to the guest's static IP as the admin user. A brand-new container only
     # has root: the first run passes -e ansible_user=root (see guests/README.md).
@@ -44,17 +51,22 @@ all:
         zone: services
         vlan: 100
         gateway: 10.101.1.254
+        # Guests ask Pi-hole: internal names are only there (the UDM has no local records).
+        dns_servers: [10.101.1.21, 10.101.1.22]
       hosts:
         dns01:
           kind: lxc
           vmid: 10201
           mac: "02:aa:bb:cc:02:01"
           ip: 10.101.1.21
+          dns_servers: [10.101.1.254]   # the resolvers themselves use the UDM, not each other
           startup_order: 1
           description: "DNS: Pi-hole with Unbound (L5b)"
           firewall_in:
             - {port: 53, proto: udp, source: lan}
             - {port: 53, proto: tcp, source: lan}
+            - {port: 53, proto: udp, source: 10.101.1.0/24}   # Services guests
+            - {port: 53, proto: tcp, source: 10.101.1.0/24}
             - {port: 443, proto: tcp, source: admin}
         # Second resolver on the same host: covers dns01's maintenance, not pve01's (decided 2026-11-21).
         dns02:
@@ -62,14 +74,16 @@ all:
           vmid: 10202
           mac: "02:aa:bb:cc:02:02"
           ip: 10.101.1.22
+          dns_servers: [10.101.1.254]   # the resolvers themselves use the UDM, not each other
           startup_order: 1
           description: "DNS: Pi-hole with Unbound (L5b), second resolver"
           firewall_in:
             - {port: 53, proto: udp, source: lan}
             - {port: 53, proto: tcp, source: lan}
+            - {port: 53, proto: udp, source: 10.101.1.0/24}   # Services guests
+            - {port: 53, proto: tcp, source: 10.101.1.0/24}
             - {port: 443, proto: tcp, source: admin}
-        # PostgreSQL (L5c). Port 5432 opens per client, together with that client's database
-        # (first: Authentik, in the Authentik step). Until then only SSH and ping.
+        # PostgreSQL (L5c). Port 5432 opens per client, together with that client's database.
         pgsql01:
           kind: lxc
           vmid: 10701
@@ -81,6 +95,12 @@ all:
           storage: nvme
           startup_order: 2
           description: "Database: PostgreSQL 17 (L5c)"
+          firewall_in:
+            - {port: 5432, proto: tcp, source: 10.101.1.41/32}   # authentik01
+          pg_databases:
+            - name: authentik
+              client: 10.101.1.41/32   # authentik01
+              password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
         # Docker host for Services (L5d): the internal Traefik and the apps behind it.
         docker01:
           kind: vm
@@ -98,6 +118,21 @@ all:
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
           routes:
             - {name: traefik, url: "api@internal", admin_only: true}
+            - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}   # authentik01
+        # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
+        # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.
+        authentik01:
+          kind: vm
+          vmid: 10401
+          mac: "02:aa:bb:cc:04:01"
+          ip: 10.101.1.41
+          cores: 2
+          memory: 4096
+          disk_gb: 32
+          storage: nvme
+          description: "Identity: Authentik (L5e)"
+          firewall_in:
+            - {port: 9443, proto: tcp, source: 10.101.1.101/32}   # docker01 (Traefik)
     dmz:
       vars:
         zone: dmz

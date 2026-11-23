@@ -321,8 +321,9 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
      `source <your clone>/tools/phx-shell.sh`, and put your 1Password account ID (the CLI's default account may not be the one
      with the lab vaults; `op account list` shows the IDs) in `~/.config/phoenixstack/env`, outside the repo:
      `PHX_OP_ACCOUNT=<account ID>`. It gives:
-     - `phx`: sets `OP_ACCOUNT` for this terminal and goes to the repo. Needed by `guests/tf.sh`, `tools/unifi-export.sh` and `op`. Run it once per terminal.
+     - `phx`: sets `OP_ACCOUNT` for this terminal and goes to the repo. Needed by `tf` (`guests/tf.sh`), `tools/unifi-export.sh` and `op`. Run it once per terminal.
      - `apb`: `ansible-playbook`, run from `guests/ansible` (where `ansible.cfg` is) from any directory, e.g. `apb dns.yml -l dns01 --check --diff`.
+     - `tf`: [`guests/tf.sh`](../guests/tf.sh) (Terraform with the token from 1Password) from any directory, e.g. `tf plan`, then `tf apply`.
      - `pve-sync`: copies this folder to the host (`/root/phoenix`). The script copies `proxmox/.`; without the `/.`, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
   2. SSH uses the 1Password agent for the host under every name you type. SSH matches `Host` rules against the name typed, not the address, so list them all in `~/.ssh/config`:
      `Host 10.101.0.* pve01 pve01.int.phoenixstack.net` with `IdentityAgent ~/.1password/agent.sock` and `User root`.

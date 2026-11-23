@@ -240,11 +240,15 @@ How (2026-11-21):
   `pihole -up --check-only` instead. The `base` role and the service playbooks never upgrade anything themselves, so a
   repeat run stays `changed=0`.
 
-### Name resolution until L5b
+### Guests' DNS servers
 
-Until Pi-hole exists, each guest's name is added by hand to the UDM's local DNS, as `pve01` was. Guests use
-their zone's gateway (`.254`) as their resolver. L5b moves the records into git (Pi-hole, managed by Ansible),
-and the UDM's manual records are then removed so there is only one copy.
+Services guests ask `dns01` and `dns02` (`dns_servers` in the inventory's `services` group, decided 2026-11-22);
+the two resolvers themselves ask the UDM, so neither depends on the other at boot. Both accept port 53 from the
+Services VLAN. Groups without `dns_servers` (the DMZ, for now) use their gateway (`.254`).
+
+Until 2026-11-22 every guest used its gateway. That worked while the UDM held local records; once they were removed
+(Pi-hole has the only copy), internal names went to public DNS, where the zone's wildcard record answers with
+Cloudflare's addresses. Found when Authentik couldn't reach `postgres.int.phoenixstack.net` (L5e).
 
 ## Implementation steps
 
@@ -265,12 +269,12 @@ Each step is dry-run first. Steps that change shared infrastructure wait for app
 ## Running it
 
 From an admin workstation or laptop (Young or Porter, or over Teleport), with `OP_ACCOUNT` set for the PhoenixStack
-1Password account (the `phx` alias, see the admin-workstation notes in [../proxmox/README.md](../proxmox/README.md)) and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
+1Password account (the `phx` shortcut; `tf` and `apb` below are shortcuts too, see the admin-workstation notes in [../proxmox/README.md](../proxmox/README.md)) and `pve01.int.phoenixstack.net` resolving to `10.101.0.11`:
 
 ```bash
 # Terraform: the wrapper reads the API token from 1Password and saves the state there after changes
-guests/tf.sh plan
-guests/tf.sh apply
+tf plan        # guests/tf.sh, from any directory
+tf apply
 
 # Ansible: baseline first. The first run on a NEW container connects as root (VMs already have the admin user)
 cd guests/ansible
@@ -285,9 +289,9 @@ PIHOLE_PASSWORD="$(op read 'op://infrastructure/6rgmkyk7enemcundji75k7omeu/passw
 | Piece | Where | Notes |
 | --- | --- | --- |
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
-| Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN and static IP, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. |
+| Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN, static IP and DNS servers, and a Proxmox firewall: inbound DROP, SSH and ping from admin sources, plus the guest's `firewall_in` rules. **Changing a guest's cloud-init settings (DNS servers, address) restarts it during `apply`**, and a VM's cloud-init then makes new SSH host keys: compare them through pve01 (`qm guest exec <vmid> -- ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before `ssh-keygen -R`. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State saved to `infrastructure` / `(Terraform) - Guests State` after apply, destroy, import and state commands. |
-| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
+| Ansible | [ansible/](ansible/) | `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. `site.yml` runs the `base` role on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`), run after it as the admin user, because `base` turns root's SSH login off. `base` role: a first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, time sync on VMs, journal cap 200 MB, automatic Debian security updates without reboots, QEMU guest agent on VMs. |
 
 ### New guest checklist
 
@@ -295,10 +299,10 @@ Every new guest, in this order (each Terraform and Ansible step dry-run first):
 
 1. **Inventory:** one host entry in [inventory.yml](inventory.yml), addressed by the [scheme](#address-scheme)
    (MAC `02:aa:bb:cc:XX:YY`, VMID `1XXYY`, octet = code × 10 + instance).
-2. **Terraform:** `./guests/tf.sh plan` (only the new guest and its firewall), then `apply`.
+2. **Terraform:** `tf plan` (only the new guest and its firewall), then `apply`.
 3. **Baseline:** `apb site.yml -l <guest> -e ansible_user=root` (containers' first run only; VMs connect as the admin user).
    If the first full upgrade leaves `/var/run/reboot-required`, reboot the guest now (`ansible <guest> -m reboot`).
-4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, `docker.yml`, ...).
+4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`, ...).
 5. **DNS name:** `apb dns.yml -l dns01`, then `-l dns02`. Pi-hole learns names only from the inventory, so a guest
    (or a Docker host's new route) has no name until this runs. One resolver at a time, since clients use them.
 6. **UniFi alias** (by hand, decided 2026-11-22): in UniFi Network, open the client with the guest's MAC, set its
@@ -363,7 +367,7 @@ What the first run found, and fixed:
 Steps (each one dry-run first):
 
 1. 1Password: create item `(Pi-hole) - DNS Admin` in `infrastructure` (generated password, 16+ characters); note its item ID for `op read`.
-2. `guests/tf.sh plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
+2. `tf plan`: expect only `dns01` plus its firewall options and rules to be created, nothing else. Then `apply`.
 3. `site.yml -l dns01 -e ansible_user=root` (`--check --diff`, then for real), then `dns.yml -l dns01` the same way.
 4. Check (below), then set the admin machines' DNS to `10.101.1.21` and `10.101.1.22` (were `.201`/`.202`), on the home network's profile only
    (away from home the laptop can't reach them). **Done 2026-11-21 on Aaron's laptop** (Linux Mint, NetworkManager profile
@@ -389,7 +393,7 @@ Done when (run 2026-11-21, against the old addresses `.201`/`.202`):
 - [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
 
 `dns02` (added 2026-11-21, **applied 2026-11-21**; `dns01` re-run to learn its name: only `dns.hosts` changed;
-each resolves the other's name): `./guests/tf.sh plan` (expect only `dns02` and its firewall), `apply`,
+each resolves the other's name): `tf plan` (expect only `dns02` and its firewall), `apply`,
 then `apb site.yml -l dns02 -e ansible_user=root` and `apb dns.yml -l dns02` (each `--check --diff` first; the
 web password from the same 1Password item), then the same checks against `10.101.1.202`.
 
@@ -401,12 +405,12 @@ for unknown names, `example.com`, SERVFAIL for `dnssec-failed.org`, and the web 
 
 **What went wrong:** one `apply` moved both resolvers at once while the laptop still pointed at the old
 addresses, so the laptop lost DNS (and with it 1Password, which `tf.sh` needs). Aaron switched it back to the UDM's
-DNS. Next time a resolver moves: move one at a time (`./guests/tf.sh apply -target='module.lxc["dns01"]'`),
+DNS. Next time a resolver moves: move one at a time (`tf apply -target='module.lxc["dns01"]'`),
 point clients at the moved one, then move the other.
 
 Steps as run:
 
-1. `inventory.yml`: the new IPs. `./guests/tf.sh plan`: expect an in-place update of each container's network
+1. `inventory.yml`: the new IPs. `tf plan`: expect an in-place update of each container's network
    settings only (same VMID and MAC; no replace). Then `apply`.
 2. `apb dns.yml --check --diff`, then `apb dns.yml`: only `dns.hosts` changes (the two DNS names).
 3. The laptop's NetworkManager profile `Auto YOUNG`: DNS `10.101.1.21`, `10.101.1.22` (done 2026-11-22 by Aaron).
@@ -428,24 +432,25 @@ What the first L5b run found, and fixed:
 
 ## L5c: PostgreSQL (`pgsql01`)
 
-**Applied 2026-11-22** and checked (results below). No application databases yet.
+**Applied 2026-11-22** and checked (results below). First application database: `authentik` (L5e); the cluster was re-created as UTF-8 then.
 
 | Area | Decision | Why |
 | --- | --- | --- |
 | Guest | `pgsql01`: unprivileged LXC `10701`, MAC `02:aa:bb:cc:07:01`, `10.101.1.71`, Services. 2 cores, 2 GiB, 32 GB on **`nvme`**, start order 2. | Address scheme tier 07. Databases are I/O-heavy (see Storage). Starts after DNS, before the apps. |
 | Version | **PostgreSQL 17 from Debian 13** (decided 2026-11-22), not the PGDG repository. | Debian's stable major; Authentik needs 14 or later. Security fixes come from Debian's security archive with the daily automatic updates; the PostgreSQL project supports 17 until 2029-11. |
+| Cluster | **UTF-8 with PostgreSQL's builtin `C.UTF-8` locale** (`createcluster.d/phoenix.conf`, written before the package installs; re-created 2026-11-22, see L5e). The role stops if a cluster isn't UTF8. | Debian creates the cluster at install with the guest's locale, which is `C` in a container: `SQL_ASCII`. The builtin locale sorts the same on every glibc version, so upgrades never invalidate indexes. |
 | Settings | `conf.d/phoenix.conf`: listens on `localhost` and `10.101.1.71`; SCRAM passwords; TLS on (Debian's snakeoil certificate), TLS 1.2 or newer; `shared_buffers` ¼ and `effective_cache_size` ¾ of the guest's memory; connections logged. | Debian's `postgresql.conf` stays untouched, so package updates don't conflict. |
 | Access | `pg_hba.conf`: the `postgres` superuser only locally as the `postgres` OS user (`sudo -u postgres psql`); local SCRAM on `127.0.0.1`. Network clients get one `hostssl … scram-sha-256` line per application database, from that client's address. | Least privilege; no remote superuser, no network login without TLS. |
 | Firewall (PVE) | SSH and ping from admin sources only, for now. `5432/tcp` opens per client, with its database. | Guest-to-guest traffic in VLAN 100 never passes the UDM, so this firewall is the boundary between guests. No UDM change. |
-| Databases | **None yet** (decided 2026-11-22). Authentik's database, role and password (1Password) come with the Authentik step. | One step at a time. |
+| Databases | From the inventory's `pg_databases` on the host: `[{name, client, password}]`. Each is a UTF8 database owned by a login role of the same name, reachable over TLS from its client's `/32` only (`hostssl` line; `5432` from that address in `firewall_in`), with `CONNECT` revoked from `PUBLIC`. The role's password is read from 1Password (`op read` on the admin machine) only when the role is created; a dry run doesn't read it. First: `authentik` (L5e). | One database per app, so one app's credentials reach nothing else. |
 | Dumps | The [database dump standard](#database-dumps). | |
 | Ansible | Role `postgresql`, playbook `database.yml` (hosts `pgsql*`; MariaDB later as its own play). `patch.yml` checks the dumps weekly. Minor PostgreSQL updates come with `apt full-upgrade` and restart the server briefly. | Named like `dns.yml`: playbook by function, role by software. |
 | `pgsql02` (`.72`) | Not now (decided 2026-11-22). | A replica on the same host only covers a broken guest, which the dumps and guest backups already cover; it adds patching, lag monitoring, and WAL that piles up while the replica is down. Revisit with a second physical host: then streaming replication (`pg_basebackup -R` with a replication slot capped by `max_slot_wal_keep_size`, TLS and SCRAM) and manual failover (`pg_promote()`). |
-| Service name | Applications connect to **`postgres.int.phoenixstack.net`**, not to `pgsql01` (decided 2026-11-22). Added to `dns_records` in the Authentik step. | A move or a failover is then one DNS change, not a change in every app. |
+| Service name | Applications connect to **`postgres.int.phoenixstack.net`**, not to `pgsql01` (decided 2026-11-22). In `dns_records` since L5e. | A move or a failover is then one DNS change, not a change in every app. |
 
 Steps (each one dry-run first):
 
-1. `./guests/tf.sh plan`: expect only `pgsql01` and its firewall to be created. Then `apply`.
+1. `tf plan`: expect only `pgsql01` and its firewall to be created. Then `apply`.
 2. `apb site.yml -l pgsql01 -e ansible_user=root` (`--check --diff`, then for real).
 3. `apb database.yml -l pgsql01` (`--check --diff`, then for real). The real run makes the first dump.
 4. `apb dns.yml -l dns01`, then `-l dns02`: Pi-hole learns the new guest's name from the inventory. Every new guest
@@ -484,7 +489,7 @@ Done when:
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
-1. `./guests/tf.sh plan`: expect only `docker01` and its firewall. Then `apply`.
+1. `tf plan`: expect only `docker01` and its firewall. Then `apply`.
 2. `apb site.yml -l docker01` (a VM already has the admin user from cloud-init).
 3. `apb docker.yml -l docker01`, the real run with
    `CLOUDFLARE_DNS_TOKEN="$(op read 'op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential')"`.
@@ -509,6 +514,56 @@ Found on the way:
 | The first full upgrade installed a new kernel, so Debian asked for a reboot | Rebooted before installing Docker; now a step in the new guest checklist |
 | A new guest's first `docker.yml` dry run needs the token too (it stops at the token check) | As with Pi-hole's password: run the first dry run with `CLOUDFLARE_DNS_TOKEN` set |
 
+
+## L5e: Identity (`authentik01`)
+
+**Applied 2026-11-22** and checked (results below). Ready for the first login; no applications use it yet.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `authentik01`: VM `10401`, MAC `02:aa:bb:cc:04:01`, `10.101.1.41`, Services, cloned from `10001`. **2 cores, 4 GiB**, 32 GB on `nvme` (decided 2026-11-22). | Tier 04. Authentik asks for 2 cores and 2 GB with its database on board; ours is on `pgsql01`, and Redis is gone since 2025.10. Uses about 1.2 GB. Memory is reserved on pve01, cores aren't. |
+| Software | **Authentik `2026.8.6`** (`ghcr.io/goauthentik/server`), server and worker, as the stack `/opt/stacks/authentik` (role `authentik`, playbook `authentik.yml`, with `docker_host`). Version pinned in `roles/authentik/defaults/main.yml`. | Updates are a change in git after reading the release notes, deployed in the weekly window. |
+| Changes from upstream | No bundled PostgreSQL. **No Docker socket and no root for the worker** (decided 2026-11-22). Only `9443` published (not `9000`). Both containers: `no-new-privileges`, all capabilities dropped. | The socket is root on the VM; it's only for outposts Authentik manages itself, and ours will be deployed from git. |
+| Database | `authentik` on `pgsql01` through `postgres.int.phoenixstack.net` (`pg_databases`, L5c), `sslmode=require`. | `require`, not `verify-full`: the server has Debian's self-signed snakeoil certificate. |
+| Name | **`https://auth.int.phoenixstack.net`** (decided 2026-11-22): route `auth` on `docker01`'s Traefik (wildcard certificate) to `https://10.101.1.41:9443`; also `AUTHENTIK_WEB__BASE_URL`. | Authentik builds its links from the base URL; a future release requires it. |
+| Traefik → Authentik | **HTTPS to Authentik's own self-signed certificate, not verified** (decided 2026-11-22): the route's `self_signed: true` adds a `serversTransport` with `insecureSkipVerify`. Firewall: `9443/tcp` from `10.101.1.101/32` only. Only `docker01` may set `X-Forwarded-For` (`AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS`), so Authentik logs real client addresses. | Encrypted on the wire; the firewall, not the certificate, decides who can talk to it. |
+| Settings | Avatars as initials; error reporting and startup analytics off. | Nothing leaves the network that doesn't have to. |
+| Secrets | `.env` on the guest (root, `0600`), written once from 1Password: `(Authentik) - Secret Key` (`433bhnakbk4j55mkyrtnv3uhce`), `(PostgreSQL) - authentik` (`b7ycchopd2lagrf3jg4samuk5q`), `(Authentik) - akadmin` (`gc5okp343bflwbgpv53o4ypm6i`, the bootstrap password). Later runs keep the file; a dry run doesn't read 1Password. | To rotate: change the item (and, for the database, `ALTER ROLE authentik PASSWORD`), delete `.env`, run again. A new secret key logs everyone out. |
+| Admin | `akadmin` is break-glass: two YubiKeys plus TOTP, then a personal admin account for daily use (see [Identity and break-glass](#identity-and-break-glass)). | |
+
+Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
+
+1. 1Password: the three items above (created 2026-11-22).
+2. `pg_databases` and `5432` from `.41` on `pgsql01`, `postgres` in `dns_records`: `tf apply`, `apb database.yml -l pgsql01`.
+3. `tf plan`: expect only `authentik01` and its firewall. Then `apply`.
+4. `apb site.yml -l authentik01`; reboot if the first upgrade asks.
+5. `apb authentik.yml -l authentik01` (one 1Password approval; the first start migrates the database, a few minutes).
+6. Route `auth` on `docker01`: `apb docker.yml -l docker01`.
+7. `apb dns.yml -l dns02`, then `-l dns01` (names `authentik01`, `auth`, `postgres`).
+8. UniFi alias; docs.
+9. First login as `akadmin` (password from 1Password): two YubiKeys and TOTP, then a personal admin account.
+
+Done when:
+
+- [x] `terraform plan`: no changes. Repeat runs `changed=0`: `site.yml`, `authentik.yml` (`authentik01`), `docker.yml` (`docker01`), `database.yml` (`pgsql01`). Root SSH refused.
+- [x] `pgsql01`: database `authentik` UTF8, owner `authentik`, no `CONNECT` for `PUBLIC`; role password stored as SCRAM. Authentik connects over TLS 1.3 with SCRAM through the `hostssl` line.
+- [x] Server and worker `healthy`, as UID 1000 with all capabilities dropped and no Docker socket; no errors after the start; the base-URL warning gone.
+- [x] From the laptop: `https://auth.int.phoenixstack.net/` redirects to the login flow (`200`), Let's Encrypt wildcard verifies; `9443` on `authentik01` doesn't answer. Authentik logs the laptop's own address (`10.1.1.169`).
+- [x] `auth`, `authentik01` and `postgres` resolve on both resolvers.
+- [ ] UniFi alias for `authentik01`.
+- [ ] `akadmin`: two YubiKeys and TOTP enrolled; personal admin account created.
+- [ ] After the next 00:30 dump: `authentik.dump` in the day's folder on `pgsql01`.
+
+Found on the way:
+
+| Found | Fix |
+| --- | --- |
+| Guests used the UDM for DNS, which has had no local records since that morning: `postgres.int.phoenixstack.net` came back as Cloudflare's public IPv6 addresses (the zone's wildcard), and Authentik hung at its first connection | Services guests use `dns01` and `dns02` (`dns_servers`); both resolvers accept 53 from the Services VLAN. See [Guests' DNS servers](#guests-dns-servers) |
+| That `apply` restarted `docker01`, `authentik01` and `pgsql01` (the provider reboots on cloud-init changes), and both VMs got new SSH host keys | Keys compared through pve01's guest agent before accepting; now a note in the Terraform row of [Running it](#running-it) |
+| `pgsql01`'s cluster was `SQL_ASCII` (Debian created it with the container's `C` locale), and Authentik's first migration failed on it | Cluster dropped and re-created (approved; it held only the half-migrated `authentik`), UTF-8 with the builtin `C.UTF-8` locale. New clusters get it from `createcluster.d`, and the role stops on a non-UTF8 cluster |
+| `python3-psycopg2`, needed by the database tasks, in the same install task as PostgreSQL made every later run look like a new guest in a dry run | Its own task; existing roles are read with plain `psql`, so a dry run lists what it would create |
+
+## Open decisions
 
 1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
 2. Plex, Jellyfin, or both?

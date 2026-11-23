@@ -74,7 +74,7 @@ resource "proxmox_virtual_environment_container" "this" {
 
     dns {
       domain  = local.c.domain
-      servers = [local.g.gateway]
+      servers = local.g.dns_servers
     }
 
     ip_config {
