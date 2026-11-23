@@ -289,9 +289,11 @@
       <h2>Decided in this picture</h2>
       <ul>
         <li>Three zones: DMZ (VLAN 200), Services (VLAN 100), Management (VLAN 10).</li>
+        <li>Cloudflare proxies the public web apps; the public Traefik has a Cloudflare Origin CA certificate, so no API token sits in the DMZ.</li>
         <li>Two Traefik instances: a public one in the DMZ with only public routes, and a Services one for LAN and VPN users.</li>
         <li>Names follow who reaches the app: <code>&lt;app&gt;.phoenixstack.net</code> for general users from anywhere (public Traefik; works at home too), <code>&lt;name&gt;.int.phoenixstack.net</code> for LAN and VPN only (Services Traefik). <code>int.</code> isn't admin-only; the UDM rules decide that.</li>
         <li>Authentik lives in Services. The public Traefik asks it to log people in (forward-auth); its database never leaves Services.</li>
+        <li>Public apps log in with their own OIDC against Authentik (<code>auth.phoenixstack.net</code>); household groups <code>Family</code>, with <code>Young</code> and <code>Porter</code> below it.</li>
         <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
         <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
         <li>Every guest may only send from its own address (Proxmox IP filter), so the rules between guests can trust the source address.</li>
@@ -302,13 +304,11 @@
     <section>
       <h2>Still open</h2>
       <ul>
-        <li>Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?</li>
         <li>Plex, Jellyfin, or both?</li>
         <li>Which docker-temp apps are public (to <code>docker02</code>) and which LAN and VPN only (to <code>docker01</code>)?</li>
         <li>AI tier code: proposed 12, address <code>.121</code>.</li>
         <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot; ad blocking comes with it.</li>
         <li>Monitoring (uptime and service alerts) and central logs (SIEM): which zone and when.</li>
-        <li>Authentik groups for household users (proposed: <code>Family</code> with <code>Young</code> and <code>Porter</code> below it).</li>
         <li>Install the 990 Pro drives (<code>data</code> pool) and the RTX 3070.</li>
       </ul>
     </section>

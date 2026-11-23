@@ -13,7 +13,7 @@
 #   dns_servers   optional; the guest's DNS servers (default: the group's, else the gateway)
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
 #   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
-#                 admin | lan | any | a guest's name (its address) | a CIDR. SSH and ping from
+#                 admin | lan | cloudflare | any | a guest's name (its address) | a CIDR. SSH and ping from
 #                 admin sources are always allowed. Every guest may only send from its own
 #                 address (Proxmox IP filter), so a source address can be trusted.
 #   pg_databases  PostgreSQL hosts only: [{name, client, password}]. Database and owner role <name>,
@@ -21,13 +21,24 @@
 #                 op:// reference of its 1Password item, read once when the role is created.
 #                 Open 5432 from <client> in firewall_in too.
 #   routes        Docker hosts only: [{name, url, admin_only, self_signed, authentik, title,
-#                 authentik_group}], names served by its Traefik (Pi-hole points <name>.<domain> at
-#                 the guest). self_signed: the backend's HTTPS certificate isn't checked (firewall it
+#                 authentik_group, blocked_paths}], names served by its Traefik as
+#                 <name>.<routes_domain> (Pi-hole points the int. ones at the guest).
+#                 blocked_paths: path prefixes Traefik refuses (403) on that name. self_signed: the backend's HTTPS certificate isn't checked (firewall it
 #                 to the Docker host instead). authentik: log in through Authentik first; the app
 #                 (named title) lets in authentik_group only (default "authentik Admins").
+#   routes_domain Docker hosts only; the domain of its routes (default: domain). Pi-hole serves
+#                 only routes under domain; public names come from Cloudflare's wildcard record.
 all:
   vars:
     domain: int.phoenixstack.net
+    # Public names (<app>.phoenixstack.net): the public Traefik on docker02, through Cloudflare's proxy.
+    public_domain: phoenixstack.net
+    # Cloudflare's IPv4 ranges (https://www.cloudflare.com/ips-v4, checked 2026-11-23): the only
+    # sources docker02 accepts on 443 ("cloudflare" in firewall_in) and whose X-Forwarded-For
+    # its Traefik trusts. The UDM's port forwards use the same list.
+    cloudflare_sources: [173.245.48.0/20, 103.21.244.0/22, 103.22.200.0/22, 103.31.4.0/22,
+      141.101.64.0/18, 108.162.192.0/18, 190.93.240.0/20, 188.114.96.0/20, 197.234.240.0/22,
+      198.41.128.0/17, 162.158.0.0/15, 104.16.0.0/13, 104.24.0.0/14, 172.64.0.0/13, 131.0.72.0/22]
     # Admin sources: the same list as pve01's ADMIN_SOURCES (proxmox/config/pve01.conf)
     # and the UDM's Management rules. Keep the three in step.
     admin_sources: [10.1.1.69/32, 10.1.1.169/32, 10.2.1.69/32, 10.2.1.169/32, 192.168.2.0/24]
@@ -140,10 +151,35 @@ all:
           storage: nvme
           description: "Identity: Authentik (L5e)"
           firewall_in:
-            - {port: 9443, proto: tcp, source: docker01}   # Traefik
+            - {port: 9443, proto: tcp, source: docker01}   # Services Traefik
+            - {port: 9443, proto: tcp, source: docker02}   # public Traefik (auth.phoenixstack.net)
     dmz:
       vars:
         zone: dmz
         vlan: 200
         gateway: 10.101.2.254
-      hosts: {}
+      hosts:
+        # Docker host for the DMZ (L5f): the public Traefik and the public apps behind it.
+        # 443 from Cloudflare only; its routes are public names (routes_domain).
+        docker02:
+          kind: vm
+          vmid: 11002
+          mac: "02:aa:bb:cc:10:02"
+          ip: 10.101.2.102
+          cores: 8
+          memory: 16384
+          disk_gb: 64
+          storage: nvme
+          description: "Docker host, DMZ: public Traefik and apps (L5f)"
+          firewall_in:
+            - {port: 443, proto: tcp, source: cloudflare}
+          routes_domain: phoenixstack.net
+          # Cloudflare Origin CA certificate (phoenixstack.net, *.phoenixstack.net) instead of
+          # Let's Encrypt: no Cloudflare token on this host. op:// references set in L5f step 2.
+          traefik_cert: origin_ca
+          traefik_op_origin_cert: ""
+          traefik_op_origin_key: ""
+          routes:
+            - {name: whoami, url: "http://whoami:80"}   # L5f smoke test; remove afterwards
+            # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
+            - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}

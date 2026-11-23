@@ -1,5 +1,5 @@
 # {{ ansible_managed }}
-# Services Traefik (role traefik). Routes: dynamic/*.yml, from the inventory. No Docker socket.
+# Traefik (role traefik), {{ 'Services' if traefik_cert == 'acme' else 'public' }}. Routes: dynamic/*.yml, from the inventory. No Docker socket.
 name: traefik
 
 services:
@@ -10,14 +10,21 @@ services:
       - "443:443"
     networks:
       - proxy
+{% if traefik_cert == 'acme' %}
     environment:
       CF_DNS_API_TOKEN_FILE: /run/secrets/cloudflare_token
     secrets:
       - cloudflare_token
+{% endif %}
     volumes:
       - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - ./dynamic:/etc/traefik/dynamic:ro
+{% if traefik_cert == 'acme' %}
       - ./letsencrypt:/letsencrypt
+{% else %}
+      - ./secrets/origin-cert.pem:/etc/traefik/certs/origin-cert.pem:ro
+      - ./secrets/origin-key.pem:/etc/traefik/certs/origin-key.pem:ro
+{% endif %}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -42,7 +49,9 @@ services:
 networks:
   proxy:
     name: proxy
+{% if traefik_cert == 'acme' %}
 
 secrets:
   cloudflare_token:
     file: ./secrets/cloudflare-token
+{% endif %}

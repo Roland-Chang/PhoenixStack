@@ -5,9 +5,10 @@ authentik_version: "2026.8.6"
 
 authentik_dir: "{{ docker_stacks_dir }}/authentik"
 
-# The address people use (docker01's Traefik, route "auth"). Authentik builds links from it, and a
-# future release requires it.
-authentik_base_url: "https://auth.{{ domain }}"
+# The address people use: the public name (docker02's Traefik, route "auth"; decided 2026-11-23), so
+# OIDC issuers and links work at home and away. auth.<domain> (docker01) stays as a LAN and VPN
+# entry. Authentik builds links from it, and a future release requires it.
+authentik_base_url: "https://auth.{{ public_domain }}"
 # The image runs as this user; its folders belong to it.
 authentik_uid: 1000
 
@@ -18,8 +19,9 @@ authentik_db_name: authentik
 authentik_db_user: authentik
 authentik_db_sslmode: require
 
-# Only docker01's Traefik may set X-Forwarded-For (Authentik then logs the real client address).
-authentik_trusted_proxies: ["{{ hostvars['docker01'].ip }}/32"]
+# Only the two Traefiks may set X-Forwarded-For (Authentik then logs the real client address;
+# docker02's Traefik takes it from Cloudflare).
+authentik_trusted_proxies: ["{{ hostvars['docker01'].ip }}/32", "{{ hostvars['docker02'].ip }}/32"]
 
 # akadmin's email on first start (the password comes from 1Password, below).
 authentik_bootstrap_email: alerts@phoenixstack.net

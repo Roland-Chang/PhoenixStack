@@ -1,9 +1,22 @@
-# Services Traefik (L5d) on a Docker host. Routes come from the host's `routes` in the inventory.
+# Traefik on a Docker host: the Services one (docker01, L5d) and the public one (docker02, L5f).
+# Routes come from the host's `routes` in the inventory.
 # Image versions are pinned here; updating one is a change in git, deployed in the weekly window.
 traefik_version: v3.7.19
 whoami_version: v1.12.0
 
 traefik_dir: "{{ docker_stacks_dir }}/traefik"
+
+# The domain of this host's routes: int.phoenixstack.net on docker01, phoenixstack.net on docker02.
+traefik_domain: "{{ routes_domain | default(domain) }}"
+
+# Certificate: acme = Let's Encrypt over Cloudflare DNS-01 (docker01); origin_ca = a Cloudflare
+# Origin CA certificate and key from 1Password (docker02: no Cloudflare token on that host).
+traefik_cert: acme
+traefik_op_origin_cert: ""
+traefik_op_origin_key: ""
+
+# Proxies whose X-Forwarded-For Traefik believes (docker02: Cloudflare's addresses). Empty: none.
+traefik_trusted_ips: "{{ cloudflare_sources if traefik_cert == 'origin_ca' else [] }}"
 
 # Let's Encrypt over Cloudflare DNS-01: one wildcard certificate for the internal domain. The token
 # is 1Password item "(Cloudflare) - Traefik DNS Token", read only when the guest has none yet.

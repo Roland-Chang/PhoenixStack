@@ -167,7 +167,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | --- | --- | --- | --- |
 | Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | Not yet: the forwards still go to docker-temp on mgmt (REBUILD_STATE item 7) |
 | LAN and VPN clients | Services | `443` → `docker01`. DNS goes through the UDM ([Household DNS](#household-dns)), so no `53` | Not yet: with the first app for household users |
-| LAN and VPN clients | DMZ | The same ports as the internet (so public names also work at home) | Blocked (`Internal -> DMZ (Block)`, `VPN -> DMZ (Block)`) until `docker02` |
+| LAN and VPN clients | DMZ | Nothing (decided 2026-11-23): public names resolve to Cloudflare, so home users come in through the proxy like everyone else, and `docker02` accepts only Cloudflare | As designed (`Internal -> DMZ (Block)`, `VPN -> DMZ (Block)`) |
 | Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page | **All ports** (`Young/Porter/VPN Admin -> Services/DMZ`); narrow to the design once the services settle |
 | Admin sources | Management | As today (pve01's own firewall also limits to admin sources) | All ports |
 | Services, Management, IOT | The UDM itself (Gateway) | DNS (`53`), DHCP (`67`), ping | As designed. The block rules after them match `New` and `Invalid` connections only (since 2026-11-22), so replies to queries the UDM sends itself (its forwarding to Pi-hole) get back |
@@ -647,6 +647,61 @@ Before the first app depends on Authentik, and after each major Authentik upgrad
 What it doesn't prove: WebAuthn after a restore (only on the real name, so only in a real recovery) and the
 `data` folder (empty today; covered by the VM backups).
 
+## L5f: DMZ Docker host and public Traefik (`docker02`)
+
+**Designed and agreed 2026-11-23, not applied.** Step A of moving the public apps off docker-temp: the host, the public
+Traefik and Authentik's public name, proven with a test route on a second port. Step B (later) moves the `443`
+forward from docker-temp to `docker02`; see [Moving the public apps](#moving-the-public-apps).
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `docker02`: VM `11002`, MAC `02:aa:bb:cc:10:02`, `10.101.2.102`, DMZ (VLAN 200), cloned from `10001`. **8 cores, 16 GiB, 64 GB** on `nvme` (decided 2026-11-23). | Tier 10, instance 2. Less memory than `docker01` to start; Immich's machine learning is the big one, and memory and disk grow online. |
+| Docker | Role `docker_host`, the same as `docker01` (Docker CE, `live-restore`, `no-new-privileges`, `local` logs, `172.20.0.0/14`). | One way to run Docker. |
+| Traefik | Role `traefik`, the same version. Port 443 only. Routes from the inventory, file provider, no Docker socket. | As on `docker01`; the socket would be root on an internet-facing host. |
+| Certificate | **Cloudflare Origin CA** (decided 2026-11-23): `phoenixstack.net` and `*.phoenixstack.net`, made once in the Cloudflare dashboard (SSL/TLS → Origin Server), 15 years. Certificate and key in 1Password; the first real run writes them to `secrets/` on the guest (root, `0600`). The zone's SSL mode must be **Full (strict)**. | No Cloudflare API token on the internet-facing host. Only Cloudflare needs to trust this certificate, since every request comes through its proxy. |
+| Who may connect | `443` from **Cloudflare's addresses only**, on the UDM forward and again on the Proxmox firewall (new firewall source `cloudflare`, the list from cloudflare.com/ips in the inventory); SSH and ping from admin sources. | Two locks, as for pve01. Nobody can skip the proxy, not even from the LAN. |
+| Client addresses | Traefik trusts `X-Forwarded-For` from Cloudflare's addresses only (`forwardedHeaders.trustedIPs`). | Apps and logs see the real client, not Cloudflare. |
+| Route names | Each Docker host gets a `routes_domain`: `int.phoenixstack.net` on `docker01`, `phoenixstack.net` on `docker02`. Pi-hole adds names only for the `int.` routes. | Public names come from Cloudflare's wildcard record; Pi-hole must not answer them. |
+| Authentik | Route `auth` on `docker02` → `https://10.101.1.41:9443`, so **`https://auth.phoenixstack.net`** works from anywhere. The admin interface (`/if/admin/`) is blocked on the public route, so it stays LAN and VPN only (decided 2026-11-23). | Users outside need the login page for OIDC. Admins don't need the admin pages from the internet. |
+| Authentik's base URL | **`https://auth.phoenixstack.net`** (decided 2026-11-23; was `auth.int`), so OIDC issuers and links work from anywhere. `auth.int` stays as a LAN and VPN entry. | The public apps' OIDC clients must reach the same issuer from home and away. |
+| UDM rules | Forward `8443` → `10.101.2.102:443`, Cloudflare's addresses only, for the test (Cloudflare proxies `8443`). `docker02` → `authentik01` `9443`. `authentik01`'s firewall also accepts `9443` from `docker02`. | Tests the whole path without touching the live `443` forward. |
+| DNS | Nothing new: the zone's proxied wildcard record already sends every name to the home address. DMZ guests ask the UDM. | |
+| Smoke test | `whoami` at `https://whoami.phoenixstack.net:8443` while its route is in the inventory. | Shows the client address Traefik sees (should be the tester's, not Cloudflare's). |
+| Not in this step | Moving the `443` forward; any app; the NAS mount; where each public app runs. | Step B. |
+
+Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
+
+1. ~~Roles: `traefik` gets the Origin CA option, trusted Cloudflare addresses and `routes_domain`; Terraform the
+   `cloudflare` firewall source; the Pi-hole template skips non-`int.` routes.~~ Written 2026-11-23, with `docker02`
+   in the inventory. Checked: `docker.yml -l docker01 --check --diff` changes only a comment and adds the unused
+   `deny-all` middleware (`traefik.yml` and the routes render as before); `docker02`'s files render with the Origin
+   CA and Cloudflare as trusted proxies; Pi-hole's list gains only `docker02` (not its public routes). The
+   Authentik base URL change waits for step 6.
+2. Cloudflare: check the SSL mode is Full (strict); create the Origin CA certificate; store it in 1Password.
+3. `tf plan`: expect `docker02` and its firewall, and `authentik01`'s firewall. Then `apply`.
+4. `apb site.yml -l docker02`; reboot if the first upgrade brought a new kernel; `apb docker.yml -l docker02`.
+5. UniFi: the `8443` forward and the `docker02` → `authentik01` rule.
+6. Authentik: base URL, the public route, the blocked admin path (`apb authentik.yml`).
+
+Done when:
+
+- [ ] `tf plan` and repeat Ansible runs: no changes.
+- [ ] From outside (phone on mobile data): `https://whoami.phoenixstack.net:8443` answers with Cloudflare's edge
+      certificate and shows the phone's address; `https://auth.phoenixstack.net:8443` shows the login page;
+      `/if/admin/` there is refused.
+- [ ] Direct to the home address on `8443` without Cloudflare: refused.
+- [ ] `docker02` can't reach Services except `authentik01:9443`, nor mgmt or the client LANs.
+- [ ] From the LAN: `https://auth.int.phoenixstack.net` still works; the Traefik dashboard on `docker01` too.
+- [ ] `whoami` route removed afterwards; the `8443` forward removed.
+
+### Moving the public apps
+
+Step B, designed with the first app. To settle then: where each public app runs (`docker02` in the DMZ, so a
+broken app reaches only the DMZ, or `docker01` behind the public Traefik), their data and NAS access, and the
+`443` forward. Until every public app has moved, the public Traefik can forward to docker-temp through a
+temporary rule (`docker02` → docker-temp's app ports), so the internet stops reaching mgmt the day the forward
+moves.
+
 ## Household DNS
 
 **Started 2026-11-22** on the Young LAN; watching it for a day before the other networks.
@@ -710,14 +765,27 @@ Done when:
 
 ## Open decisions
 
-1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
+1. ~~Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?~~ Settled 2026-11-23: **proxy**, as
+   today; the `443` forward accepts Cloudflare's addresses only. The public Traefik uses a **Cloudflare Origin CA**
+   certificate, so no Cloudflare API token sits on the internet-facing host (a stolen zone token could redirect any
+   name, mail included).
 2. Plex, Jellyfin, or both?
-3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)?
+3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)? Started 2026-11-23
+   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, Calibre. Admins only
+   (Aaron and Ben, for now): the *arr apps, libraforge, libation, metube, glances. These are **LAN and VPN only**
+   (`<app>.int.phoenixstack.net` on `docker01`), reached from outside over Teleport, not published (decided
+   2026-11-23). Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). Calibre: later,
+   maybe a fresh design rather than a move. Logins: each app's **built-in OIDC** with
+   Authentik wherever it has one (as on docker-temp today), forward-auth only for browser-only apps without it.
+   Authentik's public name: **`auth.phoenixstack.net`** (through the public Traefik). When Audiobookshelf moves,
+   its existing users must carry over as seamlessly as possible (e.g. matching them to Authentik by username or
+   email through OIDC claim mapping): design that with the move.
 4. AI tier code (proposed 12, `.121`).
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.
 7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
-8. Authentik audiences (groups) for non-admin users, before the first app for them. Proposal (2026-11-22): groups
+8. Authentik audiences (groups) for non-admin users. **Settled 2026-11-23: `Family`, with `Young` and `Porter` below
+   it**, to start. The proposal (2026-11-22): groups
    describe people, not apps; nested households, `Family` with `Young` and `Porter` below it (a binding to a group
    also admits its child groups), plus outside audiences if needed (`Guests`?). Group definitions in a blueprint,
    memberships in the UI; routes get a list, `authentik_groups`. New users by invitation link or created by hand.

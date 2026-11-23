@@ -4,15 +4,16 @@ locals {
   inventory = yamldecode(file("${path.module}/../inventory.yml"))
   globals   = local.inventory.all.vars
 
-  # firewall_in sources: admin, lan, any, or a guest's name (its address); anything else is taken
+  # firewall_in sources: admin, lan, cloudflare, any, or a guest's name (its address); anything else is taken
   # as a CIDR. Each has the label the rule's comment uses.
   hosts = merge([for group in values(local.inventory.all.children) : group.hosts]...)
   sources = merge(
     { for name, h in local.hosts : name => { cidrs = "${h.ip}/32", label = name } },
     {
-      admin = { cidrs = join(",", local.globals.admin_sources), label = "admin sources" }
-      lan   = { cidrs = join(",", local.globals.lan_sources), label = "LAN sources" }
-      any   = { cidrs = null, label = "anywhere" }
+      admin      = { cidrs = join(",", local.globals.admin_sources), label = "admin sources" }
+      lan        = { cidrs = join(",", local.globals.lan_sources), label = "LAN sources" }
+      cloudflare = { cidrs = join(",", local.globals.cloudflare_sources), label = "Cloudflare" }
+      any        = { cidrs = null, label = "anywhere" }
     },
   )
 

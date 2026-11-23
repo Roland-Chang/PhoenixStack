@@ -3,7 +3,7 @@
 http:
   routers:
     {{ route.name }}:
-      rule: "Host(`{{ route.name }}.{{ domain }}`)"
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`)"
       entryPoints:
         - websecure
       service: {{ 'api@internal' if route.url == 'api@internal' else route.name }}
@@ -19,7 +19,7 @@ http:
 {% if route.authentik | default(false) %}
     # Authentik's login callback and sign-out on this name.
     {{ route.name }}-outpost:
-      rule: "Host(`{{ route.name }}.{{ domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
       entryPoints:
         - websecure
       service: authentik-outpost@file
@@ -27,6 +27,16 @@ http:
       middlewares:
         - admin-only@file
 {% endif %}
+{% endif %}
+{% if route.blocked_paths | default([]) | length > 0 %}
+    # Refused on this name (403). The longer rule wins over the route above.
+    {{ route.name }}-blocked:
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`) && ({% for p in route.blocked_paths %}PathPrefix(`{{ p }}`){{ ' || ' if not loop.last }}{% endfor %})"
+      entryPoints:
+        - websecure
+      service: noop@internal
+      middlewares:
+        - deny-all@file
 {% endif %}
 {% if route.url != 'api@internal' %}
   services:

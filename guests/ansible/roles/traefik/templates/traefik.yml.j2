@@ -14,19 +14,31 @@ api:
 entryPoints:
   websecure:
     address: ":443"
+{% if traefik_trusted_ips | length > 0 %}
+    forwardedHeaders:
+      trustedIPs:
+{% for s in traefik_trusted_ips %}
+        - "{{ s }}"
+{% endfor %}
+{% endif %}
     http:
+{% if traefik_cert == 'acme' %}
       tls:
         certResolver: letsencrypt
         domains:
-          - main: "{{ domain }}"
+          - main: "{{ traefik_domain }}"
             sans:
-              - "*.{{ domain }}"
+              - "*.{{ traefik_domain }}"
+{% else %}
+      tls: {}
+{% endif %}
 
 providers:
   file:
     directory: /etc/traefik/dynamic
     watch: true
 
+{% if traefik_cert == 'acme' %}
 certificatesResolvers:
   letsencrypt:
     acme:
@@ -39,3 +51,4 @@ certificatesResolvers:
 {% for r in traefik_acme_resolvers %}
           - "{{ r }}"
 {% endfor %}
+{% endif %}

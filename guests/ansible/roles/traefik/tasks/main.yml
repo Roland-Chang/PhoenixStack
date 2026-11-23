@@ -1,7 +1,9 @@
-# Services Traefik as a compose stack in {{ traefik_dir }}: wildcard certificate from Let's Encrypt
-# (Cloudflare DNS-01), routes from the inventory as files. Needs the docker_host role first.
+# Traefik as a compose stack in {{ traefik_dir }}, routes from the inventory as files. Needs the
+# docker_host role first. Certificate (traefik_cert): acme = wildcard from Let's Encrypt over
+# Cloudflare DNS-01 (docker01); origin_ca = Cloudflare Origin CA certificate and key (docker02).
 #
-# The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once, read with
+# Secrets are written once, read with op read on this computer; dry runs and later runs don't read
+# them. The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once, read with
 # op read on this computer; dry runs and later runs don't read it. To rotate it: change the item,
 # delete secrets/cloudflare-token on the guest, run again.
 
@@ -15,15 +17,17 @@
   loop:
     - {path: "{{ traefik_dir }}", mode: "0755"}
     - {path: "{{ traefik_dir }}/dynamic", mode: "0755"}
-    - {path: "{{ traefik_dir }}/letsencrypt", mode: "0700"}
+    - {path: "{{ traefik_dir }}/letsencrypt", mode: "0700", when: "{{ traefik_cert == 'acme' }}"}
     - {path: "{{ traefik_dir }}/secrets", mode: "0700"}
   loop_control:
     label: "{{ item.path }}"
+  when: item.when | default(true) | bool
 
 - name: Is the Cloudflare token there?
   ansible.builtin.stat:
     path: "{{ traefik_dir }}/secrets/cloudflare-token"
   register: traefik_token_file
+  when: traefik_cert == 'acme'
 
 - name: Cloudflare token (root only), from 1Password the first time
   ansible.builtin.copy:
@@ -33,8 +37,54 @@
     group: root
     mode: "0600"
   no_log: true
-  when: not traefik_token_file.stat.exists
+  when: traefik_cert == 'acme' and not traefik_token_file.stat.exists
   notify: Restart traefik
+
+# Origin CA (docker02). To renew or replace: change the 1Password item, delete both files on the
+# guest, run again.
+- name: Origin CA references are set
+  ansible.builtin.assert:
+    that: [traefik_op_origin_cert | length > 0, traefik_op_origin_key | length > 0]
+    fail_msg: Set traefik_op_origin_cert and traefik_op_origin_key in the inventory (L5f step 2).
+  when: traefik_cert == 'origin_ca' and not ansible_check_mode
+
+- name: Are the Origin CA files there?
+  ansible.builtin.stat:
+    path: "{{ traefik_dir }}/secrets/{{ item }}"
+  loop: [origin-cert.pem, origin-key.pem]
+  register: traefik_origin_files
+  when: traefik_cert == 'origin_ca'
+
+- name: Origin CA certificate and key (root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: "{{ '(dry run: not read)' if ansible_check_mode else lookup('ansible.builtin.pipe', 'op read ' ~ (item.ref | quote)) ~ '\n' }}"
+    dest: "{{ traefik_dir }}/secrets/{{ item.file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - {file: origin-cert.pem, ref: "{{ traefik_op_origin_cert }}", i: 0}
+    - {file: origin-key.pem, ref: "{{ traefik_op_origin_key }}", i: 1}
+  loop_control:
+    label: "{{ item.file }}"
+  no_log: true
+  when: traefik_cert == 'origin_ca' and not traefik_origin_files.results[item.i].stat.exists
+  notify: Restart traefik
+
+- name: Origin CA certificate for every name
+  ansible.builtin.template:
+    src: tls.yml.j2
+    dest: "{{ traefik_dir }}/dynamic/tls.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: traefik_cert == 'origin_ca'
+
+- name: No Origin CA file with Let's Encrypt
+  ansible.builtin.file:
+    path: "{{ traefik_dir }}/dynamic/tls.yml"
+    state: absent
+  when: traefik_cert != 'origin_ca'
 
 - name: Compose file
   ansible.builtin.template:

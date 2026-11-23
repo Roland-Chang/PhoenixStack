@@ -11,7 +11,8 @@ pihole_installer_sha256: 4627fc5209064039a3b2ee615119db93b2c9ca8f9d69dea7967b7fd
 pihole_op_password: "op://infrastructure/6rgmkyk7enemcundji75k7omeu/password"
 
 # Local names: inventory's dns_records (e.g. pve01), every guest in the inventory, and each
-# Docker host's routes (app names served by its Traefik, pointing at the host), as "<ip> <name>.<domain>".
+# Docker host's routes under the internal domain (app names served by its Traefik, pointing at the
+# host), as "<ip> <name>.<domain>". Public routes (routes_domain, docker02) come from Cloudflare.
 pihole_hosts: >-
   {%- set out = [] -%}
   {%- for name, addr in (dns_records | default({})).items() -%}
@@ -19,9 +20,11 @@ pihole_hosts: >-
   {%- endfor -%}
   {%- for h in groups['all'] | sort -%}
   {%- set _ = out.append(hostvars[h].ip ~ ' ' ~ h ~ '.' ~ domain) -%}
+  {%- if (hostvars[h].routes_domain | default(domain)) == domain -%}
   {%- for r in hostvars[h].routes | default([]) -%}
   {%- set _ = out.append(hostvars[h].ip ~ ' ' ~ r.name ~ '.' ~ domain) -%}
   {%- endfor -%}
+  {%- endif -%}
   {%- endfor -%}
   {{ out }}
 

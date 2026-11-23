@@ -9,3 +9,8 @@ http:
 {% for s in admin_sources %}
           - "{{ s }}"
 {% endfor %}
+    # Nobody (403): for a route's blocked_paths.
+    deny-all:
+      ipAllowList:
+        sourceRange:
+          - "127.0.0.1/32"

@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# The Cloudflare Origin CA certificate (role traefik, traefik_cert: origin_ca), for every name.
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /etc/traefik/certs/origin-cert.pem
+        keyFile: /etc/traefik/certs/origin-key.pem
