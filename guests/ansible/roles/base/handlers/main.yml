@@ -1,3 +1,9 @@
+# A restart takes well under a second; lookups in that moment retry.
+- name: Restart resolved
+  ansible.builtin.service:
+    name: systemd-resolved
+    state: restarted
+
 - name: Restart journald
   ansible.builtin.service:
     name: systemd-journald

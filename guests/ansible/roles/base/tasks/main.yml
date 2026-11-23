@@ -73,6 +73,33 @@
         enabled: true
         state: started
 
+# VMs run systemd-resolved, which by default also answers LLMNR (port 5355, every address):
+# Windows-style name guessing on the local network that nothing here uses, and a classic spoofing
+# target. Names come from Pi-hole. mDNS is off by default; set here too so it stays off.
+# (Containers don't run systemd-resolved.)
+- name: Name resolver settings folder (VMs)
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: kind == 'vm'
+
+- name: No LLMNR or mDNS (VMs)
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed (role base): names come from Pi-hole only.
+      [Resolve]
+      LLMNR=no
+      MulticastDNS=no
+    dest: /etc/systemd/resolved.conf.d/phoenix.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: kind == 'vm'
+  notify: Restart resolved
+
 - name: Admin user
   ansible.builtin.user:
     name: "{{ admin_user }}"
