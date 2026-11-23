@@ -556,7 +556,7 @@ Done when:
 - [x] A test account without a device (`mfatest`) was made to enrol one at its first login, offered WebAuthn and TOTP; deleted afterwards (2026-11-22).
 - [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
 - [ ] After the next 00:30 dump: `authentik.dump` in the day's folder on `pgsql01`.
-- [ ] [Restore rehearsal](#restore-rehearsal-planned) passed (before the first app depends on Authentik).
+- [x] [Restore rehearsal](#restore-rehearsal) passed 2026-11-22 (before the first app depends on Authentik).
 
 Found on the way:
 
@@ -601,14 +601,14 @@ Pick the smallest repair that fits (each command dry-run first where it has one)
 4. **Can't log in** (both of `akadmin`'s factors gone, flows broken by a change): `ak create_recovery_key` (see Admin,
    above). Infrastructure logins (Proxmox, UniFi, iDRAC, NAS, 1Password) never depend on Authentik.
 
-After any restore: log in as `aaron` with a YubiKey; check **System → Blueprints** shows `PhoenixStack - MFA required`
+After any restore: log in as `aaron` with a YubiKey; check **Customization → Blueprints** shows `PhoenixStack - MFA required`
 as successful; `apb authentik.yml --check` and `apb database.yml --check` show `changed=0`.
 
-### Restore rehearsal (planned)
+### Restore rehearsal
 
-Before the first app depends on Authentik. It proves that a dump, the 1Password secrets and git rebuild a working
-Authentik, without touching the live one. Needs a dump taken after the admins were set up (the 00:30 run on
-2026-11-23 or later).
+Before the first app depends on Authentik, and after each major Authentik upgrade. It proves that a dump, the
+1Password secrets and git rebuild a working Authentik, without touching the live one. Use a fresh dump:
+`sudo systemctl start db-dump.service` on `pgsql01` (replaces that day's folder).
 
 1. **Scratch database** on `pgsql01`, from the latest dump, owned by `authentik`:
    `createdb -O authentik authentik_restoretest`, then
@@ -617,13 +617,21 @@ Authentik, without touching the live one. Needs a dump taken after the admins we
 2. **Scratch stack** on `authentik01`: a copy of the stack in `/opt/stacks/authentik-restoretest` (project name
    `authentik-restoretest`, same image and `.env`, `AUTHENTIK_POSTGRESQL__NAME=authentik_restoretest`, its own empty
    `data`, port `127.0.0.1:9444`, so nothing outside the VM can reach it and no firewall, DNS or route changes).
+   Set its `AUTHENTIK_WEB__BASE_URL` to `https://localhost:9444` **and** the restored copy's stored one, which wins
+   over the setting (scratch database only):
+   `UPDATE authentik_tenants_tenant SET base_url='https://localhost:9444' WHERE schema_name='public';`,
+   then restart the scratch server. Otherwise its links point at the live Authentik.
 3. **Log in** through an SSH tunnel (`ssh -L 9444:127.0.0.1:9444 aaron@10.101.1.41`, then `https://localhost:9444`,
    accept the self-signed certificate): `aaron` with password and **TOTP** (YubiKeys can't work on `localhost`, see
-   above). Check: both admin accounts and their devices are listed, the MFA blueprint is applied, the brand settings
-   match the live ones.
+   above). Check: both admin accounts and their devices are listed, **Customization → Blueprints** shows the MFA
+   blueprint as successful, the brand settings match the live ones.
 4. **Tear down:** `docker compose down` and remove the scratch folder; `dropdb authentik_restoretest`;
    `apb database.yml -l pgsql01` removes the hand-made line (expect only `pg_hba.conf` changed, then `changed=0`).
-5. Record the result here (date, dump used, time taken). Repeat after each major Authentik upgrade.
+5. Record the result below.
+
+| Date | Dump | Result | Time |
+| --- | --- | --- | --- |
+| 2026-11-22 | Manual, 19:16 (3.2 MB, 230 tables) | **Passed.** `aaron` logged in with password and 1Password TOTP; both admins and all 6 MFA devices restored; MFA blueprint `successful`, stage `configure` (WebAuthn, TOTP). Live Authentik healthy throughout. Found: the stored base URL (see step 2). Menu is Customization → Blueprints, not System. | 11 min, dump to teardown |
 
 What it doesn't prove: WebAuthn after a restore (only on the real name, so only in a real recovery) and the
 `data` folder (empty today; covered by the VM backups).
