@@ -360,7 +360,7 @@ What the first run found, and fixed:
 | Proxmox checks tags against `/vms/<vmid>` only, so a pool-scoped token can't set them when creating a guest | No tags (see Terraform decisions) |
 | A VM referencing the vendor snippet needs `Datastore.AllocateSpace` on `local` | `PVEDatastoreUser` on `/storage/local` |
 | The UDM had no admin rules into Services; Internal and VPN reached the whole DMZ | `Young/Porter/VPN Admin -> Services/DMZ` rules, then `Internal -> DMZ (Block)` and `VPN -> DMZ (Block)` |
-| The UDM's IPS blocked repeated SSH from the home LAN | IPS Detection Exclusions for the Young admin workstation and laptop (REBUILD_STATE item 11) |
+| The UDM's IPS blocked repeated SSH from the home LAN | IPS Detection Exclusions for the Young admin workstation and laptop; the Porter ones added 2026-11-23 (REBUILD_STATE item 11) |
 | `/etc/systemd/journald.conf.d` doesn't exist on Debian 13 | The `base` role creates it |
 | The Debian container template has systemd hold port 22 (`ssh.socket`), so reloading sshd stops it | The `base` role restarts sshd there and reloads it elsewhere |
 | A dry run on a new container can't check the admin user's keys (the user isn't created yet) | Skipped in that one case |

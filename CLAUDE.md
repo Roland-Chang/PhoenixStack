@@ -21,7 +21,8 @@ Read [README.md](README.md) first, then [proxmox/REBUILD_STATE.md](proxmox/REBUI
   the Young admin workstation and laptop `10.1.1.69` and `10.1.1.169`, the Porter admin workstation and laptop
   `10.2.1.69` and `10.2.1.169`, and Teleport VPN clients `192.168.2.0/24`).
   Repeated SSH from the home LAN used to be cut off for a few minutes: the UDM's IPS took it for an SSH scan.
-  Fixed 2026-11-21 by putting the admin workstation and laptop on the IPS "Detection Exclusions" list. If SSH
+  Fixed 2026-11-21 by putting the admin workstations and laptops on the IPS "Detection Exclusions" list (Young
+  2026-11-21, Porter 2026-11-23). If SSH
   times out while ping and the GUI work, check that list first (e.g. for a new admin address).
   An Ansible run that reports guests unreachable with "Timeout waiting for privilege escalation prompt" is
   something else: the 1Password SSH agent waiting for approval (`guests/ansible/ansible.cfg`).
