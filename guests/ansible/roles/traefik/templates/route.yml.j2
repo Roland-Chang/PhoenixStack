@@ -7,9 +7,26 @@ http:
       entryPoints:
         - websecure
       service: {{ 'api@internal' if route.url == 'api@internal' else route.name }}
+{% if route.admin_only | default(false) or route.authentik | default(false) %}
+      middlewares:
+{% if route.admin_only | default(false) %}
+        - admin-only@file
+{% endif %}
+{% if route.authentik | default(false) %}
+        - authentik@file
+{% endif %}
+{% endif %}
+{% if route.authentik | default(false) %}
+    # Authentik's login callback and sign-out on this name.
+    {{ route.name }}-outpost:
+      rule: "Host(`{{ route.name }}.{{ domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      entryPoints:
+        - websecure
+      service: authentik-outpost@file
 {% if route.admin_only | default(false) %}
       middlewares:
         - admin-only@file
+{% endif %}
 {% endif %}
 {% if route.url != 'api@internal' %}
   services:

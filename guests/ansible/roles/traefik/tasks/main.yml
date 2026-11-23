@@ -69,6 +69,21 @@
     group: root
     mode: "0644"
 
+- name: Login through Authentik (when a route uses it)
+  ansible.builtin.template:
+    src: authentik.yml.j2
+    dest: "{{ traefik_dir }}/dynamic/authentik.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: traefik_authentik
+
+- name: No Authentik login file when no route uses it
+  ansible.builtin.file:
+    path: "{{ traefik_dir }}/dynamic/authentik.yml"
+    state: absent
+  when: not traefik_authentik
+
 - name: One route file per inventory route
   ansible.builtin.template:
     src: route.yml.j2

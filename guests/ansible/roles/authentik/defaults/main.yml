@@ -28,3 +28,14 @@ authentik_bootstrap_email: alerts@phoenixstack.net
 authentik_op_secret_key: "op://infrastructure/433bhnakbk4j55mkyrtnv3uhce/password"
 authentik_op_db_password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
 authentik_op_bootstrap_password: "op://infrastructure/gc5okp343bflwbgpv53o4ypm6i/password"
+
+# Our blueprints (templates/blueprints/*.j2), written to blueprints/ and mounted read-only.
+authentik_blueprints:
+  - phoenix-mfa.yaml
+  - phoenix-proxy-apps.yaml
+
+# Apps behind Traefik's forward-auth: every Docker host route with `authentik: true`.
+authentik_proxy_apps: >-
+  {{ groups['all'] | map('extract', hostvars) | selectattr('routes', 'defined')
+     | map(attribute='routes') | flatten | selectattr('authentik', 'defined')
+     | selectattr('authentik') | list }}

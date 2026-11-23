@@ -303,6 +303,8 @@ Every new guest, in this order (each Terraform and Ansible step dry-run first):
 3. **Baseline:** `apb site.yml -l <guest> -e ansible_user=root` (containers' first run only; VMs connect as the admin user).
    If the first full upgrade leaves `/var/run/reboot-required`, reboot the guest now (`ansible <guest> -m reboot`).
 4. **Service:** the guest's own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`, ...).
+   An app behind an Authentik login: `authentik: true` on its route, then `authentik.yml` before `docker.yml`
+   (see [Apps behind Authentik](#apps-behind-authentik)).
 5. **DNS name:** `apb dns.yml -l dns01`, then `-l dns02`. Pi-hole learns names only from the inventory, so a guest
    (or a Docker host's new route) has no name until this runs. One resolver at a time, since clients use them.
 6. **UniFi alias** (by hand, decided 2026-11-22): in UniFi Network, open the client with the guest's MAC, set its
@@ -483,7 +485,7 @@ Done when:
 | Routes | **File provider, no Docker socket** (decided 2026-11-22). Each Docker host lists `routes: [{name, url, admin_only}]` in the inventory: Ansible writes `dynamic/route-<name>.yml` and removes routes that are gone; Pi-hole points `<name>.int.phoenixstack.net` at the host (after `dns.yml`). Apps join the Docker network `proxy`. | Socket access is root on the host. Routes live in git, next to the guest. |
 | Certificate | One wildcard, `*.int.phoenixstack.net` (plus the bare name), from Let's Encrypt over Cloudflare DNS-01. The challenge check uses `1.1.1.1` and `9.9.9.9`. Stored in `/opt/stacks/traefik/letsencrypt/acme.json` (root only); Traefik renews it 30 days before expiry. | Certificate transparency logs publish every certificate's names; a wildcard publishes only `*.int`. Pi-hole answers NXDOMAIN for anything under `int.`, so the check must ask public resolvers. |
 | Cloudflare token | Its own token (decided 2026-11-22): Zone DNS Edit + Zone Read on `phoenixstack.net`, no IP filter. 1Password `(Cloudflare) - Traefik DNS Token` (item ID `6jwbiosa4zf5wg32uh333srn2m`). On the guest as `secrets/cloudflare-token` (root, `0600`), passed to Traefik as a Compose secret. | Revocable without touching PVE's token. No IP filter: the home address may change, and a failed renewal would go unnoticed until monitoring exists. |
-| Dashboard | `https://traefik.int.phoenixstack.net`, admin sources only (`admin-only` IP allow-list). | Authentik can protect it later. |
+| Dashboard | `https://traefik.int.phoenixstack.net`, admin sources only (`admin-only` IP allow-list), and since L5e an Authentik login (`authentik Admins`). | Two checks: the right address and the right person. |
 | Smoke test | `whoami` (`traefik/whoami:v1.12.0`) at `https://whoami.int.phoenixstack.net` while its route is in the inventory; removing the route removes the container. | Proves the name, the route and the certificate before a real app relies on them. |
 | Not in this step | The NAS mount (with the media apps), `docker02`, and the UDM rule opening `443` to LAN and VPN clients (with the DNS rollout). | One step at a time. |
 
@@ -566,6 +568,27 @@ Found on the way:
 | That `apply` restarted `docker01`, `authentik01` and `pgsql01` (the provider reboots on cloud-init changes), and both VMs got new SSH host keys | Keys compared through pve01's guest agent before accepting; now a note in the Terraform row of [Running it](#running-it) |
 | `pgsql01`'s cluster was `SQL_ASCII` (Debian created it with the container's `C` locale), and Authentik's first migration failed on it | Cluster dropped and re-created (approved; it held only the half-migrated `authentik`), UTF-8 with the builtin `C.UTF-8` locale. New clusters get it from `createcluster.d`, and the role stops on a non-UTF8 cluster |
 | `python3-psycopg2`, needed by the database tasks, in the same install task as PostgreSQL made every later run look like a new guest in a dry run | Its own task; existing roles are read with plain `psql`, so a dry run lists what it would create |
+
+### Apps behind Authentik
+
+A route on a Docker host with `authentik: true` (and a `title`) is behind an Authentik login (decided 2026-11-22;
+first: the Traefik dashboard):
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Inventory | the route: `{name, url, authentik: true, title, authentik_group}` | One line switches it on. `authentik_group` defaults to `authentik Admins`. |
+| Traefik (`docker01`) | `dynamic/authentik.yml` (middleware `authentik`, forward auth to `https://10.101.1.41:9443/outpost.goauthentik.io/auth/traefik`); the route gets the middleware after `admin-only`, plus a `<name>-outpost` router for `/outpost.goauthentik.io/` | Not logged in: redirect to `auth.int.phoenixstack.net` (password + YubiKey/TOTP), then back. Passes `X-authentik-username`, `-groups`, `-email`, `-name`, `-uid` to the app. |
+| Authentik (`authentik01`) | blueprint `PhoenixStack - Proxy apps` (`templates/blueprints/phoenix-proxy-apps.yaml.j2`), built from the same routes | Per route: a proxy provider (forward auth, single application), an application (slug = route name), a group binding; and the embedded outpost's provider list. |
+
+Order: `apb authentik.yml -l authentik01` first (the app must exist), then `apb docker.yml -l docker01`, then
+`dns.yml` if the name is new. Removing `authentik: true` or the route doesn't delete the app in Authentik: delete
+it in the UI. Apps with their own login (OIDC, e.g. Immich, Grafana) are a different provider type, added with the
+app.
+
+Checked 2026-11-22 for the Traefik dashboard: without a login, the page and its API redirect to Authentik; a
+forged `X-Forwarded-Host` is ignored; a non-admin source still gets `403` from the allow-list; `aaron` logs in with
+a YubiKey and reaches the dashboard; a test user outside `authentik Admins` (`nogroup`, enrolled TOTP as required)
+got Authentik's access-denied page, then was deleted.
 
 ### Authentik recovery
 

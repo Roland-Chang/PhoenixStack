@@ -17,9 +17,11 @@
 #   pg_databases  PostgreSQL hosts only: [{name, client, password}]. Database and owner role <name>,
 #                 reachable over TLS from <client> (a /32) only; <password> is the op:// reference of
 #                 its 1Password item, read once when the role is created. Open 5432 from <client> too.
-#   routes        Docker hosts only: [{name, url, admin_only, self_signed}], names served by its
-#                 Traefik (Pi-hole points <name>.<domain> at the guest). self_signed: the backend's
-#                 HTTPS certificate isn't checked (firewall it to the Docker host instead).
+#   routes        Docker hosts only: [{name, url, admin_only, self_signed, authentik, title,
+#                 authentik_group}], names served by its Traefik (Pi-hole points <name>.<domain> at
+#                 the guest). self_signed: the backend's HTTPS certificate isn't checked (firewall it
+#                 to the Docker host instead). authentik: log in through Authentik first; the app
+#                 (named title) lets in authentik_group only (default "authentik Admins").
 all:
   vars:
     domain: int.phoenixstack.net
@@ -117,7 +119,7 @@ all:
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
           routes:
-            - {name: traefik, url: "api@internal", admin_only: true}
+            - {name: traefik, url: "api@internal", admin_only: true, authentik: true, title: Traefik dashboard}
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}   # authentik01
         # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
         # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.

@@ -35,14 +35,13 @@
 
 # Authentik notices new or changed files by itself; a removed file leaves its settings in place.
 - name: Our blueprints
-  ansible.builtin.copy:
-    src: "{{ item }}"
+  ansible.builtin.template:
+    src: "blueprints/{{ item }}.j2"
     dest: "{{ authentik_dir }}/blueprints/{{ item }}"
     owner: root
     group: root
     mode: "0644"
-  loop:
-    - phoenix-mfa.yaml
+  loop: "{{ authentik_blueprints }}"
 
 - name: Is the .env file there?
   ansible.builtin.stat:
