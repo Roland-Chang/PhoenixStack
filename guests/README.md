@@ -556,6 +556,7 @@ Done when:
 - [x] A test account without a device (`mfatest`) was made to enrol one at its first login, offered WebAuthn and TOTP; deleted afterwards (2026-11-22).
 - [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
 - [ ] After the next 00:30 dump: `authentik.dump` in the day's folder on `pgsql01`.
+- [ ] [Restore rehearsal](#restore-rehearsal-planned) passed (before the first app depends on Authentik).
 
 Found on the way:
 
@@ -565,6 +566,67 @@ Found on the way:
 | That `apply` restarted `docker01`, `authentik01` and `pgsql01` (the provider reboots on cloud-init changes), and both VMs got new SSH host keys | Keys compared through pve01's guest agent before accepting; now a note in the Terraform row of [Running it](#running-it) |
 | `pgsql01`'s cluster was `SQL_ASCII` (Debian created it with the container's `C` locale), and Authentik's first migration failed on it | Cluster dropped and re-created (approved; it held only the half-migrated `authentik`), UTF-8 with the builtin `C.UTF-8` locale. New clusters get it from `createcluster.d`, and the role stops on a non-UTF8 cluster |
 | `python3-psycopg2`, needed by the database tasks, in the same install task as PostgreSQL made every later run look like a new guest in a dry run | Its own task; existing roles are read with plain `psql`, so a dry run lists what it would create |
+
+### Authentik recovery
+
+What a working Authentik needs, and where each piece comes from:
+
+| Piece | Source | Note |
+| --- | --- | --- |
+| VM, Docker, compose file, blueprints | git: `tf apply`, `apb site.yml`, `apb authentik.yml` | |
+| Secret key, database password, bootstrap password | 1Password (the `.env` items above), written by `authentik.yml` | **Same secret key as before.** It signs sessions, links and tokens; a new one logs everyone out and voids them. |
+| Users, MFA devices, flows, apps, settings | Database `authentik` on `pgsql01`: nightly dump `/var/backups/db-dump/<day>/authentik.dump` (7 days on the guest), and the PBS/NAS backups of `pgsql01` | The dumps live on `pgsql01` itself: if the guest is gone, get them from its backup (PVE GUI → backup → **File Restore**) or restore the whole container. |
+| Uploaded files (wallpaper, favicon) | `authentik01:/opt/stacks/authentik/data`, only in the PBS/NAS backups of `authentik01` | File Restore from the VM's backup. |
+| The name `auth.int.phoenixstack.net` | git (`routes` on `docker01`, `authentik_base_url`) | **Must stay the same**: WebAuthn keys (YubiKeys, passkeys) are bound to the name the browser used at enrolment. On any other name only TOTP works. |
+
+Pick the smallest repair that fits (each command dry-run first where it has one):
+
+1. **`authentik01` broken, database fine.** Fastest: restore the VM from last night's PBS backup (it reconnects to the
+   database by itself). Or rebuild: `tf apply` (after removing the broken VM), `apb site.yml -l authentik01`,
+   `apb authentik.yml -l authentik01`; then File Restore the `data` folder if it held uploads.
+2. **Database damaged, `pgsql01` fine** (a bad upgrade, a wrong change). Stop Authentik
+   (`sudo docker compose stop` in `/opt/stacks/authentik`), then on `pgsql01`:
+
+   ```bash
+   sudo -u postgres dropdb authentik
+   sudo -u postgres pg_restore --create --dbname=postgres /var/backups/db-dump/<day>/authentik.dump
+   ```
+
+   `--create` brings back the database's owner and access rules too: `apb database.yml -l pgsql01 --check` should show
+   `changed=0`. Then `apb authentik.yml -l authentik01` to start it. Changes since that night's dump are lost.
+3. **`pgsql01` lost.** Restore the container from PBS (start order and address come with it). Or rebuild:
+   `tf apply`, `apb site.yml -l pgsql01 -e ansible_user=root`, `apb database.yml -l pgsql01` (UTF-8 cluster, role
+   `authentik` with the password from 1Password, empty database), then take `authentik.dump` from the old guest's
+   backup (File Restore) and restore it as in 2, with `--clean` instead of dropping first if the empty database is there.
+4. **Can't log in** (both of `akadmin`'s factors gone, flows broken by a change): `ak create_recovery_key` (see Admin,
+   above). Infrastructure logins (Proxmox, UniFi, iDRAC, NAS, 1Password) never depend on Authentik.
+
+After any restore: log in as `aaron` with a YubiKey; check **System → Blueprints** shows `PhoenixStack - MFA required`
+as successful; `apb authentik.yml --check` and `apb database.yml --check` show `changed=0`.
+
+### Restore rehearsal (planned)
+
+Before the first app depends on Authentik. It proves that a dump, the 1Password secrets and git rebuild a working
+Authentik, without touching the live one. Needs a dump taken after the admins were set up (the 00:30 run on
+2026-11-23 or later).
+
+1. **Scratch database** on `pgsql01`, from the latest dump, owned by `authentik`:
+   `createdb -O authentik authentik_restoretest`, then
+   `pg_restore --no-owner --role=authentik --dbname=authentik_restoretest <day>/authentik.dump`.
+   A temporary `hostssl authentik_restoretest authentik 10.101.1.41/32 scram-sha-256` line, by hand, then reload.
+2. **Scratch stack** on `authentik01`: a copy of the stack in `/opt/stacks/authentik-restoretest` (project name
+   `authentik-restoretest`, same image and `.env`, `AUTHENTIK_POSTGRESQL__NAME=authentik_restoretest`, its own empty
+   `data`, port `127.0.0.1:9444`, so nothing outside the VM can reach it and no firewall, DNS or route changes).
+3. **Log in** through an SSH tunnel (`ssh -L 9444:127.0.0.1:9444 aaron@10.101.1.41`, then `https://localhost:9444`,
+   accept the self-signed certificate): `aaron` with password and **TOTP** (YubiKeys can't work on `localhost`, see
+   above). Check: both admin accounts and their devices are listed, the MFA blueprint is applied, the brand settings
+   match the live ones.
+4. **Tear down:** `docker compose down` and remove the scratch folder; `dropdb authentik_restoretest`;
+   `apb database.yml -l pgsql01` removes the hand-made line (expect only `pg_hba.conf` changed, then `changed=0`).
+5. Record the result here (date, dump used, time taken). Repeat after each major Authentik upgrade.
+
+What it doesn't prove: WebAuthn after a restore (only on the real name, so only in a real recovery) and the
+`data` folder (empty today; covered by the VM backups).
 
 ## Open decisions
 
