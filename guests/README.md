@@ -376,7 +376,7 @@ guests and, through the UDM, household devices ([Household DNS](#household-dns))
 | Software | Pi-hole v6 (embedded web server, no lighttpd) and Unbound, on each resolver. | Ansible roles `unbound` and `pihole`, playbook `dns.yml`. |
 | Upstream | **Recursive Unbound** (decided 2026-11-21): Unbound on `127.0.0.1:5335` resolves recursively from the root servers and checks DNSSEC. It is Pi-hole's only upstream. | No third-party resolver sees every lookup, and the UDM stays out of Pi-hole's own lookups. Fallback if the ISP interferes with outbound port 53: forward Unbound to Quad9 over DoT, a config change only. |
 | Blocking | **Off** (decided 2026-11-21): no blocklists installed, `dns.blocking.active = false`. | Local names first; turn blocking on later as its own step. |
-| Local names | `dns.hosts` from the inventory: every guest plus `dns_records` (`pve01`). `int.phoenixstack.net` is answered only here (`local=/int.phoenixstack.net/`), so an unknown name gets NXDOMAIN instead of the public wildcard record. | One source of truth. Adding a guest to the inventory adds its name. |
+| Local names | `dns.hosts` from the inventory: every guest plus `dns_records` (`pve01`, `idrac-pve01` for its iDRAC, `postgres`). `int.phoenixstack.net` is answered only here (`local=/int.phoenixstack.net/`), so an unknown name gets NXDOMAIN instead of the public wildcard record. | One source of truth. Adding a guest to the inventory adds its name. |
 | Listening | `dns.listeningMode = SINGLE` on `eth0`: answers any source network, on that interface only. | Pi-hole's default (`LOCAL`) ignores clients outside `10.101.1.0/24`. The Proxmox firewall and the UDM decide who gets in. |
 | Firewall (PVE) | `53/udp` and `53/tcp` from `lan_sources` and from the Services VLAN (the guests, and the UDM forwarding household lookups from `.254`); `443/tcp` (web interface) and SSH from admin sources. | The UDM decides which clients reach Services; household devices don't need to, since the UDM asks for them. |
 | Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), read by the playbook on a resolver's first run only. | An unattended install sets no password, and without one the web interface is open. |
@@ -658,7 +658,7 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 | Young LAN | DHCP DNS: automatic, so the gateway (was `8.8.8.8`/`8.8.4.4`); domain `int.phoenixstack.net` (was `young.stack`), so short names like `pgsql01` work. | Devices switch as their leases renew (24 hours). |
 | UDM rules | No new rule for DNS: the UDM asks Pi-hole from `10.101.1.254`, which the resolvers accept. The zone rules `Services/Management/IOT -> Gateway (Block)` now match `New` and `Invalid` connections only. | Set to all states, they also dropped Pi-hole's replies to the UDM's own queries, and forwarded names timed out. |
 | Admin machines | Unchanged: they ask Pi-hole directly. | |
-| Not yet | Porter and RYoung (their own gateways, over the site-to-site tunnels: the same forward, plus a rule letting those gateways reach port `53`); IOT already uses the UDM, so it gets the names too (the zone rules still keep it out of Services); VPN clients (WiFiman forces public DNS, REBUILD_STATE item 1); the `443` rule into Services (with the first app for household users). | One network at a time. |
+| Not yet | Porter (steps below, [Porter LAN](#porter-lan)) and RYoung (the same steps over their own tunnel); IOT already uses the UDM, so it gets the names too (the zone rules still keep it out of Services); VPN clients (WiFiman forces public DNS, REBUILD_STATE item 1); the `443` rule into Services (with the first app for household users). | One network at a time. |
 
 Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
 
@@ -668,6 +668,45 @@ Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
       public names still resolve.
 - [x] A phone rejoined the Young Wi-Fi: DNS `10.1.1.254`, websites load.
 - [ ] A day later: Pi-hole's logs show the UDM's queries, and nothing broke for the household.
+
+### Porter LAN
+
+Started 2026-11-23: steps 1, 2 and 4 done, the tests (step 3) pending. The Porter gateway (a UDM, Ben's) gets the same forward as the Young UDM. Its queries
+reach Pi-hole over the BPorter site-to-site tunnel, so this UDM needs one new rule. Only names under
+`int.phoenixstack.net` change; every other lookup at Porter goes where it goes today. If pve01 or the tunnel is
+down, only the `int.` names fail.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Porter UDM | Two DNS policies, **Forward Domain** `int.phoenixstack.net` → `10.101.1.21` and → `10.101.1.22`, as on the Young UDM. | The same setup at both sites; one place to turn it off. |
+| Porter LAN DHCP | DNS server **automatic** (the gateway), domain name `int.phoenixstack.net`. Change only what differs: if DHCP already hands out the gateway, leave it. | Devices use the forward only if they ask the Porter UDM. Short names (`pve01`) need the domain. |
+| Young UDM rule | **`Porter Gateway -> Pi-hole (DNS)`**: zone VPN → Services, source the Porter gateway's address, destination `10.101.1.21` and `10.101.1.22`, port `53`, UDP and TCP, before the zone's block rule. | VPN → Services is admin-only, and the gateway isn't an admin source. Port 53 only, to the two resolvers only. |
+| Pi-hole firewall | Nothing new if the queries come from a `10.2.1.x` address: `dns01`/`dns02` already accept `53` from `lan` (includes `10.2.1.0/24`). If they come from the gateway's WAN or tunnel address, add that `/32` to their `firewall_in` (inventory) and run `tf plan`/`apply`. | Find out from Pi-hole's query log (step 3), not by guessing. |
+| Admin machines | Ben's workstation (Windows) and laptop (macOS) keep hosts entries for `pve01` and its iDRAC (`10.101.0.11 pve01.int.phoenixstack.net pve01`, `10.101.0.1 idrac-pve01.int.phoenixstack.net`), so both still open by name when pve01, and with it Pi-hole, is down. The iDRAC matters most then. | The same fallback as Aaron's machines. |
+
+Steps:
+
+1. ~~**Young UDM:** add the rule `Porter Gateway -> Pi-hole (DNS)` (table above). Use the gateway's LAN address
+   (`10.2.1.x`, from its Networks page) as the source first.~~ Done 2026-11-23.
+2. ~~**Porter UDM:** add the two Forward Domain policies.~~ Done 2026-11-23.
+3. **Test from the gateway's side before any device depends on it**, from Ben's workstation:
+   `nslookup pve01.int.phoenixstack.net <Porter gateway address>`. Expect `10.101.0.11`.
+   - Cloudflare addresses or a timeout: open Pi-hole's query log on `dns01`. No query from Porter means the rule or
+     the source address is wrong: note the address the query came from on the Young UDM's traffic log, fix the
+     rule's source (and the Pi-hole `firewall_in`, table above), and test again.
+4. ~~**Porter LAN DHCP:** DNS automatic, domain `int.phoenixstack.net`, only if they differ today.~~ Done 2026-11-23.
+   Devices switch as their leases renew (expect a mix until then).
+5. Check with Ben the next day, then tick the list below.
+
+Done when:
+
+- [ ] Through the Porter gateway: internal names answer (`auth`, `pve01`, `idrac-pve01`) over UDP and TCP; an unknown internal name
+      gets NXDOMAIN; public names resolve.
+- [ ] Pi-hole's query log shows the Porter gateway's queries (and the source address is recorded above).
+- [ ] Failover: with `dns01` stopped, names still answer through `dns02`.
+- [ ] Ben's workstation and laptop: `pve01.int.phoenixstack.net` and `auth.int.phoenixstack.net` resolve;
+      `https://pve01.int.phoenixstack.net:8006` opens without a certificate warning.
+- [ ] A day later: nothing broke for the Porter household.
 
 ## Open decisions
 

@@ -948,7 +948,7 @@ stage_access() {
     IFS='|' read -r userid email fullname <<<"$entry"
     if pve_exists "/access/users/${userid}"; then ok "admin user ${userid}"; continue; fi
     change "create admin user ${userid}"
-    run pveum user add "$userid" --groups admins --email "$email" --comment "$fullname"
+    run pveum user add "$userid" --groups admins ${email:+--email "$email"} --comment "$fullname"
     if is_apply; then
       info "set a password for ${userid}:"
       pveum passwd "$userid" </dev/tty

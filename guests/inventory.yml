@@ -41,6 +41,7 @@ all:
     # DNS names that aren't guests in this file (Pi-hole serves these plus every guest's name).
     dns_records:
       pve01: 10.101.0.11
+      idrac-pve01: 10.101.0.1       # pve01's iDRAC (mgmt); self-signed certificate
       # Service name apps connect to (guests/README.md, L5c): moves with the primary database.
       postgres: 10.101.1.71
     timezone: America/Denver
