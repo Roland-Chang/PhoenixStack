@@ -672,6 +672,16 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
    describe people, not apps; nested households, `Family` with `Young` and `Porter` below it (a binding to a group
    also admits its child groups), plus outside audiences if needed (`Guests`?). Group definitions in a blueprint,
    memberships in the UI; routes get a list, `authentik_groups`. New users by invitation link or created by hand.
+9. **Ad blocking**, together with the off-host Pi-hole at Porter (decided 2026-11-22: roadmap, not now). Household
+   networks use the UDM, which forwards only `int.phoenixstack.net` to Pi-hole (LAN-wide DNS rollout, 2026-11-22),
+   so a pve01 outage doesn't take the household's DNS down. Ad blocking needs Pi-hole to see every query: once the
+   Porter Pi-hole exists, switch household networks to Pi-hole directly (DHCP DNS + a LAN → Services port 53
+   rule), for per-device logs and blocklists. Networks that shouldn't depend on Pi-hole (IOT, guests) keep the UDM.
+10. **SIEM / central logs** (roadmap 2026-11-22, after the core services; decide together with 6). Sources: the UDM's
+   firewall log, pve01, guests' journals, Authentik events, Traefik access logs, Pi-hole queries. First decide the
+   scope: log aggregation with alerts (e.g. Grafana + Loki, shared with monitoring) or a full SIEM (e.g. Wazuh:
+   agents, detection rules, a search index, much heavier). Tier 08 (`.81`) is the monitoring tier. Until then logs
+   stay local (guest journals capped at 200 MB).
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
 the rest weekly), mgmt back to `/24`, three zones (mgmt VLAN 10, Services VLAN 100, DMZ VLAN 200), the archived
