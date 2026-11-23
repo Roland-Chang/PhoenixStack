@@ -514,7 +514,6 @@ Found on the way:
 | The first full upgrade installed a new kernel, so Debian asked for a reboot | Rebooted before installing Docker; now a step in the new guest checklist |
 | A new guest's first `docker.yml` dry run needs the token too (it stops at the token check) | As with Pi-hole's password: run the first dry run with `CLOUDFLARE_DNS_TOKEN` set |
 
-
 ## L5e: Identity (`authentik01`)
 
 **Applied 2026-11-22** and checked (results below). Ready for the first login; no applications use it yet.
@@ -529,7 +528,9 @@ Found on the way:
 | Traefik → Authentik | **HTTPS to Authentik's own self-signed certificate, not verified** (decided 2026-11-22): the route's `self_signed: true` adds a `serversTransport` with `insecureSkipVerify`. Firewall: `9443/tcp` from `10.101.1.101/32` only. Only `docker01` may set `X-Forwarded-For` (`AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS`), so Authentik logs real client addresses. | Encrypted on the wire; the firewall, not the certificate, decides who can talk to it. |
 | Settings | Avatars as initials; error reporting and startup analytics off. | Nothing leaves the network that doesn't have to. |
 | Secrets | `.env` on the guest (root, `0600`), written once from 1Password: `(Authentik) - Secret Key` (`433bhnakbk4j55mkyrtnv3uhce`), `(PostgreSQL) - authentik` (`b7ycchopd2lagrf3jg4samuk5q`), `(Authentik) - akadmin` (`gc5okp343bflwbgpv53o4ypm6i`, the bootstrap password). Later runs keep the file; a dry run doesn't read 1Password. | To rotate: change the item (and, for the database, `ALTER ROLE authentik PASSWORD`), delete `.env`, run again. A new secret key logs everyone out. |
-| Admin | `akadmin` is break-glass: two YubiKeys plus TOTP, then a personal admin account for daily use (see [Identity and break-glass](#identity-and-break-glass)). | |
+| Admin | **`akadmin`** is break-glass only: both YubiKeys plus TOTP in Microsoft Authenticator on a phone, outside 1Password (decided 2026-11-22). **`aaron`** is the daily admin (group `authentik Admins`): both YubiKeys plus TOTP in 1Password. Devices are named after where they live ("TOTP Authenticator (MS Auth)", "TOTP Authenticator (1Password)"), so a lost phone or a 1Password compromise says which one to remove. | `akadmin` relies on 1Password only for its password; no single lost device locks either account. The YubiKeys are the phishing-resistant factor, which matters once the public Traefik sends internet users to Authentik. |
+| Last resort | Both of `akadmin`'s factors lost: on `authentik01`, `sudo docker exec authentik-server-1 ak create_recovery_key 10 akadmin` prints a one-time login link, valid for 10 minutes (the number is minutes). Then enrol new factors. | SSH to the VM doesn't depend on Authentik. |
+| MFA for others | Today the login flow skips MFA for an account without a device (`not_configured_action: skip`). **Before anyone else gets an account**, make it require enrolment. | Fine while the admins are the only users. |
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
@@ -541,7 +542,7 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 6. Route `auth` on `docker01`: `apb docker.yml -l docker01`.
 7. `apb dns.yml -l dns02`, then `-l dns01` (names `authentik01`, `auth`, `postgres`).
 8. UniFi alias; docs.
-9. First login as `akadmin` (password from 1Password): two YubiKeys and TOTP, then a personal admin account.
+9. First login as `akadmin` (password from 1Password): two YubiKeys and TOTP in Microsoft Authenticator; then `aaron` with the YubiKeys and 1Password TOTP.
 
 Done when:
 
@@ -551,7 +552,7 @@ Done when:
 - [x] From the laptop: `https://auth.int.phoenixstack.net/` redirects to the login flow (`200`), Let's Encrypt wildcard verifies; `9443` on `authentik01` doesn't answer. Authentik logs the laptop's own address (`10.1.1.169`).
 - [x] `auth`, `authentik01` and `postgres` resolve on both resolvers.
 - [ ] UniFi alias for `authentik01`.
-- [ ] `akadmin`: two YubiKeys and TOTP enrolled; personal admin account created.
+- [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
 - [ ] After the next 00:30 dump: `authentik.dump` in the day's folder on `pgsql01`.
 
 Found on the way:
