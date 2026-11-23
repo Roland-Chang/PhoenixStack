@@ -105,13 +105,13 @@
 <div class="wrap">
   <header>
     <h1>PhoenixStack Topology</h1>
-    <p class="sub">L5 design, updated 2026-11-22. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
+    <p class="sub">L5 design, updated 2026-11-23. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
   </header>
 
   <figure>
     <div class="scroll">
       <svg class="topo" viewBox="0 0 1240 900" role="img"
-           aria-label="Three zones behind the UDM firewall: a DMZ with the public Traefik, game servers and the media server; an internal Services zone with the internal Traefik, Authentik, Pi-hole and databases; and the management network with pve01, the NAS and the iDRAC. Only three paths come in from the internet, all into the DMZ.">
+           aria-label="Three zones behind the UDM firewall: a DMZ with the public Traefik, game servers and the media server; a Services zone with the Services Traefik, Authentik, Pi-hole and databases; and the management network with pve01, the NAS and the iDRAC. Only three paths come in from the internet, all into the DMZ.">
         <defs>
           <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path class="ah" d="M0,0 L10,5 L0,10 z"/>
@@ -153,7 +153,7 @@
 
         <rect class="z-svc" x="520" y="290" width="660" height="325" rx="10"/>
         <text class="t-zone" x="1164" y="312" text-anchor="end">Services · VLAN 100 · 10.101.1.0/24</text>
-        <text class="t-muted" x="1164" y="329" text-anchor="end">internal only</text>
+        <text class="t-muted" x="1164" y="329" text-anchor="end">LAN and VPN only</text>
 
         <rect class="z-mgmt" x="520" y="630" width="660" height="250" rx="10"/>
         <text class="t-zone" x="1164" y="652" text-anchor="end">Management · VLAN 10 · 10.101.0.0/24</text>
@@ -203,14 +203,14 @@
         <!-- Services: LAN and VPN come in here -->
         <polyline class="ln" points="450,340 1066,340"/>
         <line class="ln" x1="634" y1="340" x2="634" y2="357" marker-end="url(#ah)"/>
-        <text x="640" y="354">443 internal</text>
+        <text x="640" y="354">443 · LAN, VPN</text>
         <line class="ln" x1="1066" y1="340" x2="1066" y2="357" marker-end="url(#ah)"/>
         <text x="1072" y="354">53 · UDM forward</text>
 
         <rect class="node" x="536" y="360" width="196" height="110" rx="8"/>
         <text class="t-name" x="548" y="383">docker01</text><text class="t-badge" x="722" y="383" text-anchor="end">VM</text>
         <text class="t-muted" x="548" y="401">.101 · Docker host</text>
-        <rect class="pill" x="546" y="410" width="176" height="24" rx="5"/><text x="556" y="427">Traefik · internal routes</text>
+        <rect class="pill" x="546" y="410" width="176" height="24" rx="5"/><text x="556" y="427">Traefik · int. routes</text>
         <rect class="pill" x="546" y="439" width="176" height="24" rx="5"/><text x="556" y="456">media mgmt, apps</text>
 
         <rect class="node" x="752" y="360" width="196" height="110" rx="8"/>
@@ -289,7 +289,8 @@
       <h2>Decided in this picture</h2>
       <ul>
         <li>Three zones: DMZ (VLAN 200), Services (VLAN 100), Management (VLAN 10).</li>
-        <li>Two Traefik instances: a public one in the DMZ with only public routes, and an internal one in Services for LAN and VPN users.</li>
+        <li>Two Traefik instances: a public one in the DMZ with only public routes, and a Services one for LAN and VPN users.</li>
+        <li>Names follow who reaches the app: <code>&lt;app&gt;.phoenixstack.net</code> for general users from anywhere (public Traefik; works at home too), <code>&lt;name&gt;.int.phoenixstack.net</code> for LAN and VPN only (Services Traefik). <code>int.</code> isn't admin-only; the UDM rules decide that.</li>
         <li>Authentik lives in Services. The public Traefik asks it to log people in (forward-auth); its database never leaves Services.</li>
         <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
         <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
@@ -303,7 +304,7 @@
       <ul>
         <li>Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?</li>
         <li>Plex, Jellyfin, or both?</li>
-        <li>Which docker-temp apps are public (to <code>docker02</code>) and which internal (to <code>docker01</code>)?</li>
+        <li>Which docker-temp apps are public (to <code>docker02</code>) and which LAN and VPN only (to <code>docker01</code>)?</li>
         <li>AI tier code: proposed 12, address <code>.121</code>.</li>
         <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot; ad blocking comes with it.</li>
         <li>Monitoring (uptime and service alerts) and central logs (SIEM): which zone and when.</li>

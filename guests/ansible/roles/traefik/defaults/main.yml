@@ -1,4 +1,4 @@
-# Internal Traefik (L5d) on a Docker host. Routes come from the host's `routes` in the inventory.
+# Services Traefik (L5d) on a Docker host. Routes come from the host's `routes` in the inventory.
 # Image versions are pinned here; updating one is a change in git, deployed in the weekly window.
 traefik_version: v3.7.19
 whoami_version: v1.12.0

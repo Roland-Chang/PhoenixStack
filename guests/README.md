@@ -5,7 +5,7 @@ the services built on them, one layer at a time (L5a groundwork, then L5b onward
 [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
 Status (2026-11-22): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
-and internal Traefik (`docker01`), Authentik (`authentik01`). [Household DNS](#household-dns) through Pi-hole is
+and Services Traefik (`docker01`), Authentik (`authentik01`). [Household DNS](#household-dns) through Pi-hole is
 rolling out. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -27,7 +27,7 @@ Jellyfin, media management, game servers (AMP), local AI agents, and the databas
 | Zone | VLAN | Subnet | Holds | Reached from |
 | --- | --- | --- | --- | --- |
 | **Management** | 10 (native) | `10.101.0.0/24` | pve01 `.11`, NAS `.101`, iDRAC `.1`, UDM `.254`; the -TEMP guests for now | Admin sources only |
-| **Services** | 100 | `10.101.1.0/24` | Pi-hole, Authentik, databases, the internal Traefik and Docker host, media management, AI | LAN and VPN clients, on published ports |
+| **Services** | 100 | `10.101.1.0/24` | Pi-hole, Authentik, databases, the Services Traefik and Docker host, media management, AI | LAN and VPN clients, on published ports |
 | **DMZ** | 200 | `10.101.2.0/24` | The public Traefik and Docker host, Plex/Jellyfin, game servers | The internet, through three port forwards only |
 
 Why a DMZ: game servers and media servers are reachable from the internet, game servers directly and often with
@@ -38,12 +38,20 @@ without passing any firewall the UDM controls. With its own zone, everything it 
 
 - **From the internet**, three port forwards, all into the DMZ: `443` → the public Traefik, `32400` → Plex,
   game ports → AMP. Nothing else is forwarded.
-- **Two Traefik instances.** Public (on `docker02`, DMZ): only routes meant for the internet. Internal (on
-  `docker01`, Services): everything for LAN and VPN users. A mistake in the public one can expose only what the
-  DMZ holds.
+- **Two Traefik instances.** Public (on `docker02`, DMZ): only routes meant for the internet. Services (on
+  `docker01`): everything for LAN and VPN users. A mistake in the public one can expose only what the
+  DMZ holds. (Not "internal": in the UniFi rules, Internal is the zone of the client LANs.)
+- **Names follow who reaches the app, not where it runs:**
+  - **Public: `<app>.phoenixstack.net`** (e.g. `abs.phoenixstack.net`), for general users from anywhere. Served by
+    the public Traefik, in public DNS (Cloudflare). The app may run in the DMZ or on `docker01`; the public Traefik
+    reaches `docker01` on that app's port ([UDM rules](#udm-rules)). Public names also work at home, so a public
+    app gets only this name, not a second `int.` one.
+  - **LAN and VPN only: `<name>.int.phoenixstack.net`**, for guests and apps that never face the internet. Served
+    by the Services Traefik; the real addresses are only in Pi-hole. `int.` doesn't mean admin-only: who may
+    reach a guest or an admin page is set by the [UDM rules](#udm-rules), not by the name.
 - **Authentik lives in Services.** The public Traefik asks it to log people in (forward-auth) through one allowed
   port; its server and database stay off the DMZ.
-- **LAN and VPN clients** use the internal Traefik (`443`) in Services, and get names from the UDM, which forwards
+- **LAN and VPN clients** use the Services Traefik (`443` on `docker01`), and get names from the UDM, which forwards
   `int.phoenixstack.net` to Pi-hole ([Household DNS](#household-dns)). Admin machines ask Pi-hole directly.
 - **Media files** stay on the NAS (mgmt): read-write for media management (`docker01`), read-only for the media
   server (`plex01`). Mounted inside those VMs, not bind-mounted from the host.
@@ -451,7 +459,7 @@ Done when:
 - [ ] The next morning: a dump folder from 00:30 (`sudo -u postgres ls /var/backups/db-dump`).
 - [ ] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`).
 
-## L5d: Docker host and internal Traefik (`docker01`)
+## L5d: Docker host and Services Traefik (`docker01`)
 
 **Applied 2026-11-22** and checked (results below). No apps yet; Traefik serves only its dashboard.
 
@@ -462,7 +470,7 @@ Done when:
 | Daemon | `live-restore` (containers keep running while the engine updates); `no-new-privileges` for every container (2026-11-22); `local` log driver, 5 × 20 MB per container; container networks only from `172.20.0.0/14`. | Default logs never shrink. Docker's default pools include `192.168.x.0/24`, which would collide with Teleport (`192.168.2.0/24`). |
 | Admins | `sudo docker`; nobody is in the `docker` group. | The group is root without a password. |
 | Firewall (PVE) | `443/tcp` from LAN sources; SSH and ping from admin sources. | Docker rewrites the firewall inside the VM; the Proxmox firewall on the NIC is outside its reach. Until the LAN-wide UDM rule, only admin sources get into Services anyway. |
-| Traefik | Internal Traefik `v3.7.19` as the stack `/opt/stacks/traefik` (role `traefik`). Port 443 only, no port-80 redirect. Versions pinned in `roles/traefik/defaults/main.yml`. | |
+| Traefik | Services Traefik `v3.7.19` as the stack `/opt/stacks/traefik` (role `traefik`). Port 443 only, no port-80 redirect. Versions pinned in `roles/traefik/defaults/main.yml`. | |
 | Routes | **File provider, no Docker socket** (decided 2026-11-22). Each Docker host lists `routes: [{name, url, admin_only}]` in the inventory: Ansible writes `dynamic/route-<name>.yml` and removes routes that are gone; Pi-hole points `<name>.int.phoenixstack.net` at the host (after `dns.yml`). Apps join the Docker network `proxy`. | Socket access is root on the host. Routes live in git, next to the guest. |
 | Certificate | One wildcard, `*.int.phoenixstack.net` (plus the bare name), from Let's Encrypt over Cloudflare DNS-01. The challenge check uses `1.1.1.1` and `9.9.9.9`. Stored in `/opt/stacks/traefik/letsencrypt/acme.json` (root only); Traefik renews it 30 days before expiry. | Certificate transparency logs publish every certificate's names; a wildcard publishes only `*.int`. Pi-hole answers NXDOMAIN for anything under `int.`, so the check must ask public resolvers. |
 | Cloudflare token | Its own token (decided 2026-11-22): Zone DNS Edit + Zone Read on `phoenixstack.net`, no IP filter. 1Password `(Cloudflare) - Traefik DNS Token` (item ID `6jwbiosa4zf5wg32uh333srn2m`). Written on the first real run (the playbook reads it with `op read`; dry runs don't need it) to `secrets/cloudflare-token` on the guest (root, `0600`), passed to Traefik as a Compose secret. To rotate: change the item, delete that file, run again. | Revocable without touching PVE's token. No IP filter: the home address may change, and a failed renewal would go unnoticed until monitoring exists. |
@@ -665,7 +673,7 @@ Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
 
 1. Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?
 2. Plex, Jellyfin, or both?
-3. Which docker-temp apps are public (to `docker02`) and which internal (to `docker01`)?
+3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)?
 4. AI tier code (proposed 12, `.121`).
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.

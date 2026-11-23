@@ -1,4 +1,4 @@
-# Docker hosts (L5d): Docker Engine, then the internal Traefik. Run after site.yml has set up the guest.
+# Docker hosts (L5d): Docker Engine, then the Services Traefik. Run after site.yml has set up the guest.
 # Always with --check --diff first.
 #
 #   apb docker.yml -l docker01 --check --diff

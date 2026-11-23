@@ -106,7 +106,7 @@ all:
             - name: authentik
               client: authentik01
               password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
-        # Docker host for Services (L5d): the internal Traefik and the apps behind it.
+        # Docker host for Services (L5d): the Services Traefik and the apps behind it.
         docker01:
           kind: vm
           vmid: 11001
@@ -116,7 +116,7 @@ all:
           memory: 32768
           disk_gb: 64
           storage: nvme
-          description: "Docker host, Services: internal Traefik and apps (L5d)"
+          description: "Docker host, Services: Traefik and apps (L5d)"
           firewall_in:
             - {port: 443, proto: tcp, source: lan}
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole

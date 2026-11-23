@@ -1,4 +1,4 @@
-# Internal Traefik as a compose stack in {{ traefik_dir }}: wildcard certificate from Let's Encrypt
+# Services Traefik as a compose stack in {{ traefik_dir }}: wildcard certificate from Let's Encrypt
 # (Cloudflare DNS-01), routes from the inventory as files. Needs the docker_host role first.
 #
 # The Cloudflare token (1Password "(Cloudflare) - Traefik DNS Token") is written once, read with
