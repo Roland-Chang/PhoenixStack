@@ -54,7 +54,7 @@ without passing any firewall the UDM controls. With its own zone, everything it 
 - **LAN and VPN clients** use the Services Traefik (`443` on `docker01`), and get names from the UDM, which forwards
   `int.phoenixstack.net` to Pi-hole ([Household DNS](#household-dns)). Admin machines ask Pi-hole directly.
 - **Media files** stay on the NAS (mgmt): read-write for media management (`docker01`), read-only for the media
-  server (`plex01`). Mounted inside those VMs, not bind-mounted from the host.
+  server (`plex01`) and the public apps (`docker02`). Mounted inside those VMs, not bind-mounted from the host.
 
 ### Guest types
 
@@ -172,7 +172,9 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Admin sources | Management | As today (pve01's own firewall also limits to admin sources) | All ports |
 | Services, Management, IOT | The UDM itself (Gateway) | DNS (`53`), DHCP (`67`), ping | As designed. The block rules after them match `New` and `Invalid` connections only (since 2026-11-22), so replies to queries the UDM sends itself (its forwarding to Pi-hole) get back |
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
-| DMZ `docker02` | Services | Authentik's port on `authentik01` (forward-auth); each published app's port on `docker01` | Not yet (no `docker02`) |
+| DMZ `docker02` | Services | Authentik's port on `authentik01` (forward-auth); each published app's port on `docker01` | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23); no app ports yet |
+| DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | Not yet (Step B) |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | Not yet (Step B) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -520,7 +522,7 @@ Found on the way:
 | Secrets | `.env` on the guest (root, `0600`), written once from 1Password: `(Authentik) - Secret Key` (`433bhnakbk4j55mkyrtnv3uhce`), `(PostgreSQL) - authentik` (`b7ycchopd2lagrf3jg4samuk5q`), `(Authentik) - akadmin` (`gc5okp343bflwbgpv53o4ypm6i`, the bootstrap password). Later runs keep the file; a dry run doesn't read 1Password. | To rotate: change the item (and, for the database, `ALTER ROLE authentik PASSWORD`), delete `.env`, run again. A new secret key logs everyone out. |
 | Admin | **`akadmin`** is break-glass only: both YubiKeys plus TOTP in Microsoft Authenticator on a phone, outside 1Password (decided 2026-11-22). **`aaron`** is the daily admin (group `authentik Admins`): both YubiKeys plus TOTP in 1Password. Devices are named after where they live ("TOTP Authenticator (MS Auth)", "TOTP Authenticator (1Password)"), so a lost phone or a 1Password compromise says which one to remove. | `akadmin` relies on 1Password only for its password; no single lost device locks either account. The YubiKeys are the phishing-resistant factor, which matters once the public Traefik sends internet users to Authentik. |
 | Last resort | Both of `akadmin`'s factors lost: on `authentik01`, `sudo docker exec authentik-server-1 ak create_recovery_key 10 akadmin` prints a one-time login link, valid for 10 minutes (the number is minutes). Then enrol new factors. | SSH to the VM doesn't depend on Authentik. |
-| MFA | **Required for every account** (decided 2026-11-22): the login flow accepts WebAuthn (YubiKey, passkey) or TOTP, and an account without either must enrol one before it can finish logging in. Set by our blueprint `roles/authentik/templates/blueprints/phoenix-mfa.yaml.j2`, mounted read-only at `/blueprints/custom`; Authentik re-applies it hourly, so a change by hand in the UI is put back. | The default skipped MFA for accounts without a device. Static codes, Duo, SMS and email aren't offered: SMS and email are the weakest second factors. |
+| MFA | **Required for every account** (decided 2026-11-22): the login flow accepts WebAuthn (YubiKey, passkey) or TOTP, and an account without either must enrol one before it can finish logging in. Set by our blueprint `roles/authentik/templates/blueprints/phoenix-mfa.yaml.j2`, mounted read-only at `/blueprints/custom`; Authentik re-applies it hourly, so a change by hand in the UI is put back. Exception (decided 2026-11-23, open decision 12): users who log in with Google rely on Google's own sign-in security; admins can't log in that way. | The default skipped MFA for accounts without a device. Static codes, Duo, SMS and email aren't offered: SMS and email are the weakest second factors. |
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 
@@ -655,7 +657,7 @@ forward from docker-temp to `docker02`; see [Moving the public apps](#moving-the
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Guest | `docker02`: VM `11002`, MAC `02:aa:bb:cc:10:02`, `10.101.2.102`, DMZ (VLAN 200), cloned from `10001`. **8 cores, 16 GiB, 64 GB** on `nvme` (decided 2026-11-23). | Tier 10, instance 2. Less memory than `docker01` to start; Immich's machine learning is the big one, and memory and disk grow online. |
+| Guest | `docker02`: VM `11002`, MAC `02:aa:bb:cc:10:02`, `10.101.2.102`, DMZ (VLAN 200), cloned from `10001`. **8 cores, 16 GiB, 128 GB** on `nvme` (decided 2026-11-23; 64 GB until the podcasts, Step B). | Tier 10, instance 2. Less memory than `docker01` to start; Immich's machine learning is the big one, and memory and disk grow online. |
 | Docker | Role `docker_host`, the same as `docker01` (Docker CE, `live-restore`, `no-new-privileges`, `local` logs, `172.20.0.0/14`). | One way to run Docker. |
 | Traefik | Role `traefik`, the same version. Port 443 only. Routes from the inventory, file provider, no Docker socket. | As on `docker01`; the socket would be root on an internet-facing host. |
 | Certificate | **Cloudflare Origin CA** (decided 2026-11-23): `phoenixstack.net` and `*.phoenixstack.net`, made once in the Cloudflare dashboard (SSL/TLS → Origin Server), 15 years. Certificate and key in 1Password; the first real run writes them to `secrets/` on the guest (root, `0600`). The zone's SSL mode must be **Full (strict)**. | No Cloudflare API token on the internet-facing host. Only Cloudflare needs to trust this certificate, since every request comes through its proxy. |
@@ -687,7 +689,6 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
    Done 2026-11-23 (rebooted to 6.12.118); repeat runs `changed=0`; `dns.yml` on both resolvers adds the name
    `docker02` only. On the guest: Origin CA certificate served, `whoami` answers, `/if/admin` → `403`, unknown
    name → `404`, `auth` → `504` until the UDM rule (step 5).
-5. UniFi: the `8443` forward and the `docker02` → `authentik01` rule.
 5. ~~UniFi: the `8443` forward and the `docker02` → `authentik01` rule.~~ Done 2026-11-23: forward
    "Cloudflare - 8443 (docker02 test)" from the "Cloudflare IPv4 Ranges" group (the same 15 ranges); rule
    `docker02 -> authentik01` (DMZ → Services, TCP `9443`; first set with source port `9443` too, which matched
@@ -715,11 +716,48 @@ Done when:
 
 ### Moving the public apps
 
-Step B, designed with the first app. To settle then: where each public app runs (`docker02` in the DMZ, so a
-broken app reaches only the DMZ, or `docker01` behind the public Traefik), their data and NAS access, and the
-`443` forward. Until every public app has moved, the public Traefik can forward to docker-temp through a
-temporary rule (`docker02` → docker-temp's app ports), so the internet stops reaching mgmt the day the forward
-moves.
+Step B (designed 2026-11-23): the `443` forward moves to `docker02` first, then the public apps follow one at a
+time, Audiobookshelf first. Until every public app has moved, the public Traefik forwards to docker-temp through a
+temporary rule, so the internet stops reaching mgmt the day the forward moves.
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Where | Every public app runs on **`docker02`** (decided 2026-11-23). | A broken app reaches only the DMZ. |
+| Databases | Each app keeps its own, inside its stack on `docker02`: SQLite (Audiobookshelf, Mealie), Kuzu (MyBibliotheca), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
+| NAS | **Read-only** (decided 2026-11-23), mounted inside `docker02` (CIFS, `ro`, `nofail`, automount; a new Ansible role) as its own NAS user **`svc_docker02`**, read-only on `Media` (1Password `(UNAS) - svc_docker02`). UDM rule `docker02` → NAS `445`. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
+| Podcasts | On `docker02`'s own disk (decided 2026-11-23): 32 GB, and three podcasts download new episodes. Disk 64 → **128 GB**. | They need writing, and `Media` stays read-only. |
+| App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
+| Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. | `Media` stays read-only. |
+| `8443` forward | Deleted when `443` moves. From then on, a moved app is tried under a temporary name on `443`. | |
+| Admin tools | Not reachable from outside once `443` moves (LAN and VPN only, decision 3). Until they're on `docker01`, admins use docker-temp's address and port. | |
+
+Steps (each dry-run first):
+
+1. **Prepare** (nobody notices): ~~`docker02`'s disk (`tf apply`, then in the guest
+   `sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1`)~~ done 2026-11-23 (128 GB, root filesystem 126 GB); the
+   NAS user and its 1Password item; the UDM rule; the mount role. On docker-temp: Audiobookshelf's backups working
+   again (below), and one made by hand.
+2. **Move the `443` forward:** a route on `docker02` for each public app, pointing at docker-temp for now; the
+   temporary rule `docker02` → docker-temp, those ports only; Authentik's base URL → `auth.phoenixstack.net`; the
+   forward → `docker02`, Cloudflare only; the `8443` forward deleted. Test every public name from a phone on mobile
+   data.
+3. **Move Audiobookshelf** (the pilot, below).
+4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12).
+5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
+
+Moving Audiobookshelf without listeners noticing:
+
+- **Same version** (`2.37.2`, pinned) and **the same paths inside the container** (`/config`, `/metadata`,
+  `/audiobooks`, `/podcasts`): its database stores file paths. Upgrades come afterwards, through staging (decision 11).
+- **Before:** on docker-temp, the libraries' "store covers with item" off (new covers go to `/metadata`; existing
+  ones stay readable). Copy `/metadata` (409 MB) and the podcasts to `docker02` while it runs.
+- **The switch**, about five minutes in the quietest hours (08:00–12:00 UTC, 01:00–05:00 in Denver, over the last 60
+  days): stop it on docker-temp; copy what changed in `/config`, `/metadata` and the podcasts; start it on `docker02`
+  and check; point the route `abs` at it.
+- **Users:** the database carries the accounts, progress, bookmarks, the key that signs logins and every phone's
+  login, so nobody logs in again. Phones keep playing from their buffer and sync progress when the server answers.
+- **Library scans on a schedule:** the folder watcher can't see files that other machines write over SMB (Libation).
+- **Rollback:** point the route back at docker-temp and start it there; anything since the switch is lost.
 
 docker-temp today (read 2026-11-23): Deployrr layout in `~/docker` (one compose file including one file per app,
 `appdata/`, Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools).
@@ -727,6 +765,19 @@ Its Traefik has internal (`80`/`443`) and external (`81`/`444`) entry points, bu
 `443` to the internal one, so LAN-only routes (e.g. glances) answer from outside, behind basic auth. Fixed the
 same day: `8080` (Traefik's dashboard and API without a login, `--api.insecure`) taken out of the forward by
 Aaron; checked closed through Cloudflare. Stale: the `amp` route (AMP-TEMP deleted).
+
+Also found 2026-11-23:
+
+- Audiobookshelf's nightly backups **fail** (`EACCES` on `/backups`, every night in its logs since at least
+  2026-11-21): docker-temp's `/mnt/pve/cifs-backups` hasn't been a NAS mount since pve01's rebuild, just a folder.
+  Its newest backup of its own is an older one in `/metadata/backups`. MyBibliotheca's `/backups` points at the same
+  folder. Fix before the move: backup location `/metadata/backups`, then a backup by hand. (docker-temp itself is in
+  the nightly guest backups.)
+- Audiobookshelf: 34 accounts; 14 listened in the last 90 days, 19 in the last year, 15 never.
+- Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
+  video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
+  from the `Porter` share (`PhotoArchive`) as an external library. Server `v3.1.0` but machine learning `v2.5.3`:
+  pin both to one version when it moves.
 
 ## Household DNS
 
@@ -805,9 +856,11 @@ Done when:
    Authentik wherever it has one (as on docker-temp today), forward-auth only for browser-only apps without it.
    Authentik's public name: **`auth.phoenixstack.net`** (through the public Traefik). When Audiobookshelf moves,
    its existing users must carry over as seamlessly as possible (e.g. matching them to Authentik by username or
-   email through OIDC claim mapping): design that with the move. Found 2026-11-23: no app on docker-temp uses
-   OIDC yet (Audiobookshelf local logins, Immich password login, Mealie none) and docker-temp has no Authentik,
-   so every app's move includes its first OIDC setup.
+   email through OIDC claim mapping): design that with the move. Found 2026-11-23: Audiobookshelf has OIDC set
+   up against **Microsoft 365** (Entra ID), switched off, with 4 users linked; Immich uses password logins (none
+   linked); docker-temp has no Authentik. **Microsoft 365 isn't used for user logins** (decided 2026-11-23): its
+   setup in Audiobookshelf and its app registration in Entra go when Audiobookshelf switches to Authentik
+   (decision 12).
 4. AI tier code (proposed 12, `.121`).
 5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
 6. Monitoring (uptime and service alerts): which zone and when.
@@ -828,17 +881,32 @@ Done when:
    agents, detection rules, a search index, much heavier). Tier 08 (`.81`) is the monitoring tier. Until then logs
    stay local (guest journals capped at 200 MB).
 11. **Testing before production** (decided 2026-11-23; pilot: Audiobookshelf). Image versions are pinned in git,
-   so going to a new version is a change to its pin, tried somewhere else first. Two levels:
-   - **App staging:** a copy of the app on `docker01` as `<app>-staging.int.phoenixstack.net` (LAN and VPN only,
-     never public), on the candidate version, with a **copy** of production's data restored from its latest
-     backup; it never touches production's data or database. Once it works, change the production pin in git
-     and apply. In the inventory: a staging flag on the route, which the roles understand.
-   - **Test guests:** for changes to roles, Terraform or a whole host, a throwaway guest in tier 99
-     (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
-   - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
-     drifts from production.
-   - To design with the pilot: how an app's data is copied into its staging copy (restore from backup, scrub or
-     not, where its staging database lives), and the staging app's own OIDC client in Authentik.
+    so going to a new version is a change to its pin, tried somewhere else first. Two levels:
+    - **App staging:** a copy of the app on `docker01` as `<app>-staging.int.phoenixstack.net` (LAN and VPN only,
+      never public), on the candidate version, with a **copy** of production's data restored from its latest
+      backup; it never touches production's data or database. Once it works, change the production pin in git
+      and apply. In the inventory: a staging flag on the route, which the roles understand.
+    - **Test guests:** for changes to roles, Terraform or a whole host, a throwaway guest in tier 99
+      (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
+    - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
+      drifts from production.
+    - To design with the pilot: how an app's data is copied into its staging copy (restore from backup, scrub or
+      not, where its staging database lives), and the staging app's own OIDC client in Authentik.
+12. **Users log in with their Google account, through Authentik** (decided 2026-11-23). Authentik is the one place
+    that says who a person is (username, email, groups); the Google account is only the key they prove it with,
+    and the apps only ever see Authentik. Each person is created by hand (username = their existing app username,
+    email = the address they sign in with, group); their first Google login links to that user by email. No open
+    sign-up: an unknown account gets nothing. Each app keeps one local admin (break-glass), and local logins for
+    clients that can't do OIDC (e-readers, scripts). Audiobookshelf matches by username (6 of its users have no
+    email, and nobody else can set an Authentik username); its 4 Microsoft 365 links are removed first, since it
+    refuses a second link. The list of people stays out of this repo. Needs the public base URL, so it comes after
+    the `443` move.
+    - **Providers: Google only** (decided 2026-11-23): free, and the simplest to set up. Not now: Apple (needs a
+      paid Apple Developer account, and can hide the email), Facebook (a Meta app in Live mode), Plex (can admit
+      only accounts our Plex server is shared with).
+    - **MFA** (decided 2026-11-23): Google logins rely on Google's own sign-in security, with no Authentik MFA on
+      top. **Admins never log in with Google**, only with their password and a YubiKey (the exception to L5e's
+      MFA for every account).
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
 the rest weekly), mgmt back to `/24`, three zones (mgmt VLAN 10, Services VLAN 100, DMZ VLAN 200), the archived

@@ -168,7 +168,7 @@ all:
           ip: 10.101.2.102
           cores: 8
           memory: 16384
-          disk_gb: 64
+          disk_gb: 128   # was 64; podcasts live here (Step B)
           storage: nvme
           description: "Docker host, DMZ: public Traefik and apps (L5f)"
           firewall_in:
