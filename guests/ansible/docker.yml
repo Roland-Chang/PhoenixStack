@@ -1,12 +1,12 @@
-# Docker hosts: Docker Engine, then Traefik (docker01: Services, L5d; docker02: public, L5f).
-# Run after site.yml has set up the guest.
+# Docker hosts: Docker Engine, the NAS shares (hosts with nas_mounts), then Traefik
+# (docker01: Services, L5d; docker02: public, L5f). Run after site.yml has set up the guest.
 # Always with --check --diff first.
 #
 #   apb docker.yml -l docker01 --check --diff
 #   apb docker.yml -l docker01
 #
-# The first real run reads its certificate secret from 1Password (op read, on this computer):
-# docker01 the Cloudflare token, docker02 the Origin CA certificate and key.
+# The first real run reads its secrets from 1Password (op read, on this computer): docker01 the
+# Cloudflare token; docker02 the Origin CA certificate and key, and its NAS user's password.
 # After adding or removing a route on docker01, also run dns.yml (one resolver at a time);
 # docker02's names are public (Cloudflare's wildcard record).
 
@@ -14,4 +14,5 @@
   hosts: docker*
   roles:
     - docker_host
+    - nas_mount
     - traefik

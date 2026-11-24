@@ -22,19 +22,23 @@
     group: root
     mode: "0755"
 
-- name: Docker's signing key
+# Downloaded once: its fingerprint is pinned and checked below, so fetching it again gains nothing.
+# (get_url also compares dates with Docker's server, and a re-published copy of the same key showed as a
+# change in every dry run, 2026-11-23.) If Docker ever changes its key: the new fingerprint in
+# defaults/main.yml, delete the file on the guest, run again.
+- name: Is Docker's signing key there?
+  ansible.builtin.stat:
+    path: "{{ docker_key_path }}"
+  register: docker_key_file
+
+- name: Docker's signing key (downloaded once)
   ansible.builtin.get_url:
     url: "{{ docker_key_url }}"
     dest: "{{ docker_key_path }}"
     owner: root
     group: root
     mode: "0644"
-  register: docker_key
-
-- name: Is the key there to check?
-  ansible.builtin.stat:
-    path: "{{ docker_key_path }}"
-  register: docker_key_file
+  when: not docker_key_file.stat.exists
 
 - name: The key is Docker's (fingerprint {{ docker_key_fingerprint }})
   ansible.builtin.command: gpg --show-keys --with-colons {{ docker_key_path }}
@@ -44,7 +48,8 @@
   failed_when: >-
     docker_key_check.rc != 0 or
     ('fpr:::::::::' ~ docker_key_fingerprint ~ ':') not in docker_key_check.stdout
-  when: docker_key_file.stat.exists
+  # A dry run on a new guest hasn't downloaded it.
+  when: docker_key_file.stat.exists or not ansible_check_mode
 
 - name: Docker's apt repository
   ansible.builtin.deb822_repository:

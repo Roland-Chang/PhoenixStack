@@ -1,0 +1,20 @@
+# NAS shares mounted inside a guest (L5f Step B): CIFS (SMB 3.1.1), read-only, as the guest's own NAS
+# user. Set per host in the inventory:
+#   nas_mounts       [{share: Media, path: /mnt/nas/media}]; a path is lowercase letters, digits, _ and /
+#                    (it names the systemd units: /mnt/nas/media → mnt-nas-media.mount)
+#   nas_username     the guest's NAS user; on the NAS it may only read these shares
+#   nas_op_password  op:// reference of its password (1Password "(UNAS) - <user>")
+# The NAS's address is nas_address (inventory, every host).
+nas_mounts: []
+nas_username: ""
+nas_op_password: ""
+
+# The NAS user and password for the mounts, root only, written once from 1Password.
+nas_credentials_file: /etc/nas/credentials
+
+# Read-only for every user in the guest (the NAS user may only read anyway). soft: while the NAS is away,
+# apps get an error instead of hanging. noexec, nosuid, nodev: nothing on the share runs.
+nas_mount_options: ro,vers=3.1.1,soft,uid=0,gid=0,forceuid,forcegid,file_mode=0444,dir_mode=0555,noexec,nosuid,nodev,iocharset=utf8
+
+# Seconds a mount may take before it gives up (NAS unreachable); the app then gets an error.
+nas_mount_timeout: 30

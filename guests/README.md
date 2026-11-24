@@ -43,8 +43,8 @@ without passing any firewall the UDM controls. With its own zone, everything it 
   DMZ holds. (Not "internal": in the UniFi rules, Internal is the zone of the client LANs.)
 - **Names follow who reaches the app, not where it runs:**
   - **Public: `<app>.phoenixstack.net`** (e.g. `abs.phoenixstack.net`), for general users from anywhere. Served by
-    the public Traefik, in public DNS (Cloudflare). The app may run in the DMZ or on `docker01`; the public Traefik
-    reaches `docker01` on that app's port ([UDM rules](#udm-rules)). Public names also work at home, so a public
+    the public Traefik, in public DNS (Cloudflare). The app runs on `docker02` too (decided 2026-11-23,
+    [Moving the public apps](#moving-the-public-apps)). Public names also work at home, so a public
     app gets only this name, not a second `int.` one.
   - **LAN and VPN only: `<name>.int.phoenixstack.net`**, for guests and apps that never face the internet. Served
     by the Services Traefik; the real addresses are only in Pi-hole. `int.` doesn't mean admin-only: who may
@@ -172,8 +172,8 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Admin sources | Management | As today (pve01's own firewall also limits to admin sources) | All ports |
 | Services, Management, IOT | The UDM itself (Gateway) | DNS (`53`), DHCP (`67`), ping | As designed. The block rules after them match `New` and `Invalid` connections only (since 2026-11-22), so replies to queries the UDM sends itself (its forwarding to Pi-hole) get back |
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
-| DMZ `docker02` | Services | Authentik's port on `authentik01` (forward-auth); each published app's port on `docker01` | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23); no app ports yet |
-| DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | Not yet (Step B) |
+| DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
+| DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
 | DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | Not yet (Step B) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
@@ -468,7 +468,7 @@ Done when:
 | Area | Decision | Why |
 | --- | --- | --- |
 | Guest | `docker01`: VM `11001`, MAC `02:aa:bb:cc:10:01`, `10.101.1.101`, Services, cloned from `10001`. **8 cores, 32 GiB, 64 GB** on `nvme` (decided 2026-11-22). | Tier 10. Room for the apps moving off docker-temp and the AI agents' helper containers (models run on `ai01`). pve01 has 24 cores / 48 threads and 251 GiB. The disk grows online when needed. |
-| Docker | **Docker CE from Docker's apt repository** (decided 2026-11-22), with the Compose plugin. The signing key must match Docker's published fingerprint `9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`. Updates come with the weekly `patch.yml`. | Debian's `docker.io` lags behind what current images and Compose files expect. |
+| Docker | **Docker CE from Docker's apt repository** (decided 2026-11-22), with the Compose plugin. The signing key must match Docker's published fingerprint `9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88`, checked on every run; it's downloaded only when missing (since 2026-11-23: fetching it again only made dry runs report a change whenever Docker re-published the same key). Updates come with the weekly `patch.yml`. | Debian's `docker.io` lags behind what current images and Compose files expect. |
 | Daemon | `live-restore` (containers keep running while the engine updates); `no-new-privileges` for every container (2026-11-22); `local` log driver, 5 × 20 MB per container; container networks only from `172.20.0.0/14`. | Default logs never shrink. Docker's default pools include `192.168.x.0/24`, which would collide with Teleport (`192.168.2.0/24`). |
 | Admins | `sudo docker`; nobody is in the `docker` group. | The group is root without a password. |
 | Firewall (PVE) | `443/tcp` from LAN sources; SSH and ping from admin sources. | Docker rewrites the firewall inside the VM; the Proxmox firewall on the NIC is outside its reach. Until the LAN-wide UDM rule, only admin sources get into Services anyway. |
@@ -724,19 +724,19 @@ temporary rule, so the internet stops reaching mgmt the day the forward moves.
 | --- | --- | --- |
 | Where | Every public app runs on **`docker02`** (decided 2026-11-23). | A broken app reaches only the DMZ. |
 | Databases | Each app keeps its own, inside its stack on `docker02`: SQLite (Audiobookshelf, Mealie), Kuzu (MyBibliotheca), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
-| NAS | **Read-only** (decided 2026-11-23), mounted inside `docker02` (CIFS, `ro`, `nofail`, automount; a new Ansible role) as its own NAS user **`svc_docker02`**, read-only on `Media` (1Password `(UNAS) - svc_docker02`). UDM rule `docker02` → NAS `445`. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
+| NAS | **Read-only** (decided 2026-11-23), mounted inside `docker02` at `/mnt/nas/media` by the role `nas_mount` (below) as its own NAS user **`svc_docker02`**, read-only on `Media` (1Password `(UNAS) - svc_docker02`, `cxeg5kim7a3wfgxhhs4najt4ye`). UDM rule `docker02 -> NAS (SMB)`: TCP `445`, to the NAS only. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
 | Podcasts | On `docker02`'s own disk (decided 2026-11-23): 32 GB, and three podcasts download new episodes. Disk 64 → **128 GB**. | They need writing, and `Media` stays read-only. |
 | App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
-| Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. | `Media` stays read-only. |
+| Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. Until then its files sit in `Media`, which `docker02` can read (accepted, below). | `Media` stays read-only. |
 | `8443` forward | Deleted when `443` moves. From then on, a moved app is tried under a temporary name on `443`. | |
 | Admin tools | Not reachable from outside once `443` moves (LAN and VPN only, decision 3). Until they're on `docker01`, admins use docker-temp's address and port. | |
 
 Steps (each dry-run first):
 
-1. **Prepare** (nobody notices): ~~`docker02`'s disk (`tf apply`, then in the guest
-   `sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1`)~~ done 2026-11-23 (128 GB, root filesystem 126 GB); the
-   NAS user and its 1Password item; the UDM rule; the mount role. On docker-temp: Audiobookshelf's backups working
-   again (below), and one made by hand.
+1. ~~**Prepare** (nobody notices)~~ Done 2026-11-23: `docker02`'s disk 128 GB (root filesystem 126 GB, grown with
+   `sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1` after `tf apply`); the NAS user and its 1Password item;
+   the UDM rule `docker02 -> NAS (SMB)` (by Aaron); the mount role, applied and checked (below); Audiobookshelf's
+   backups working again on docker-temp, and one made by hand (a copy also on Aaron's laptop).
 2. **Move the `443` forward:** a route on `docker02` for each public app, pointing at docker-temp for now; the
    temporary rule `docker02` → docker-temp, those ports only; Authentik's base URL → `auth.phoenixstack.net`; the
    forward → `docker02`, Cloudflare only; the `8443` forward deleted. Test every public name from a phone on mobile
@@ -744,6 +744,36 @@ Steps (each dry-run first):
 3. **Move Audiobookshelf** (the pilot, below).
 4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12).
 5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
+
+The NAS mount (role `nas_mount` in `docker.yml`, for hosts with `nas_mounts`; **applied 2026-11-23**):
+
+- `cifs-utils`; `/etc/nas/credentials` (root, `0600`): the NAS user, and its password read once from 1Password.
+  Per share a systemd `.mount` and `.automount` unit (`mnt-nas-media`). Options: `ro`, SMB `3.1.1`, `soft`, files
+  `0444` and folders `0555` for everyone, `noexec,nosuid,nodev`; a mount attempt gives up within 30 s.
+- Mounted on first use, then kept. The guest boots without the NAS, and a container that starts while the NAS is
+  away fails to start rather than finding an empty folder.
+- **What `docker02` can read:** all of `Media`, since the NAS sets permissions per share. That includes
+  `Media/Immich` (the Porter household's photos, thumbnails, encoded video and Immich's database backups) and the
+  download folders. A container sees only the folders mounted into it; whoever controls the host sees all of `Media`.
+  **Accepted until Immich moves** (decided 2026-11-23): Immich's data then goes to a share of its own and leaves
+  `Media`, and Immich on `docker02` holds that data anyway. Narrower later: a `Books` share instead of `Media` for
+  `docker02`, with Calibre's redesign.
+- To rotate the password: change it on the NAS and in 1Password, delete `/etc/nas/credentials`, run
+  `apb docker.yml -l docker02`; stop the apps using the share, `sudo systemctl stop mnt-nas-media.mount`, start
+  them again (the share mounts again on first use).
+
+Done when (all checked 2026-11-23):
+
+- [x] Applied to both Docker hosts (`docker02`: the role's six changes; `docker01`: nothing from it); a repeat run
+      `changed=0` on both.
+- [x] NAS away (the UDM rule already existed, so a temporary block on `docker02` itself): `ls /mnt/nas/media` fails
+      after 10 s with "No such device"; a container with a folder from the share refuses to start; nothing is
+      created under the mount point. Unblocked, the share mounts on first use.
+- [x] `ls /mnt/nas/media/Books/Audiobooks` lists the books (372 entries); `touch` there: "Read-only file system".
+- [x] The NAS refuses `svc_docker02` too: on a test mount of `Media` with `rw`, a write gets "Permission denied";
+      `Backups` and `Porter` can't be mounted ("Permission denied").
+- [x] From `docker02`, the NAS answers on `445` only (`22`, `80`, `139`, `443`, `8443`, `9443`: no answer).
+- [x] After a reboot of `docker02`: the automount is active, the share mounts on first use, Traefik is up.
 
 Moving Audiobookshelf without listeners noticing:
 
@@ -772,7 +802,8 @@ Also found 2026-11-23:
   2026-11-21): docker-temp's `/mnt/pve/cifs-backups` hasn't been a NAS mount since pve01's rebuild, just a folder.
   Its newest backup of its own is an older one in `/metadata/backups`. MyBibliotheca's `/backups` points at the same
   folder. Fix before the move: backup location `/metadata/backups`, then a backup by hand. (docker-temp itself is in
-  the nightly guest backups.)
+  the nightly guest backups.) **Fixed 2026-11-23** for Audiobookshelf (by Aaron): location `/metadata/backups`, a
+  backup made by hand, and a copy kept on his laptop. MyBibliotheca's still to check.
 - Audiobookshelf: 34 accounts; 14 listened in the last 90 days, 19 in the last year, 15 never.
 - Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
   video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
