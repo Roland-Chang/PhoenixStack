@@ -177,7 +177,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user: read-only on `Media`, read-write on an app's own share (`Podcasts`) ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; `9925` removed 2026-11-25: Mealie moved; each checked closed from `docker02`) |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; `9925` and `8081` removed 2026-11-25: Mealie and IT-Tools moved; each checked closed from `docker02`) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -705,7 +705,7 @@ Checked (2026-11-23 and 24):
 
 Step B (designed 2026-11-23): the `443` forward moved to `docker02` first; the public apps follow one at a time.
 Until the last one has moved, the public Traefik reaches docker-temp through the temporary rule, now only for
-Immich (`2283`) and IT-Tools (`8081`); the rule goes with the last.
+Immich (`2283`); the rule goes with it.
 
 | Area | Decision | Why |
 | --- | --- | --- |
@@ -779,7 +779,7 @@ run in the visitor's browser).
 | Stack | `/opt/stacks/it-tools` (role `apps`); image `2024.10.22-7ca5933`, the digest docker-temp ran as `latest` (still the newest release); route `tools` → `http://it-tools:80`. |
 | Hardening | nginx's master starts as root, so it keeps `CHOWN`, `SETUID`, `SETGID` and `NET_BIND_SERVICE` (every other capability dropped); workers run as `nginx`; read-only filesystem with temporary `/var/cache/nginx`, `/var/run`, `/tmp`; memory 128 MiB; healthcheck `/`. |
 | Switch | No data, so no downtime: the route moved first, then docker-temp's copy was stopped and commented out of its compose file. Checked through Cloudflare: `200`, `http://` → `301`, served by `docker02` (its access log). |
-| Still open | Aaron removes `8081` from the temporary rule; then a check from `docker02` that it's closed. |
+| Closed | `8081` removed from the temporary rule by Aaron the same day; checked from `docker02`: times out (dropped), while `2283` connects. |
 
 #### Mealie
 
@@ -820,7 +820,7 @@ image, its Authentik client and its 1Password item, archived).
 | --- | --- |
 | Logins | Through Authentik only. Users with Google, admins with password and TOTP (security keys are bound to `auth.int`). |
 | Accounts | Tina, Camille and Spencer match their Authentik accounts by email (group `Young`). Roly has no Authentik account, so no way in until he gets one. |
-| Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: probably 1Password `(Docker) - Mealie` (vault `Phoenix Stack`), to be confirmed; a fresh password and a non-work email are still to do. |
+| Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: 1Password `(Docker) - Mealie` in `infrastructure` (`gqya622kl225ssha4w2quyku7a`). A non-work email is still to do. |
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
