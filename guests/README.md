@@ -836,6 +836,25 @@ image, its Authentik client and its 1Password item, archived).
 Open: anything saved in Mealie on the temporary migration host between 2026-11-12 and 2026-11-20 is only on its disk
 (REBUILD_STATE item 6).
 
+#### Immich
+
+Moving to `docker02` (started 2026-11-25). **One instance for everyone** (decided by Aaron 2026-11-25): Immich keeps
+each user's library private (admins manage accounts but can't browse others' photos); root on the hosts and the NAS
+can read everything. NAS share **`Immich`**, read-write for `svc_docker02` only; `svc_docker02` may read `Porter`
+(the external library). Created by Aaron 2026-11-25. The name `immich-p` stays until it's changed with the Porter
+users (every phone app's server address changes with it).
+
+Read on docker-temp 2026-11-25:
+
+| Area | On docker-temp |
+| --- | --- |
+| Images | Server `v3.1.0` (`sha256:b434cb92…`), machine learning **`v2.5.3`** (`sha256:fa843f76…`): pin both to `v3.1.0` at the move. PostgreSQL `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0` (14.19; extensions `vchord 0.4.3`, `vector 0.8.1`). Redis `redis:alpine` (no persistence, 256 MB). |
+| Database | 1.5 GB, on docker-temp's disk (`appdata/immich-postgresql`), user `immich_db_user`, checksums on. Immich's own dump nightly at 02:00 into `upload/backups` (on the NAS). |
+| Media | `Media/Immich/Porter` → `/usr/src/app/upload` (read-write): about **229 GB**: `upload` 148 GB (originals), `thumbs` 30 GB (about 150,000 files), `encoded-video` 44 GB, `backups` 6.6 GB, `profile` and `library` nearly empty (no storage template). Database paths start with `/usr/src/app/upload/`, so the path inside the container stays. An unnamed volume at `/data` (Immich's newer default) is empty. |
+| External library | "New External Library", owner Ben: `Porter/PhotoArchive` → `/porter`, mounted **read-write** (read-only on `docker02`: Immich doesn't write to external libraries). About 55,700 assets. Folder watching is on (it can't see changes over SMB; a scan schedule instead). |
+| Content | 7 users (3 Immich admins), about 32,400 uploads and 55,700 external assets. Uploads: 7,400 in August, 22,600 in September, 2,400 in October, **none since 2026-10-25**. 187 uploaded videos are over 100 MB (largest 1.1 GB): **Cloudflare's free plan refuses uploads over 100 MB**. |
+| Machine learning | Model cache in `appdata/immich-machine-learning` (downloaded again if missing). |
+
 ### Staging
 
 Decision 11's app staging: a copy on `docker01`, built for one test and deleted after it. Used for Audiobookshelf's
