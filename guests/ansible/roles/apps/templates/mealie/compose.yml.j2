@@ -24,6 +24,8 @@ services:
       PUID: "{{ apps_catalog.mealie.uid }}"
       PGID: "{{ apps_catalog.mealie.uid }}"
       ALLOW_SIGNUP: "false"
+      DEFAULT_GROUP: {{ apps_catalog.mealie.default_group }}
+      DEFAULT_HOUSEHOLD: {{ apps_catalog.mealie.default_household }}
       BASE_URL: https://{{ mealie_route }}.{{ routes_domain | default(domain) }}
       # Mealie's daily jobs, in TZ's time (docker-temp misspelled the name, so they ran at 23:45 UTC).
       DAILY_SCHEDULE_TIME: "03:00"

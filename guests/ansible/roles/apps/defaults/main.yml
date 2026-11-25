@@ -46,6 +46,10 @@ apps_catalog:
     route: meal
     oidc_admin_group: authentik Admins
     password_login: true
+    # Where new accounts go: this instance's group and household (by name). Mealie's defaults are
+    # "Home" and "Family"; with no group "Home", logins through Authentik failed to create the account.
+    default_group: Young Family
+    default_household: Family
     env_op: {}
     # 1Password "(Authentik) - Mealie OIDC (staging)"; production's is "(Authentik) - Mealie OIDC"
     # (op://infrastructure/parb3agp5afn7bdwf4r7pf5sly/password), set once staging has passed.
