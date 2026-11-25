@@ -24,7 +24,8 @@
            'name': item.app ~ ('-staging' if item.staging else ''),
            'version': item.version | default(''),
            'folders': apps_catalog[item.app].folders
-                      + ((apps_catalog[item.app].staging_folders | default([])) if item.staging else [])}] }}
+                      + ((apps_catalog[item.app].staging_folders | default([])) if item.staging else []),
+           'env_op': apps_catalog[item.app]['env_op_staging' if item.staging else 'env_op'] | default({})}] }}
   loop: >-
     {{ (apps | map('community.general.dict_kv', 'app') | map('combine', {'staging': false}) | list)
        + (apps_staging | map('combine', {'staging': true}) | list) }}
@@ -52,6 +53,35 @@
   loop: "{{ apps_stacks | subelements('folders') }}"
   loop_control:
     label: "{{ item.0.name }}/{{ item.1 }}"
+
+- name: Is each stack's .env there?
+  ansible.builtin.stat:
+    path: "{{ apps_dir }}/{{ item.name }}/.env"
+  loop: "{{ apps_stacks | selectattr('env_op') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: apps_env_files
+
+# A dry run doesn't read 1Password: it only reports that the file would be written.
+- name: Secrets (.env, root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      {% if ansible_check_mode %}
+      (dry run: secrets not read)
+      {% else %}
+      {% for name, ref in item.item.env_op.items() %}
+      {{ name }}={{ lookup('ansible.builtin.pipe', 'op read ' ~ (ref | quote)) }}
+      {% endfor %}
+      {% endif %}
+    dest: "{{ apps_dir }}/{{ item.item.name }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ apps_env_files.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  no_log: true
+  when: not item.stat.exists
 
 - name: Compose files
   ansible.builtin.template:

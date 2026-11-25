@@ -17,6 +17,9 @@ apps_staging: []
 #   folders          its data folders inside the stack folder
 #   staging_folders  a staging copy's empty stand-ins for its NAS folders
 #   version          the pinned image version; a new one goes through staging first (decision 11)
+#   env_op           secrets for the stack's .env (root only): {VARIABLE: "op://..."}, read from 1Password
+#                    the first time only (dry runs never read them); env_op_staging for a staging copy.
+#                    To rotate: change it in 1Password, delete the .env on the guest, run again.
 apps_catalog:
   # Audiobookshelf. Same paths inside the container as on docker-temp (its database stores them).
   # Audiobooks read-only from the NAS (Media); podcasts read-write on the NAS share Podcasts (they're
@@ -30,8 +33,18 @@ apps_catalog:
     podcasts: /mnt/nas/podcasts
   # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
   # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
+  # Logins through Authentik (OIDC), on when the stack's env_op has OIDC_CLIENT_SECRET: client ID = the
+  # route name (staging: <route>-staging); Authentik generates the secret, copied by hand into 1Password.
+  # Visitors go straight to Authentik (no Mealie login screen); new people get an account on first
+  # login; existing accounts are matched by email; oidc_admin_group are Mealie admins.
+  # password_login: Mealie's own form, at /login?direct=1. The way in when Authentik is down (the
+  # break-glass admin svc_mealie): turn it back on here and run again.
   mealie:
     uid: 2002
     folders: [data]
     version: "v3.30.0"
     route: meal
+    oidc_admin_group: authentik Admins
+    password_login: true
+    env_op: {}
+    env_op_staging: {}
