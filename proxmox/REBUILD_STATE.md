@@ -1,6 +1,6 @@
 # pve01: current state
 
-Snapshot as of **2026-11-22**. This file says where the host stands and what's still open, so the work
+Snapshot as of **2026-11-24**. This file says where the host stands and what's still open, so the work
 can be picked up on another computer. The design and the rebuild runbook are in [README.md](README.md).
 How things got here is in the git history (`git log -- proxmox/`).
 
@@ -8,7 +8,7 @@ How things got here is in the git history (`git log -- proxmox/`).
 
 | Area | State |
 | --- | --- |
-| Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.27, kernel 7.0.14-29. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/24` (was `/23` until 2026-11-20). IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
+| Host (L0–L3) | **Done 2026-11-14.** Installed from the unattended ISO; PVE 9.2.28 (2026-11-24), running its newest installed kernel. `rpool` is a mirror of the 2 Intel SSDs. `bond0` + VLAN-aware `vmbr0` at 10 Gb/s, host `10.101.0.11/24` (was `/23` until 2026-11-20). IOMMU on; the P2000 is on `vfio-pci` with mapping `GPU01`. Firewall: default DROP. |
 | Pools | `nvme` (mirror, 860G), `ssd` (mirror, 231G), `backup` (RAIDZ1 + special mirror, 3.07T, dataset `backup/pbs`). The `data` pool isn't built: the ASUS Hyper M.2 card and the 990 Pro drives aren't installed. |
 | Access | `aaron@pve` (group `admins`) and `root@pam` have TOTP, in PVE and in PBS. Tokens: `terraform@pve!automation` (Terraform's, in use since L5a) and `claude-audit@pve!discovery` (secret in 1Password, `(Proxmox) Claude API`). |
 | Admin allowlist | `ADMIN_SOURCES`: `10.1.1.69` and `10.1.1.169` (Young admin workstation and laptop), `10.2.1.69` and `10.2.1.169` (Porter admin workstation and laptop, over the BPorter site-to-site VPN), `192.168.2.0/24` (Teleport VPN clients). The same list as the inventory's `admin_sources` and the UDM's admin rules (item 9 has the one exception). Last applied 2026-11-21: firewall plan 0 changes, `verify` 0 warnings. Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
@@ -16,11 +16,11 @@ How things got here is in the git history (`git log -- proxmox/`).
 | Backups (L4) | **Done.** PBS 4.2 on the host, datastore `pve01-local`. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 (Denver; since 2026-11-24 written as 08:00 and 10:30 UTC, the host's clock now being UTC) have run successfully every night since 2026-11-14 (reported by Aaron 2026-11-16). First PBS run: 256 GiB in 29 minutes. Test restore from the NAS passed, at about 24 MiB/s, so restoring every guest from the NAS takes hours. |
 | Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled, and the postfix queue is empty (the undeliverable mail from before the fix was deleted 2026-11-16). |
 | Patching and logging | **Applied 2026-11-16.** New package updates are emailed (matcher `phoenix-updates`, `notify package-updates=always`). Dropped inbound packets are logged to `/var/log/pve-firewall.log`. Updates are installed weekly, by hand. |
-| Last full plan | 2026-11-16, version 2026.11.1: **0 changes pending**, all 30 `verify` checks passed. Versions 2026.11.4 to 2026.11.7 were applied stage by stage since (last `verify` 2026-11-21: 0 warnings). A full plan is due in the next patch window. |
+| Last full plan | **2026-11-24**, version 2026.11.7, all stages: 155 checks pass and 1 change pending, the admin user `ben@pve` (waiting on Ben). `verify`: every check passes; 75 package updates pending. |
 | TLS | **Applied 2026-11-16.** Let's Encrypt certificate for `pve01.int.phoenixstack.net` on the PVE GUI (port 8006), issued through Cloudflare DNS-01; valid until 2027-02-15 and renewed by PVE's daily job. Checked from a VPN client: the chain and host name verify. |
 | PBS certificate | **Applied 2026-11-18** (reported by Aaron). Let's Encrypt certificate on the PBS GUI (port 8007), with its own ACME account and renewal. Storage `pbs-local` re-created to reach PBS at `pve01.int.phoenixstack.net` with normal certificate checking, so renewals can't break backups. The name resolves only to `10.101.0.11` on the host (`/etc/hosts`, as seen by `getent ahosts`). Script version 2026.11.4. |
 | Guests (L5) | Created by Terraform (pool `terraform`) and configured by Ansible: `dns01`/`dns02` (Pi-hole and Unbound, `.21`/`.22`), `pgsql01` (PostgreSQL 17, `.71`), `docker01` (Docker and the Services Traefik, `.101`), `authentik01` (Authentik 2026.8.6, `.41`), all applied and checked by 2026-11-22. Services guests resolve through `dns01`/`dns02`; the Young LAN asks the UDM, which forwards `int.phoenixstack.net` to them (2026-11-22). Design, state and checks: [../guests/README.md](../guests/README.md). |
-| Last patch run | **2026-11-16**: 10 updates installed with `apt dist-upgrade`. Afterwards `verify` showed no updates pending, 0 warnings, and the running kernel is the newest installed, so no reboot was needed. Next run due around 2026-11-23. |
+| Last patch run | **2026-11-16**: 10 updates installed with `apt dist-upgrade`, no reboot needed. **Overdue:** the next was due around 2026-11-23, and 75 updates were pending on 2026-11-24. |
 
 ## Open items
 
@@ -37,35 +37,20 @@ How things got here is in the git history (`git log -- proxmox/`).
    (MAC `bc:24:11:a0:1b:38`). Its guests were shut down 2026-11-20 by Aaron. Anything they saved after the backups
    of 2026-11-12 exists only on that machine's disk (its NAS mount folders were empty local directories). Keep its
    disks until the pve01 guests are verified and anything newer has been copied over, then wipe it.
-7. **Port forwards** (fixed 2026-11-20 by Aaron): the UDM's port forwards still pointed at the migration host's
-   docker-temp, which caused the 502 Bad Gateway errors. They now point at pve01's docker-temp (`10.101.0.166`). 2026-11-23: `8080` removed from that forward (it exposed
-   docker-temp's Traefik API without a login); the rest move to `docker02` in L5f Step B. 2026-11-24: `443` now
-   goes to `docker02` (`10.101.2.102`), Cloudflare only, port `443` only; `docker02` passes the public apps on to
-   docker-temp through a temporary rule until each one moves. `32400` (Plex) still goes to mgmt.
-   That puts an internet-facing guest on the mgmt subnet, next to the host, iDRAC and NAS. Moving it to the services
-   VLAN is part of L5 ([../guests/README.md](../guests/README.md)). AMP-TEMP (lxc 100) was found stopped the same day.
-8. **Mgmt network back to `/24`** (decided 2026-11-20). **Done 2026-11-20** (reported by Aaron): UniFi changed, then
-   pve01's network stage re-applied. Checked: `vmbr0` is `10.101.0.11/24`, NAS mounts up, `verify` passes (bootstrap
-   2026.11.5). Still to do: the reservations for docker-temp (`.166`, the port forwards' target) and PLEX-TEMP
-   (`.111`). Both are still plain DHCP leases inside the range (UniFi export 2026-11-22); the NAS (`.101`) is
-   reserved, and no mgmt client holds a `10.101.1.x` address any more. Before, PHOENIX-PRIMARY was `10.101.0.0/23`
-   with DHCP `10.101.0.11`–`10.101.1.254`, covering pve01's `.11` and the NAS's `.101`. The steps, for the record
-   (UniFi and pve01 change together, since a mask mismatch routes host-to-guest traffic through the gateway):
-   1. In UniFi, list the clients with `10.101.1.x` addresses (AMP-TEMP had `.1.190`); they'll get new addresses.
-      Add fixed-IP reservations for the NAS (`.101`), docker-temp (`.166`, the port forwards' target) and
-      PLEX-TEMP (`.111`).
-   2. PHOENIX-PRIMARY: `10.101.0.254/24`, DHCP range `10.101.0.100`–`10.101.0.249` (fixed addresses stay below `.100`).
-   3. pve01: `pve-sync`; `--stage network` (plan: only the address mask should change); `--apply --stage network`; type `keep`.
-   4. Check: `ip -br addr show vmbr0` shows `/24`; `verify` passes; NAS mounts; apps through the port forwards;
-      guests pick up the `/24` at their next DHCP renewal (or restart them).
-9. **UniFi zones** (2026-11-20, by Aaron, checked with `tools/unifi-export.sh`): mgmt and IOT each moved from shared
-   zones to their own (**Management**, **IOT**). Into Management: the admin workstation `10.1.1.69` and Teleport
-   (`192.168.2.0/24`) get everything; the Young LAN and the site-to-site VPNs only the NAS (SMB) and PLEX-TEMP (Plex);
-   the Young LAN also docker-temp's app ports. Port forwards followed the network. Every zone's access to the UDM is
-   limited to DNS, DHCP and ICMP. Stale forwards removed; Services DHCP `.150`–`.199`. SSH is **off** on the UDM and
-   the iDRAC on purpose (a closed port 22 there isn't a fault). The Temp site-to-site VPN and unused port lists were deleted;
-   two site-to-site VPNs remain (BPorter, RYoung). pve01's `ADMIN_SOURCES` narrowed to match the same day
-   (Young and Porter workstations, Teleport). The zone grid is on the topology page (`guests/topology.html`).
+7. **Port forwards** (2026-11-24): `443` → `docker02` (`10.101.2.102`), Cloudflare's addresses only, port `443`
+   only; `docker02` passes the public apps not yet moved on to docker-temp through the temporary rule
+   `docker02 -> Docker-Temp (temporary)`. `32400` (Plex) → PLEX-TEMP (`10.101.0.111`): an internet-facing guest on
+   the mgmt subnet, next to the host, iDRAC and NAS, until Plex moves to `plex01` in the DMZ. No game-port forward
+   is expected (AMP-TEMP was deleted 2026-11-23); to be confirmed in UniFi.
+8. **Mgmt network** `10.101.0.0/24` (since 2026-11-20; DHCP `10.101.0.100`–`.249`, fixed addresses below `.100`).
+   Still to do: reservations for docker-temp (`.166`) and PLEX-TEMP (`.111`), both plain leases inside the range
+   (UniFi export 2026-11-22); the NAS (`.101`) is reserved.
+9. **UniFi zones** (checked with `tools/unifi-export.sh`, 2026-11-23): Management, IOT, Services and DMZ each have a
+   zone of their own. Into Management: the admin sources get everything; the Young LAN and the site-to-site VPNs
+   only the NAS (SMB) and PLEX-TEMP (Plex); the Young LAN also docker-temp's app ports. Every zone's access to the
+   UDM is limited to DNS, DHCP and ICMP. SSH is **off** on the UDM and the iDRAC on purpose (a closed port 22 there
+   isn't a fault). Two site-to-site VPNs (BPorter, RYoung). The zone grid is on the topology page
+   (`guests/topology.html`).
    **Temporary exception (2026-11-21, by Aaron):** `10.2.1.175`, a temporary production system at the Porter site that
    needs the file server, was added to the UDM's **Porter Admin** rules (into Management, Services and DMZ). It is
    *not* an admin source and isn't in pve01's `ADMIN_SOURCES`, so pve01 itself still drops it. Replace it with a
@@ -76,12 +61,12 @@ How things got here is in the git history (`git log -- proxmox/`).
     keep lab secrets in `infrastructure`, and use one naming pattern, `(Category) - Name`. Two items in use don't
     follow it yet: `(Proxmox) Claude API` and `UniFi read-only export` (rename them, then their references in
     `pve01.conf`, `tools/unifi-export.sh` and the docs). The item-by-item list is kept outside this public repo.
-11. **UDM IPS and SSH** (found 2026-11-21): the IPS blocked repeated SSH from the home LAN as an outbound SSH scan
-    (per destination, for a few minutes; only networks with IPS on, so not Teleport). Fixed by adding `10.1.1.69` and
-    `10.1.1.169` to the IPS "Detection Exclusions"; checked with repeated SSH probes to pve01, the NAS and docker-temp.
-    The Porter admin workstation and laptop (`10.2.1.69`, `10.2.1.169`) were added 2026-11-23. An excluded address
-    isn't inspected at all, so keep that list to admin machines. Not the IPS: Ansible runs that reported guests unreachable on 2026-11-22
-    ("Timeout waiting for privilege escalation prompt") were waiting for the 1Password SSH agent's approval
+11. **UDM IPS and SSH**: the IPS takes repeated SSH for an outbound scan and blocks it for a few minutes, per
+    destination. The admin workstations and laptops (`10.1.1.69`, `10.1.1.169`, `10.2.1.69`, `10.2.1.169`) are on
+    its "Detection Exclusions" list. **Teleport clients aren't**, and one (`192.168.2.8`) was cut off on 2026-11-24:
+    exclude the admins' Teleport addresses once they're fixed. An excluded address isn't inspected at all, so keep
+    that list to admin machines. Not the IPS: Ansible reporting guests unreachable with "Timeout waiting for
+    privilege escalation prompt" is the 1Password SSH agent waiting for approval
     ([../guests/README.md](../guests/README.md#ansible), SSH agent).
 12. **Offsite backup copy**: both backup copies (PBS and the NAS) are in the same building. An open decision
     (see "Backup design" in [README.md](README.md)).

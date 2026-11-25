@@ -70,7 +70,7 @@
   .topo .z-svc { fill: var(--svc); stroke: var(--svc-line); }
   .topo .z-mgmt { fill: var(--mgmt); stroke: var(--mgmt-line); }
   .topo .node { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
-  .topo .node.later { stroke-dasharray: 6 4; }
+  .topo .node.later, .topo .ln.later { stroke-dasharray: 6 4; }
   .topo .udm { fill: var(--card); stroke: var(--fg); stroke-width: 1.5; }
   .topo .pill { fill: var(--pill); stroke: none; }
   .topo .ln { stroke: var(--fg); stroke-width: 1.6; fill: none; }
@@ -163,7 +163,7 @@
         <!-- Arrows: outside into the UDM -->
         <line class="ln acc" x1="230" y1="90" x2="316" y2="90" marker-end="url(#ahA)"/>
         <text class="t-acc" x="274" y="66" text-anchor="middle">32400</text>
-        <text class="t-acc" x="274" y="81" text-anchor="middle">game ports</text>
+        <text class="t-acc" x="274" y="81" text-anchor="middle">game ports · later</text>
         <!-- Web apps only through Cloudflare's proxy -->
         <line class="ln acc" x1="125" y1="140" x2="125" y2="157" marker-end="url(#ahA)"/>
         <line class="ln acc" x1="230" y1="195" x2="316" y2="195" marker-end="url(#ahA)"/>
@@ -176,10 +176,10 @@
         <text class="t-acc" x="456" y="83">port forwards</text>
         <line class="ln acc" x1="634" y1="90" x2="634" y2="107" marker-end="url(#ahA)"/>
         <text class="t-acc" x="640" y="104">443</text>
-        <line class="ln acc" x1="850" y1="90" x2="850" y2="107" marker-end="url(#ahA)"/>
-        <text class="t-acc" x="856" y="104">game ports</text>
-        <line class="ln acc" x1="1066" y1="90" x2="1066" y2="107" marker-end="url(#ahA)"/>
-        <text class="t-acc" x="1072" y="104">32400</text>
+        <line class="ln acc later" x1="850" y1="90" x2="850" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="856" y="104">game ports · later</text>
+        <line class="ln acc later" x1="1066" y1="90" x2="1066" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="1072" y="104">32400 · later</text>
 
         <rect class="node" x="536" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="548" y="134">docker02</text><text class="t-badge" x="722" y="134" text-anchor="end">VM</text>
@@ -187,13 +187,13 @@
         <rect class="pill" x="546" y="168" width="176" height="30" rx="5"/><text x="556" y="188">Traefik · public routes</text>
         <rect class="pill" x="546" y="206" width="176" height="30" rx="5"/><text x="556" y="226">Audiobookshelf; more to come</text>
 
-        <rect class="node" x="752" y="110" width="196" height="145" rx="8"/>
+        <rect class="node later" x="752" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="764" y="134">amp01</text><text class="t-badge" x="938" y="134" text-anchor="end">VM</text>
         <text class="t-muted" x="764" y="153">.51 · game servers</text>
         <rect class="pill" x="762" y="168" width="176" height="30" rx="5"/><text x="772" y="188">AMP instances</text>
         <rect class="pill" x="762" y="206" width="176" height="30" rx="5"/><text x="772" y="226">direct UDP / TCP</text>
 
-        <rect class="node" x="968" y="110" width="196" height="145" rx="8"/>
+        <rect class="node later" x="968" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="980" y="134">plex01</text><text class="t-badge" x="1154" y="134" text-anchor="end">VM · GPU</text>
         <text class="t-muted" x="980" y="153">.61 · media server</text>
         <rect class="pill" x="978" y="168" width="176" height="30" rx="5"/><text x="988" y="188">Plex / Jellyfin</text>
@@ -277,10 +277,10 @@
         <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media read-only · plex01, docker02 · podcasts read-write · docker02</text>
 
         <rect class="node later" x="536" y="818" width="628" height="44" rx="8"/>
-        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests stay here until moved: docker-temp .166 · PLEX-TEMP .111</text>
+        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests stay here until moved: docker-temp .166 · PLEX-TEMP .111 (Plex 32400 from the internet)</text>
       </svg>
     </div>
-    <figcaption>Only three paths come in from the internet, and all three end in the DMZ. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media (the media server and <code>docker02</code>), read-write for the one <code>Podcasts</code> share (<code>docker02</code>). Web apps come in only through Cloudflare's proxy.</figcaption>
+    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to PLEX-TEMP on mgmt until <code>plex01</code> exists. The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media, read-write for the one <code>Podcasts</code> share (<code>docker02</code>).</figcaption>
     <div class="legend">
       <span><i class="sw"></i>decided</span>
       <span><i class="sw dash"></i>later or optional</span>
@@ -323,7 +323,7 @@
 
   <section class="matrix-sec">
     <h2>UDM firewall today</h2>
-    <p>From the read-only export of 2026-11-23, 10:58 (UniFi Network 11.0.104), updated for the changes since (below): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <p>From the read-only export of 2026-11-23, 10:58 (UniFi Network 11.0.104), updated for the changes since: five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
     <div class="scroll">
       <table class="mx">
         <thead>
@@ -423,11 +423,8 @@
     <ol class="flags">
       <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 passes the public apps not yet moved on to docker-temp (temporary rule, their ports only). Accepted until those apps move to the DMZ.</li>
       <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
+      <li><b>Teleport clients count as admins.</b> The whole Teleport range (192.168.2.0/24) is an admin source, with all ports into Management. Fine while only admins use Teleport; before anyone else does, give admins fixed Teleport addresses and list only those.</li>
     </ol>
-    <p style="margin-top:14px">Fixed on 2026-11-20: stale port forwards removed; Services DHCP limited to <code>.150</code>–<code>.199</code>; mgmt and IOT each moved to a zone of their own; every zone's access to the UDM limited to DNS, DHCP and ICMP; SSH is off on the UDM and the iDRAC; the Temp site-to-site VPN and unused port lists deleted; pve01's own admin allowlist narrowed to the same sources as the UDM (Young and Porter admin workstations, Teleport).</p>
-    <p style="margin-top:8px">Fixed on 2026-11-21: Services and the DMZ open to the admin sources only (Young and Porter admin workstations and laptops, Teleport), with <code>Internal -&gt; DMZ (Block)</code> and <code>VPN -&gt; DMZ (Block)</code> for everyone else; the admin laptops added to the Management rules and to pve01's allowlist; the admin workstations and laptops on the IPS "Detection Exclusions" list, so repeated SSH isn't taken for a scan. Checked with two test guests (one per zone), since destroyed.</p>
-    <p style="margin-top:8px">Changed on 2026-11-22: household DNS through the UDM, which forwards <code>int.phoenixstack.net</code> to Pi-hole (Young LAN first); the Gateway block rules of Services, Management and IOT match new and invalid connections only, so replies to the UDM's own queries get back.</p>
-    <p style="margin-top:8px">Changed on 2026-11-23: <code>8080</code> (docker-temp's Traefik API, no login) taken out of the internet forward; a test forward <code>8443</code> → <code>docker02</code> (Cloudflare only) and the rule <code>docker02 -&gt; authentik01</code> (9443) for the public Traefik; <code>docker02 -&gt; NAS (SMB)</code> (445 only; its NAS user may only read <code>Media</code>); <code>Porter Gateway -&gt; Pi-hole (DNS)</code> for the Porter household's internal names; Ben's admin workstation and laptop on the IPS exclusions.</p>
-    <p style="margin-top:8px">Changed on 2026-11-24: the internet's <code>443</code> forward moved from docker-temp to <code>docker02</code> (Cloudflare only, port 443 only; 80, 81 and 444 gone) and the <code>8443</code> test forward deleted; <code>docker02 -&gt; Docker-Temp (temporary)</code> (83, 2283, 5054, 8081, 9925; 83 and 5054 removed the same evening) until those apps move; Cloudflare redirects plain HTTP to HTTPS and checks the origin's certificate (Full, strict). Later that evening: MyBibliotheca deleted; Audiobookshelf moved to <code>docker02</code> (the first app there), its podcasts to a new NAS share <code>Podcasts</code> that <code>docker02</code> may write; a staging copy of Audiobookshelf on <code>docker01</code> for rehearsing the switch, deleted afterwards; Audiobookshelf's logins through Authentik (Google for users, Microsoft 365 removed).</p>
+    <p style="margin-top:14px">Last updated 2026-11-24. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
   </section>
 </div>
