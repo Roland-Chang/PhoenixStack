@@ -1,0 +1,44 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+# IT-Tools, staging copy (role apps, decision 11). LAN and VPN only, admins only: route
+# tools-staging → http://{{ stack.name }}:80.
+{% else %}
+# IT-Tools (role apps). Reached through Traefik only: route tools → http://it-tools:80. No data.
+{% endif %}
+name: {{ stack.name }}
+
+services:
+  it-tools:
+    image: corentinth/it-tools:{{ stack.version or apps_catalog['it-tools'].version }}
+    container_name: {{ stack.name }}
+    restart: unless-stopped
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+    # nginx's master starts as root: binding port 80 and switching to its user "nginx" for the workers.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  proxy:
+    external: true

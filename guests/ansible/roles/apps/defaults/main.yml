@@ -33,7 +33,14 @@ apps_catalog:
     podcasts: /mnt/nas/podcasts
   # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
   # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
-  # Logins through Authentik (OIDC), on when the stack's env_op has OIDC_CLIENT_SECRET: client ID = the
+  # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
+  # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
+  # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.
+  it-tools:
+    folders: []
+    version: "2024.10.22-7ca5933"
+
+  # Mealie. Logins through Authentik (OIDC), on when the stack's env_op has OIDC_CLIENT_SECRET: client ID = the
   # route name (staging: <route>-staging); Authentik generates the secret, copied by hand into 1Password.
   # Visitors go straight to Authentik (no Mealie login screen); new people get an account on first
   # login; existing accounts are matched by email; oidc_admin_group are Mealie admins.

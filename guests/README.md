@@ -728,7 +728,8 @@ Steps (each dry-run first):
 4. ~~Its logins through Authentik~~ Done 2026-11-24, rehearsed first on a staging copy ([Staging](#staging));
    14 seconds offline.
 5. ~~Move Mealie~~ Done 2026-11-25, about 90 seconds offline ([Mealie](#mealie)).
-6. **Next:** Immich and IT-Tools, one at a time, with the checklist below.
+6. ~~Move IT-Tools~~ Done 2026-11-25, no downtime ([IT-Tools](#it-tools)).
+7. **Next:** Immich, with the checklist below; the temporary rule goes with it.
 
 #### Moving an app
 
@@ -767,6 +768,18 @@ On `docker02` since 2026-11-24.
 | Logins | "Sign in with PhoenixStack": Authentik client `abs` (`authentik Admins`, `Family`), matching existing accounts by **email**, no auto-register. Local logins stay, for e-readers, the API accounts and people without a Google Account. Microsoft 365's links and settings were removed. |
 | Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on Aaron's laptop, not in this repo. |
 | Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), and docker-temp's stopped copy (`docker start audiobookshelf`, the route back to `http://10.101.0.166:83`). `absdev` stays on docker-temp, offline from the internet. |
+
+#### IT-Tools
+
+On `docker02` since 2026-11-25, public with no login (decided by Aaron the same day: it holds no data; its tools
+run in the visitor's browser).
+
+| Area | State |
+| --- | --- |
+| Stack | `/opt/stacks/it-tools` (role `apps`); image `2024.10.22-7ca5933`, the digest docker-temp ran as `latest` (still the newest release); route `tools` → `http://it-tools:80`. |
+| Hardening | nginx's master starts as root, so it keeps `CHOWN`, `SETUID`, `SETGID` and `NET_BIND_SERVICE` (every other capability dropped); workers run as `nginx`; read-only filesystem with temporary `/var/cache/nginx`, `/var/run`, `/tmp`; memory 128 MiB; healthcheck `/`. |
+| Switch | No data, so no downtime: the route moved first, then docker-temp's copy was stopped and commented out of its compose file. Checked through Cloudflare: `200`, `http://` → `301`, served by `docker02` (its access log). |
+| Still open | Aaron removes `8081` from the temporary rule; then a check from `docker02` that it's closed. |
 
 #### Mealie
 
