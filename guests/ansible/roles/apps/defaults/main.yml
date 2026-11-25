@@ -33,6 +33,25 @@ apps_catalog:
     podcasts: /mnt/nas/podcasts
   # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
   # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
+  # Immich: one instance for everyone (guests/README.md, "Immich"). Four containers, all as `uid`, no
+  # capabilities: the server (Traefik reaches it), machine learning, PostgreSQL and Redis (Valkey; a cache,
+  # nothing kept). PostgreSQL and Redis sit on the stack's internal network only. Media on the NAS share
+  # Immich, mounted read-write for `uid` (nas_mounts); the same path inside the container as on docker-temp,
+  # since the database stores every file's full path. The external library: Porter/PhotoArchive, read-only.
+  # The database on docker02's disk (folder postgres); the model cache in ml-cache. No staging copy yet:
+  # docker01 has no NAS.
+  immich:
+    uid: 2003
+    folders: [postgres, ml-cache]
+    version: "v3.1.0"            # server and machine learning, always the same version
+    postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0"
+    redis_image: "docker.io/valkey/valkey:8-alpine"
+    media: /mnt/nas/immich
+    external_library: /mnt/nas/porter/PhotoArchive
+    # 1Password "(Immich) - PostgreSQL" (user immich_db_user).
+    env_op:
+      DB_PASSWORD: "op://infrastructure/auflj3qq4awwxhyaibzm3g2ayy/password"
+
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.

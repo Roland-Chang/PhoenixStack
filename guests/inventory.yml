@@ -218,12 +218,16 @@ all:
           traefik_op_origin_cert: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-cert.pem"
           traefik_op_origin_key: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-key.pem"
           # NAS as svc_docker02 (1Password "(UNAS) - svc_docker02"): Media read-only (it may only read it on
-          # the NAS too); Podcasts read-write, for Audiobookshelf (uid 2001) only (share of its own, 2026-11-24).
+          # the NAS too); Podcasts read-write, for Audiobookshelf (uid 2001) only (share of its own, 2026-11-24);
+          # Immich read-write for Immich (uid 2003) only, and Porter read-only for its external library
+          # (shares and permissions 2026-11-25).
           nas_username: svc_docker02
           nas_op_password: "op://infrastructure/cxeg5kim7a3wfgxhhs4najt4ye/password"
           nas_mounts:
             - {share: Media, path: /mnt/nas/media}
             - {share: Podcasts, path: /mnt/nas/podcasts, rw: true, owner: "{{ apps_catalog.audiobookshelf.uid }}"}
+            - {share: Immich, path: /mnt/nas/immich, rw: true, owner: "{{ apps_catalog.immich.uid }}"}
+            - {share: Porter, path: /mnt/nas/porter}
           # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
           apps: [audiobookshelf, mealie, it-tools]
           routes:

@@ -855,6 +855,15 @@ Read on docker-temp 2026-11-25:
 | Content | 7 users (3 Immich admins), about 32,400 uploads and 55,700 external assets. Uploads: 7,400 in August, 22,600 in September, 2,400 in October, **none since 2026-10-25**. 187 uploaded videos are over 100 MB (largest 1.1 GB): **Cloudflare's free plan refuses uploads over 100 MB**. |
 | Machine learning | Model cache in `appdata/immich-machine-learning` (downloaded again if missing). |
 
+On `docker02` (coded 2026-11-25, dry run clean; not started yet):
+
+| Area | Design |
+| --- | --- |
+| Stack | `/opt/stacks/immich` (role `apps`), four containers, all as uid `2003` with no capabilities: `immich-server` and `immich-machine-learning` `v3.1.0` (server: the digest docker-temp runs), `immich-postgres` (the same image and digest as docker-temp), `immich-redis` (Valkey 8, a cache only). PostgreSQL and Redis only on the stack's internal network; machine learning also has the default network, for its models. |
+| Media | NAS share `Immich` → `/mnt/nas/immich` (read-write for uid `2003` only) → `/usr/src/app/upload`, as on docker-temp; `IMMICH_MEDIA_LOCATION` set to it, so the image's `/data` isn't used. `Porter` → `/mnt/nas/porter` (read-only), `PhotoArchive` → `/porter:ro`. |
+| Database | `/opt/stacks/immich/postgres` on `docker02`'s disk; password in 1Password `(Immich) - PostgreSQL` (`.env`, root only, role `apps` `env_op`). Moved with a dump at the switch. |
+| Route | `immich-p` → `http://immich-server:2283` at the switch. |
+
 ### Staging
 
 Decision 11's app staging: a copy on `docker01`, built for one test and deleted after it. Used for Audiobookshelf's

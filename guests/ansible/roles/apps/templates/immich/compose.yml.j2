@@ -1,0 +1,110 @@
+# {{ ansible_managed }}
+# Immich (role apps). Reached through Traefik only: route immich-p → http://immich-server:2283.
+# PostgreSQL and Redis are on the stack's internal network only; machine learning also has the default
+# network, to download its models. The database password comes from .env (root only, role apps).
+{% if stack.staging %}
+{{ immich_has_no_staging_copy_yet_docker01_has_no_nas }}
+{% endif %}
+{% set immich = apps_catalog.immich %}
+name: {{ stack.name }}
+
+x-hardening: &hardening
+  user: "{{ immich.uid }}:{{ immich.uid }}"
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  immich-server:
+    <<: *hardening
+    image: ghcr.io/immich-app/immich-server:{{ stack.version or immich.version }}
+    container_name: immich-server
+    restart: unless-stopped
+    networks:
+      - proxy
+      - backend
+    environment:
+      TZ: {{ app_timezone }}
+      # The media folder docker-temp used (the database stores full paths); not the image's /data.
+      IMMICH_MEDIA_LOCATION: /usr/src/app/upload
+      DB_HOSTNAME: immich-postgres
+      DB_USERNAME: immich_db_user
+      DB_DATABASE_NAME: immich
+      DB_PASSWORD: ${DB_PASSWORD:?no .env}
+      REDIS_HOSTNAME: immich-redis
+    volumes:
+      - {{ immich.media }}:/usr/src/app/upload
+      - {{ immich.external_library }}:/porter:ro
+    depends_on:
+      immich-postgres:
+        condition: service_healthy
+      immich-redis:
+        condition: service_healthy
+    # Healthcheck: the image's own (immich-healthcheck).
+
+  immich-machine-learning:
+    <<: *hardening
+    image: ghcr.io/immich-app/immich-machine-learning:{{ stack.version or immich.version }}
+    container_name: immich-machine-learning
+    restart: unless-stopped
+    networks:
+      - backend
+      - default
+    environment:
+      TZ: {{ app_timezone }}
+      MACHINE_LEARNING_CACHE_FOLDER: /cache
+      HOME: /cache
+    volumes:
+      - ./ml-cache:/cache
+    # Healthcheck: the image's own.
+
+  immich-postgres:
+    <<: *hardening
+    image: {{ immich.postgres_image }}
+    container_name: immich-postgres
+    restart: unless-stopped
+    networks:
+      - backend
+    environment:
+      TZ: {{ app_timezone }}
+      POSTGRES_USER: immich_db_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?no .env}
+      POSTGRES_DB: immich
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    # Started as {{ immich.uid }}, not the image's postgres user: its socket folder must be writable.
+    tmpfs:
+      - /var/run/postgresql:uid={{ immich.uid }},gid={{ immich.uid }}
+    shm_size: 128mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --dbname=immich --username=immich_db_user"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 5m
+
+  immich-redis:
+    <<: *hardening
+    image: {{ immich.redis_image }}
+    container_name: immich-redis
+    restart: unless-stopped
+    networks:
+      - backend
+    # A cache only: nothing saved, 256 MB at most.
+    command: valkey-server --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    mem_limit: 320m
+    healthcheck:
+      test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+networks:
+  proxy:
+    external: true
+  backend:
+    internal: true
+  default: {}
