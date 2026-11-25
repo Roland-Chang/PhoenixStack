@@ -174,7 +174,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081`, `9925` (to remove: `83`, Audiobookshelf moved, and `5054`, MyBibliotheca deleted, both 2026-11-24) |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081`, `9925` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; checked closed from `docker02`) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -760,9 +760,9 @@ Steps (each dry-run first):
    - 2026-11-24, later: **MyBibliotheca deleted** (Aaron undecided whether to keep it; if so, rebuilt from scratch).
      On docker-temp: container, image, `appdata/bibliotheca` (1.2 GB), its compose file and `include` line, its
      Traefik rule, its three `.env` lines, the empty backups folder; the rest of docker-temp checked (compose file
-     parses, 19 containers up). Route `bibliotheca` removed from `docker02` (now `404`). Still to do (Aaron): `5054`
-     out of the temporary rule. DNS: `bibliotheca` resolves only through the `*.phoenixstack.net` wildcard (a
-     made-up name gets the same answer), so it needs no record of its own removed unless Cloudflare lists one.
+     parses, 19 containers up). Route `bibliotheca` removed from `docker02` (now `404`). `5054` out of the
+     temporary rule (Aaron). DNS: `bibliotheca` resolves only through the `*.phoenixstack.net` wildcard (a
+     made-up name gets the same answer); Cloudflare lists no record of its own (Aaron: wildcard only).
 3. ~~**Move Audiobookshelf** (the pilot, below).~~ Done 2026-11-24 (evening, Denver; 01:47–01:50 UTC on the 25th):
    - Role **`apps`** (new, in `docker.yml` after `traefik`): one compose stack per app in `/opt/stacks/<app>`, listed per
      host in the inventory (`apps: [audiobookshelf]`), settings in `roles/apps/defaults/main.yml`; Traefik reaches it
@@ -772,8 +772,8 @@ Steps (each dry-run first):
    - Podcasts: on docker-temp they were on the NAS (`Media/Podcasts`), not local. Copied from the NAS by `docker02`
      itself (32 GB, 513 files, 193 s), then the files changed since, at the switch. The same evening (decision
      above), moved again to the new share `Podcasts` (copy 390 s while it ran; the switch 02:16–02:17 UTC, 44 s):
-     healthy, 513 files, `/podcasts` writable. The local copy deleted after Aaron's test. Still to delete
-     (Aaron, on the NAS): the frozen `Media/Podcasts`.
+     healthy, 513 files, `/podcasts` writable. The local copy deleted after Aaron's test, and the frozen
+     `Media/Podcasts` on the NAS (Aaron).
    - The switch: Audiobookshelf stopped on docker-temp (`docker stop`, so it stays stopped after a reboot);
      `config` (32 MB) and `metadata` (776 MB) streamed docker-temp → laptop → `docker02` (`tar` over SSH; no rsync
      on `docker02`); `apb docker.yml -l docker02` started it and moved the route. Offline about 2 minutes.
@@ -781,12 +781,49 @@ Steps (each dry-run first):
          restarts; database "already up to date" (no migration); 372 entries in `/audiobooks` (read-only: writing
          fails), 5 podcasts; its backups came along in `/metadata/backups`.
    - [x] Aaron (2026-11-24): logged in on the web and in the phone app, played, progress kept.
+   - Library scans: Audiobooks nightly at midnight (`0 0 * * *`, set by Aaron 2026-11-24; the watcher can't see
+     what Libation writes over SMB). Containers run on local time since the same evening: `TZ` from the inventory's
+     `timezone` (`America/Denver`) in the apps' and Traefik's compose files, so that midnight, and the 01:30
+     backup, are Denver time (they were UTC). Not Authentik: its documentation says to keep its containers on UTC.
    - **Rollback:** `docker start audiobookshelf` on docker-temp and the route `abs` back to `http://10.101.0.166:83`;
      anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
-   - Still to do (Aaron): `83` out of the temporary UDM rule (with `5054`); `absdev` stays on docker-temp, offline
-     from the internet (agreed).
-4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12).
+   - `83` out of the temporary UDM rule (with `5054`; Aaron, 2026-11-24, checked closed). `absdev` stays on
+     docker-temp, offline from the internet (agreed).
+4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12). Rehearsed first on
+   its staging copy (below).
 5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
+
+### Staging
+
+Decision 11's app staging, built with Audiobookshelf on 2026-11-24 (Denver evening): **`abs-staging.int.phoenixstack.net`**
+on `docker01`, admin sources only, version `2.37.2` (production's, for now: the first use is rehearsing step 4).
+
+| Area | Design (2026-11-24) | Why |
+| --- | --- | --- |
+| Where | `docker01` (Services), LAN and VPN only, `admin_only` route. In the inventory: `apps_staging: [{app, version}]` on `docker01`; role `apps` deploys stack `<app>-staging` from the same template (`stack.staging`). | Never public; the same template as production, so staging tries what production will run. |
+| Data | Restored from production's **latest backup**, by hand, before the first start (so no empty instance is ever reachable). | Decision 11. Production's data is never touched. |
+| Getting the backup there | Through the laptop: `docker02` → laptop → `docker01` over SSH. | Services can't reach the DMZ; no new firewall rule. |
+| Media | **None yet** (Aaron, 2026-11-24): `docker01` has no NAS access. `/audiobooks` and `/podcasts` are empty, read-only folders: books show, nothing plays. Media comes when `docker01` gets the NAS (the *arr apps need it), before the first version upgrade is tested there. | Enough for logins; no new NAS user or rule now. |
+| Side effects | Switched off in the copy's database before it starts: podcast auto-download, the nightly backup, the folder watcher. Email settings kept (sending only on a user's action). | A copy must not download, write backups or act on its own. |
+| Scrubbing | None: the copy holds the 34 accounts and their history, admins only. | It's deleted after use. |
+| Lifetime | **Temporary.** Built for a test, deleted (`apps_staging` entry, route, `dns.yml`, then `/opt/stacks/<app>-staging`) once the change is in production. | Nothing to patch or keep in step in between. |
+| Logins | Its own OIDC client in Authentik when step 4 is rehearsed (redirect `abs-staging.int…`). Sessions copied from production stay valid here (same signing key). | Production's client never points at staging. |
+
+Restore (Audiobookshelf; dry runs first):
+
+1. `apb docker.yml -l docker01 --check --diff` with the `apps_staging` entry and the `abs-staging` route.
+2. Before applying, the latest backup (`/opt/stacks/audiobookshelf/metadata/backups/*.audiobookshelf` on `docker02`)
+   through the laptop to `docker01`, unpacked into `/opt/stacks/audiobookshelf-staging` as Audiobookshelf restores
+   it: `absdatabase.sqlite` → `config/`, `metadata-items/` → `metadata/items/`, `metadata-authors/` →
+   `metadata/authors/`; owner `2001`, folders `0750`.
+3. In the copy's database: `podcasts.autoDownloadEpisodes` 0; `server-settings`: `backupSchedule` false,
+   `scannerDisableWatcher` true.
+4. `apb docker.yml -l docker01`, then `apb dns.yml -l dns01` and `-l dns02` (one at a time; `dns.yml`'s dry run
+   can't show the names: the Pi-hole role applies its settings only for real).
+
+- [x] 2026-11-24: backup `2026-11-25T0130` (made on docker-temp, `2.37.2`) restored: database 32 MB, metadata
+      189 MB. Started healthy, quiet log (no downloads, backups or scans); both resolvers answer; `/ping`, `/status`
+      over HTTPS from the laptop.
 
 The NAS mount (role `nas_mount` in `docker.yml`, for hosts with `nas_mounts`; **applied 2026-11-23**):
 
@@ -965,8 +1002,8 @@ Done when:
       (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
     - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
       drifts from production.
-    - To design with the pilot: how an app's data is copied into its staging copy (restore from backup, scrub or
-      not, where its staging database lives), and the staging app's own OIDC client in Authentik.
+    - Designed with the pilot (2026-11-24): see [Staging](#staging). Still to design there: the staging app's own
+      OIDC client in Authentik (with step 4's rehearsal).
 12. **Users log in with their Google account, through Authentik** (decided 2026-11-23). Authentik is the one place
     that says who a person is (username, email, groups); the Google account is only the key they prove it with,
     and the apps only ever see Authentik. Each person is created by hand (username = their existing app username,

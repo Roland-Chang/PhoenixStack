@@ -1,47 +1,75 @@
-# One compose stack per app listed in `apps` (see defaults/main.yml). Needs docker_host and traefik
-# first (the "proxy" network), and nas_mount for apps that read the NAS.
+# One compose stack per app listed in `apps`, and one per staging copy in `apps_staging` (see
+# defaults/main.yml). Needs docker_host and traefik first (the "proxy" network), and nas_mount for apps
+# that read the NAS.
 
 - name: Known apps only
   ansible.builtin.assert:
     that: item in apps_catalog
     fail_msg: "{{ item }}: no entry in apps_catalog (roles/apps/defaults/main.yml)"
     quiet: true
-  loop: "{{ apps }}"
+  loop: "{{ apps + (apps_staging | map(attribute='app') | list) }}"
+
+# Each stack: its app, its name (<app>, or <app>-staging), staging or not, the version a staging copy
+# tries (empty: the app's pinned one), and its data folders.
+- name: Stacks on this host, start
+  ansible.builtin.set_fact:
+    apps_stacks: []
+
+- name: Stacks on this host
+  ansible.builtin.set_fact:
+    apps_stacks: >-
+      {{ apps_stacks + [{
+           'app': item.app,
+           'staging': item.staging,
+           'name': item.app ~ ('-staging' if item.staging else ''),
+           'version': item.version | default(''),
+           'folders': apps_catalog[item.app].folders
+                      + ((apps_catalog[item.app].staging_folders | default([])) if item.staging else [])}] }}
+  loop: >-
+    {{ (apps | map('community.general.dict_kv', 'app') | map('combine', {'staging': false}) | list)
+       + (apps_staging | map('combine', {'staging': true}) | list) }}
+  loop_control:
+    label: "{{ item.app }}{{ ' (staging)' if item.staging else '' }}"
 
 - name: Stack folders
   ansible.builtin.file:
-    path: "{{ apps_dir }}/{{ item }}"
+    path: "{{ apps_dir }}/{{ item.name }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
-  loop: "{{ apps }}"
+  loop: "{{ apps_stacks }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Data folders, owned by the app's container user
   ansible.builtin.file:
-    path: "{{ apps_dir }}/{{ item.0.key }}/{{ item.1 }}"
+    path: "{{ apps_dir }}/{{ item.0.name }}/{{ item.1 }}"
     state: directory
-    owner: "{{ item.0.value.uid }}"
-    group: "{{ item.0.value.uid }}"
+    owner: "{{ apps_catalog[item.0.app].uid }}"
+    group: "{{ apps_catalog[item.0.app].uid }}"
     mode: "0750"
-  loop: "{{ apps_catalog | dict2items | selectattr('key', 'in', apps) | subelements('value.folders') }}"
+  loop: "{{ apps_stacks | subelements('folders') }}"
   loop_control:
-    label: "{{ item.0.key }}/{{ item.1 }}"
+    label: "{{ item.0.name }}/{{ item.1 }}"
 
 - name: Compose files
   ansible.builtin.template:
-    src: "{{ item }}/compose.yml.j2"
-    dest: "{{ apps_dir }}/{{ item }}/compose.yml"
+    src: "{{ stack.app }}/compose.yml.j2"
+    dest: "{{ apps_dir }}/{{ stack.name }}/compose.yml"
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ apps }}"
+  loop: "{{ apps_stacks }}"
+  loop_control:
+    loop_var: stack
+    label: "{{ stack.name }}"
   register: apps_compose
 
 # A dry run can't start a stack whose compose file it hasn't written.
 - name: Run the stacks (docker compose up), wait until healthy
   community.docker.docker_compose_v2:
-    project_src: "{{ apps_dir }}/{{ item.item }}"
+    project_src: "{{ apps_dir }}/{{ item.stack.name }}"
     state: present
     pull: missing
     remove_orphans: true
@@ -49,5 +77,5 @@
     wait_timeout: 300
   loop: "{{ apps_compose.results }}"
   loop_control:
-    label: "{{ item.item }}"
+    label: "{{ item.stack.name }}"
   when: not docker_dry_new and not (ansible_check_mode and item.changed)

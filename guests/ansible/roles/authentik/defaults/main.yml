@@ -1,5 +1,7 @@
 # Authentik (L5e) as a compose stack. The image version is pinned here; updating it is a change in
 # git, deployed in the weekly window after reading Authentik's release notes (some need steps).
+# No TZ here, unlike the other containers: Authentik's documentation says to leave its containers on UTC
+# (a changed time zone breaks OAuth and SAML).
 authentik_image: ghcr.io/goauthentik/server
 authentik_version: "2026.8.6"
 

@@ -60,6 +60,8 @@ all:
       postgres: 10.101.1.71
     # The NAS (UNAS Pro, mgmt): file shares that guests mount (nas_mounts), by address.
     nas_address: 10.101.0.101
+    # Guests' clocks (role base) and containers' TZ (apps, Traefik), so schedules and logs read in local
+    # time. Not Authentik's containers: they must stay on UTC (its documentation).
     timezone: America/Denver
     # Ansible connects to the guest's static IP as the admin user. A brand-new container only
     # has root: the first run passes -e ansible_user=root (see guests/README.md).
@@ -143,6 +145,11 @@ all:
             # authentik01's address typed out: other guests' roles read these routes (the authentik
             # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}
+            # Staging copies (decision 11), admins only; their stacks in apps_staging below.
+            - {name: abs-staging, url: "http://audiobookshelf-staging:80", admin_only: true}   # Audiobookshelf
+          # Staging copies of public apps (role apps): the version to try; data from production's backup.
+          apps_staging:
+            - {app: audiobookshelf, version: "2.37.2"}
         # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
         # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.
         authentik01:
