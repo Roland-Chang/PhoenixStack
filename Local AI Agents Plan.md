@@ -113,7 +113,7 @@ Use an LXC container with the GPU shared in, not a VM. An LXC adds almost no ove
 5. **Install the matching driver inside the container.** Run the exact same `.run` version with `--no-kernel-module`. Host and container versions must match, or `nvidia-smi` fails inside. Confirm `nvidia-smi` shows the card in the container.
 6. **Install Ollama.** `curl -fsSL https://ollama.com/install.sh | sh`. Then `systemctl edit ollama` and add:
 
-   ```
+   ```ini
    [Service]
    Environment="OLLAMA_HOST=0.0.0.0:11434"
    Environment="OLLAMA_CONTEXT_LENGTH=16384"
@@ -135,7 +135,7 @@ Ollama's automatic GPU/CPU split is much slower for big MoE models; one test got
 1. **Build llama.cpp with CUDA:** `cmake -B build -DGGML_CUDA=ON && cmake --build build -j`. Download GGUFs from Hugging Face into `/models` (e.g. `ggml-org/gpt-oss-120b-GGUF`, `unsloth/Qwen3.6-35B-A3B-GGUF`).
 2. **Start it with experts in RAM:**
 
-   ```
+   ```bash
    llama-server -m /models/gpt-oss-120b-mxfp4-00001-of-00003.gguf \
      -ngl 99 --n-cpu-moe 30 -c 32768 -fa on --jinja \
      -t 12 --host 0.0.0.0 --port 8080
@@ -162,7 +162,7 @@ Laptop realities: the Mac stops serving when it sleeps or the lid closes, runs h
 
 **Claude Code on a local model.** Ollama 0.14+ exposes the [Anthropic Messages API](https://registry.ollama.ai/blog/claude), so Claude Code runs against it with environment variables. Add an alias so normal `claude` stays on your subscription:
 
-```
+```bash
 alias claude-local='ANTHROPIC_BASE_URL=http://localhost:11434 \
   ANTHROPIC_AUTH_TOKEN=ollama ANTHROPIC_API_KEY="" \
   ANTHROPIC_DEFAULT_OPUS_MODEL=qwen3.6:35b-a3b \
@@ -216,7 +216,7 @@ What breaks most often: a model that silently falls back to CPU (check `ollama p
 
 Start with the Mac tonight because it needs no infrastructure, then build the server, then add agents one at a time.
 
-**Week 1: models running**
+### Week 1: models running
 
 - [ ] T640: check for the power interposer board, GPU cable and external GPU fans; check PSU wattage in iDRAC; run `dmidecode -t memory`; note the Mac's chip and memory
 - [ ] Install the 3070 (or the P2000 if the power board is missing) and confirm it in `nvidia-smi`
@@ -224,7 +224,7 @@ Start with the Mac tonight because it needs no infrastructure, then build the se
 - [ ] Proxmox: host driver, `ai-01` LXC with the 3070, `/models` storage, Ollama, first model at 100% GPU
 - [ ] Open WebUI connected to both Ollama endpoints; Tailscale on everything
 
-**Week 2: agents and big models**
+### Week 2: agents and big models
 
 - [ ] `claude-local` alias working against the Mac and against `ai-01`
 - [ ] llama.cpp on `ai-01` running gpt-oss-120b or Qwen3.6-35B-A3B with `--n-cpu-moe`; record `llama-bench` numbers
@@ -232,13 +232,13 @@ Start with the Mac tonight because it needs no infrastructure, then build the se
 - [ ] One Open WebUI Knowledge collection with real documents
 - [ ] n8n LXC with one scheduled workflow (log digest or listing drafts)
 
-**Weeks 3–4: decide**
+### Weeks 3–4: decide
 
 - [ ] Keep a short log of tasks sent local vs Claude, and which local results you had to redo
 - [ ] Move the jobs local handles well into n8n; leave the rest on Claude
 - [ ] Decide on the RTX 3090 based on how often the 3070 was the bottleneck
 
-**Upgrade path, in order of value:**
+### Upgrade path, in order of value
 
 1. **A used RTX 3090 24 GB (~$650–900)** as the server's main card: a 2-slot blower model for the T640, power-capped to 300 W. It runs Qwen3.6-35B-A3B fully on the GPU and makes the server a real backend for interactive agents. Keep the 3070 for a second container (small model, Whisper) if the chassis has a second slot and power.
 2. **Fill all six memory channels per socket** if `dmidecode` shows gaps. Bandwidth, not capacity, sets GPU+RAM MoE speed, and you already have plenty of capacity.
