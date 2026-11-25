@@ -1,7 +1,7 @@
 # Apps on a Docker host (L5f Step B): one compose stack per app in {{ apps_dir }}/<app>, reached by
 # Traefik over the "proxy" network (route url http://<app>:<port>). The inventory lists a host's apps
 # (apps: [audiobookshelf]); each app has templates/<app>/compose.yml.j2 and an entry in apps_catalog.
-# Every app's containers get TZ from the inventory's `timezone` (schedules and logs in local time).
+# Every app's containers get TZ from the inventory's `app_timezone` (schedules and logs in local time).
 apps: []
 apps_dir: /opt/stacks
 

@@ -14,8 +14,9 @@ postgresql_initdb_options: "--encoding=UTF8 --locale-provider=builtin --builtin-
 postgresql_shared_buffers_mb: "{{ (memory | int * 0.25) | int }}"
 postgresql_effective_cache_mb: "{{ (memory | int * 0.75) | int }}"
 
-# Database dump standard (guests/README.md, "Database dumps"): nightly at 00:30, before the
-# host's nightly-pbs job at 01:00. Seven day folders are kept on the guest.
+# Database dump standard (guests/README.md, "Database dumps"): nightly, before pve01's nightly-pbs job at
+# 01:00 Denver time. The guest runs on UTC (pve01 doesn't, yet): 06:30 UTC is 23:30 Denver in winter and
+# 00:30 in summer, before the backup either way. Seven day folders are kept on the guest.
 db_dump_dir: /var/backups/db-dump
-db_dump_time: "00:30"
+db_dump_time: "06:30"
 db_dump_keep_days: 7

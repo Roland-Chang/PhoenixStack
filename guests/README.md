@@ -88,7 +88,7 @@ same when it arrives.
 
 | | Standard | Why |
 | --- | --- | --- |
-| When | Nightly at **00:30**, systemd timer `db-dump.timer` (`Persistent=true`: a run missed while the guest was off happens at boot). | Before `nightly-pbs` (01:00) and `nightly-nas` (03:30), so both carry that night's dumps. |
+| When | Nightly at **06:30 UTC** (was 00:30 local until the guests moved to UTC, 2026-11-24): 23:30 Denver in winter, 00:30 in summer. systemd timer `db-dump.timer` (`Persistent=true`: a run missed while the guest was off happens at boot). | Before `nightly-pbs` (01:00 Denver, pve01's clock) and `nightly-nas` (03:30), so both carry that night's dumps. |
 | What | Each database separately (PostgreSQL: `pg_dump --format=custom`), plus the roles (`pg_dumpall --globals-only`). | One database or one table can be restored alone; without the roles a restore has no owners. |
 | Check | Each dump is read back (`pg_restore --list`). The day's folder appears only when every dump succeeded. | A bad night never leaves a half set that looks complete. |
 | Where | `/var/backups/db-dump/<YYYY-MM-DD>/` on the guest, owner `postgres`, mode `0700`. Script `/usr/local/sbin/db-dump`. | No NAS mount in the guest (Services can't reach mgmt); the guest backups copy the folder off. |
@@ -238,7 +238,7 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
 | First login | Terraform puts Aaron's SSH public key in the guest (container root, or the cloud-init user on VMs). The first `base` run creates user `aaron` (sudo, key only) and sets `PermitRootLogin no`. Later runs connect as `aaron`. | Named admin account; root only during the first run. |
 | Host keys | Checking stays on, with `StrictHostKeyChecking=accept-new`. A rebuilt guest's old key is removed by hand. | The archive turned host key checking off. |
 | Secrets | 1Password, read on the admin machine with `op read` (Ansible's `pipe` lookup), only when a guest needs a secret it doesn't have yet: a new resolver's web password, a new database role, Traefik's Cloudflare token, Authentik's `.env`. Dry runs never read secrets. **No Ansible Vault files.** | The archive committed Vault files to a public repo. |
-| `base` role | A first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone, journal cap 200 MB, automatic Debian security updates without reboots (see [Guest patching](#guest-patching)); on VMs also the QEMU guest agent, time sync (`systemd-timesyncd`), no LLMNR or mDNS (systemd-resolved; names come from Pi-hole only), and SSH host keys kept through cloud-init changes (`ssh_deletekeys: false`, set after the first boot made the VM's own keys). | The same baseline on every guest. |
+| `base` role | A first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone (**UTC**, the inventory's `timezone`; see below), journal cap 200 MB, automatic Debian security updates without reboots (see [Guest patching](#guest-patching)); on VMs also the QEMU guest agent, time sync (`systemd-timesyncd`), no LLMNR or mDNS (systemd-resolved; names come from Pi-hole only), and SSH host keys kept through cloud-init changes (`ssh_deletekeys: false`, set after the first boot made the VM's own keys). | The same baseline on every guest. |
 | Runs | Always `--check --diff` first, then the real run. | Repo guardrail. |
 
 ### Guest patching
@@ -782,9 +782,13 @@ Steps (each dry-run first):
          fails), 5 podcasts; its backups came along in `/metadata/backups`.
    - [x] Aaron (2026-11-24): logged in on the web and in the phone app, played, progress kept.
    - Library scans: Audiobooks nightly at midnight (`0 0 * * *`, set by Aaron 2026-11-24; the watcher can't see
-     what Libation writes over SMB). Containers run on local time since the same evening: `TZ` from the inventory's
-     `timezone` (`America/Denver`) in the apps' and Traefik's compose files, so that midnight, and the 01:30
-     backup, are Denver time (they were UTC). Not Authentik: its documentation says to keep its containers on UTC.
+     what Libation writes over SMB). App containers run on local time since the same evening: `TZ` from the inventory's
+     `app_timezone` (`America/Denver`), so that midnight, and the 01:30 backup, are Denver time (they were UTC).
+   - **Time zones** (Aaron, 2026-11-24): **UTC for critical systems**, local time only for user-facing apps
+     without a hard dependency on UTC. Guests' clocks (`timezone: Etc/UTC`, role `base`; all six moved the same
+     night), PostgreSQL (`timezone`, `log_timezone`), Traefik and Authentik run on UTC; app containers (role `apps`)
+     on `app_timezone`. The move to UTC ran one extra database dump at 04:16 UTC (the timer saw 00:30 as missed;
+     it succeeded). pve01's own clock is still Denver: a later step, with its backup jobs rescheduled.
    - **Rollback:** `docker start audiobookshelf` on docker-temp and the route `abs` back to `http://10.101.0.166:83`;
      anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
    - `83` out of the temporary UDM rule (with `5054`; Aaron, 2026-11-24, checked closed). `absdev` stays on

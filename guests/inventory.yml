@@ -60,9 +60,14 @@ all:
       postgres: 10.101.1.71
     # The NAS (UNAS Pro, mgmt): file shares that guests mount (nas_mounts), by address.
     nas_address: 10.101.0.101
-    # Guests' clocks (role base) and containers' TZ (apps, Traefik), so schedules and logs read in local
-    # time. Not Authentik's containers: they must stay on UTC (its documentation).
-    timezone: America/Denver
+    # Time zones (decided 2026-11-24): UTC for critical systems, local time only for user-facing apps
+    # without a hard dependency on UTC.
+    #   timezone      guests' clocks (role base) and infrastructure containers (Traefik); Authentik's
+    #                 containers have no TZ at all (UTC, as its documentation requires)
+    #   app_timezone  user-facing app containers (role apps), so their schedules and logs read in local time
+    # pve01's own clock is still America/Denver (its backup jobs are scheduled in local time; later).
+    timezone: Etc/UTC
+    app_timezone: America/Denver
     # Ansible connects to the guest's static IP as the admin user. A brand-new container only
     # has root: the first run passes -e ansible_user=root (see guests/README.md).
     ansible_host: "{{ ip }}"

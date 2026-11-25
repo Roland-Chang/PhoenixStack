@@ -17,7 +17,7 @@ services:
     networks:
       - proxy
     environment:
-      TZ: {{ timezone }}
+      TZ: {{ app_timezone }}
     volumes:
       - ./config:/config
       - ./metadata:/metadata

@@ -16,5 +16,9 @@ ssl_min_protocol_version = 'TLSv1.2'
 shared_buffers = {{ postgresql_shared_buffers_mb }}MB
 effective_cache_size = {{ postgresql_effective_cache_mb }}MB
 
+# UTC, like the guest's clock (critical systems run on UTC); was the install-time zone, America/Denver.
+timezone = 'UTC'
+log_timezone = 'UTC'
+
 # Who connected, from where: worth having on a shared database server.
 log_connections = on
