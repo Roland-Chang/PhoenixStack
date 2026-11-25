@@ -4,9 +4,10 @@ Purpose: how PhoenixStack guests are placed on the network, created (Terraform) 
 the services built on them, one layer at a time (L5a groundwork, then L5b onwards). The host (L0–L4) is in
 [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status (2026-11-22): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
-and Services Traefik (`docker01`), Authentik (`authentik01`). [Household DNS](#household-dns) through Pi-hole is
-rolling out. The topology diagram is [topology.html](topology.html) (published:
+Status (2026-11-24): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
+and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f under way**: `docker02` takes the internet's
+`443` and runs Audiobookshelf, with logins through Authentik; the other public apps follow one at a time.
+[Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
 ## Scope
@@ -49,12 +50,14 @@ without passing any firewall the UDM controls. With its own zone, everything it 
   - **LAN and VPN only: `<name>.int.phoenixstack.net`**, for guests and apps that never face the internet. Served
     by the Services Traefik; the real addresses are only in Pi-hole. `int.` doesn't mean admin-only: who may
     reach a guest or an admin page is set by the [UDM rules](#udm-rules), not by the name.
-- **Authentik lives in Services.** The public Traefik asks it to log people in (forward-auth) through one allowed
-  port; its server and database stay off the DMZ.
+- **Authentik lives in Services.** People log in on its public name, which the public Traefik passes to it through
+  one allowed port: apps with their own login send them there (OIDC), the others ask it first (forward-auth). Its
+  server and database stay off the DMZ.
 - **LAN and VPN clients** use the Services Traefik (`443` on `docker01`), and get names from the UDM, which forwards
   `int.phoenixstack.net` to Pi-hole ([Household DNS](#household-dns)). Admin machines ask Pi-hole directly.
 - **Media files** stay on the NAS (mgmt): read-write for media management (`docker01`), read-only for the media
-  server (`plex01`) and the public apps (`docker02`). Mounted inside those VMs, not bind-mounted from the host.
+  server (`plex01`) and the public apps (`docker02`), plus a writable share of its own for a public app that
+  downloads (`Podcasts`). Mounted inside those VMs, not bind-mounted from the host.
 
 ### Guest types
 
@@ -163,9 +166,9 @@ Default: block between zones. Then allow only these (each by port, to the named 
 rules (into Management, Services and DMZ) but isn't an admin source, and pve01 still drops it. Replace it with a
 NAS-only rule when that system retires (REBUILD_STATE item 9).
 
-| From | To | Allow (design) | Today (UniFi export, 2026-11-22) |
+| From | To | Allow (design) | Today (UniFi export 2026-11-23, plus the changes since) |
 | --- | --- | --- | --- |
-| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | `443` → `docker02` since 2026-11-24 (Cloudflare only, port `443` only; the `8443` test forward deleted). `32400` and game ports still go to mgmt (REBUILD_STATE item 7) |
+| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | `443` → `docker02` since 2026-11-24 (Cloudflare only, port `443` only). `32400` still goes to PLEX-TEMP on mgmt (REBUILD_STATE item 7). No game-port forward in the export (AMP-TEMP deleted 2026-11-23); to confirm in UniFi |
 | LAN and VPN clients | Services | `443` → `docker01`. DNS goes through the UDM ([Household DNS](#household-dns)), so no `53` | Not yet: with the first app for household users |
 | LAN and VPN clients | DMZ | Nothing (decided 2026-11-23): public names resolve to Cloudflare, so home users come in through the proxy like everyone else, and `docker02` accepts only Cloudflare | As designed (`Internal -> DMZ (Block)`, `VPN -> DMZ (Block)`) |
 | Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page | **All ports** (`Young/Porter/VPN Admin -> Services/DMZ`); narrow to the design once the services settle |
@@ -173,7 +176,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, Management, IOT | The UDM itself (Gateway) | DNS (`53`), DHCP (`67`), ping | As designed. The block rules after them match `New` and `Invalid` connections only (since 2026-11-22), so replies to queries the UDM sends itself (its forwarding to Pi-hole) get back |
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
-| DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
+| DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user: read-only on `Media`, read-write on an app's own share (`Podcasts`) ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
 | DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081`, `9925` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; checked closed from `docker02`) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
@@ -458,7 +461,7 @@ Done when:
 - [x] `db-dump.timer` next run 2026-11-23 00:30. The first dump (at setup) wrote `2026-11-22/globals.sql` and `postgres.dump` and `last-ok`; a second run the same day replaced the folder, with no partial folder left.
 - [x] Restore test: scratch database `dumptest` (1,000 rows) dumped, dropped, restored with `pg_restore --create` (1,000 rows back), dropped again, dumps re-run.
 - [x] `apb patch.yml --check -l pgsql01` passes the dump check ("Last good dump: 2026-11-22 11:57").
-- [ ] The next morning: a dump folder from 00:30 (`sudo -u postgres ls /var/backups/db-dump`).
+- [x] A dump folder every night (`sudo -u postgres ls /var/backups/db-dump`): one per night since 2026-11-22 (checked 2026-11-24).
 - [ ] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`).
 
 ## L5d: Docker host and Services Traefik (`docker01`)
@@ -547,7 +550,7 @@ Done when:
 - [x] MFA required: blueprint `PhoenixStack - MFA required` applied (`successful`); the MFA stage is `configure` with WebAuthn and TOTP only.
 - [x] A test account without a device (`mfatest`) was made to enrol one at its first login, offered WebAuthn and TOTP; deleted afterwards (2026-11-22).
 - [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
-- [ ] After the next 00:30 dump: `authentik.dump` in the day's folder on `pgsql01`.
+- [x] `authentik.dump` in each night's folder on `pgsql01` (4.1 MB, checked 2026-11-24).
 - [x] [Restore rehearsal](#restore-rehearsal) passed 2026-11-22 (before the first app depends on Authentik).
 
 Found on the way:
@@ -572,13 +575,30 @@ first: the Traefik dashboard):
 
 Order: `apb authentik.yml -l authentik01` first (the app must exist), then `apb docker.yml -l docker01`, then
 `dns.yml` if the name is new. Removing `authentik: true` or the route doesn't delete the app in Authentik: delete
-it in the UI. Apps with their own login (OIDC, e.g. Immich, Grafana) are a different provider type, added with the
-app.
+it in the UI. Apps with their own login (OIDC) are a different provider type: [below](#apps-with-their-own-login-oidc-and-google-sign-in).
 
 Checked 2026-11-22 for the Traefik dashboard: without a login, the page and its API redirect to Authentik; a
 forged `X-Forwarded-Host` is ignored; a non-admin source still gets `403` from the allow-list; `aaron` logs in with
 a YubiKey and reaches the dashboard; a test user outside `authentik Admins` (`nogroup`, enrolled TOTP as required)
 got Authentik's access-denied page, then was deleted.
+
+### Apps with their own login (OIDC), and Google sign-in
+
+Since 2026-11-24 (decision 12; first app: Audiobookshelf). Users sign in with Google; admins never do.
+
+| Piece | Where | What it does |
+| --- | --- | --- |
+| Inventory | a route's `oidc: {title, redirects, groups}` on any Docker host | One entry makes the app's OIDC client. The role refuses an entry without groups: an app with no group binding admits every user. |
+| OIDC clients | blueprint `PhoenixStack - OIDC apps` (`phoenix-oidc-apps.yaml.j2`) | Per route: a confidential provider (client ID = route name, strict redirect URIs on the route's own name, `authorization_code` and `refresh_token` grants: the default is none), an application and its group bindings. Authentik generates each secret once; it's entered in the app, never in git. Scope `email` comes from our mapping, which sends `email_verified: true` (Authentik's own sends `false`): every email is set by an admin and is the person's Google address. |
+| People and Google | blueprint `PhoenixStack - People and Google sign-in` (`phoenix-people.yaml.j2`) | Groups `Family`, with `Young` and `Porter` below it (decision 8). The Google source: links a Google login to the existing Authentik user with the same email (`email_link`), no enrollment flow (an unknown Google account gets nothing), its button on the login page. |
+| Admins and Google | flow `phoenix-source-authentication`, in "all" mode | A Google login must come from Google **and** not be in `authentik Admins`. (Authentik's default source flow runs in "any" mode, where an extra policy blocks nobody.) |
+| Google's client | `.env.google` on `authentik01` (root, `0600`), written once from 1Password `(Google Cloud) - Authentik sign-in` | Client ID and secret for the Google source. Google Cloud project `PhoenixStack`, redirect URI `https://auth.phoenixstack.net/source/oauth/callback/google/`. |
+
+Each person: an Authentik user created by hand, with a clean username (Authentik allows no spaces), the email they
+sign in to Google with, **no password**, and their group (`Young` or `Porter`); without a group, Google lets them
+in but no app does. Users can't change their own email. Removing a route doesn't delete its client: delete it in
+the UI. Checked 2026-11-24 on a staging copy, then in production: an admin by password and TOTP, a user by Google,
+an admin refused on Google, the phone app.
 
 ### Authentik recovery
 
@@ -651,222 +671,137 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 
 ## L5f: DMZ Docker host and public Traefik (`docker02`)
 
-**Step A done 2026-11-23** (all checks below). Step A of moving the public apps off docker-temp: the host, the public
-Traefik and Authentik's public name, proven with a test route on a second port. Step B (later) moves the `443`
-forward from docker-temp to `docker02`; see [Moving the public apps](#moving-the-public-apps).
+**State (2026-11-24):** `docker02` takes the internet's `443`, through Cloudflare's proxy, and runs
+Audiobookshelf. The other public apps still run on docker-temp; `docker02` reaches them through a temporary rule
+until each one moves ([Moving the public apps](#moving-the-public-apps)). Built 2026-11-23 (Step A); the forward
+and Audiobookshelf moved 2026-11-24 (Step B).
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Guest | `docker02`: VM `11002`, MAC `02:aa:bb:cc:10:02`, `10.101.2.102`, DMZ (VLAN 200), cloned from `10001`. **8 cores, 16 GiB, 128 GB** on `nvme` (decided 2026-11-23; 64 GB until the podcasts, Step B). | Tier 10, instance 2. Less memory than `docker01` to start; Immich's machine learning is the big one, and memory and disk grow online. |
+| Guest | `docker02`: VM `11002`, MAC `02:aa:bb:cc:10:02`, `10.101.2.102`, DMZ (VLAN 200), cloned from `10001`. **8 cores, 16 GiB, 128 GB** on `nvme` (grown from 64 GB for podcasts that then moved to the NAS; disks don't shrink). | Tier 10, instance 2. Less memory than `docker01` to start; Immich's machine learning is the big one, and memory and disk grow online. |
 | Docker | Role `docker_host`, the same as `docker01` (Docker CE, `live-restore`, `no-new-privileges`, `local` logs, `172.20.0.0/14`). | One way to run Docker. |
 | Traefik | Role `traefik`, the same version. Port 443 only. Routes from the inventory, file provider, no Docker socket. | As on `docker01`; the socket would be root on an internet-facing host. |
-| Certificate | **Cloudflare Origin CA** (decided 2026-11-23): `phoenixstack.net` and `*.phoenixstack.net`, made once in the Cloudflare dashboard (SSL/TLS → Origin Server), 15 years. Certificate and key in 1Password; the first real run writes them to `secrets/` on the guest (root, `0600`). The zone's SSL mode must be **Full (strict)**. | No Cloudflare API token on the internet-facing host. Only Cloudflare needs to trust this certificate, since every request comes through its proxy. |
-| Who may connect | `443` from **Cloudflare's addresses only**, on the UDM forward and again on the Proxmox firewall (new firewall source `cloudflare`, the list from cloudflare.com/ips in the inventory); SSH and ping from admin sources. | Two locks, as for pve01. Nobody can skip the proxy, not even from the LAN. |
+| Certificate | **Cloudflare Origin CA** (decided 2026-11-23): `phoenixstack.net` and `*.phoenixstack.net`, 15 years (until 2041-11-19). 1Password `(Cloudflare) - Origin CA Certificate` holds it as two files (concealed fields turn PEM line breaks into spaces); the first run writes them to `secrets/` on the guest (root, `0600`). Cloudflare: SSL mode **Full (strict)**, **Always Use HTTPS** on (without it, plain `http://` reached the origin and failed with `522`). | No Cloudflare API token on the internet-facing host. Only Cloudflare needs to trust this certificate, since every request comes through its proxy. |
+| Who may connect | `443` from **Cloudflare's addresses only**, on the UDM forward and again on the Proxmox firewall (firewall source `cloudflare`, the list from cloudflare.com/ips in the inventory); SSH and ping from admin sources. | Two locks, as for pve01. Nobody can skip the proxy, not even from the LAN. |
 | Client addresses | Traefik trusts `X-Forwarded-For` from Cloudflare's addresses only (`forwardedHeaders.trustedIPs`). | Apps and logs see the real client, not Cloudflare. |
-| Route names | Each Docker host gets a `routes_domain`: `int.phoenixstack.net` on `docker01`, `phoenixstack.net` on `docker02`. Pi-hole adds names only for the `int.` routes. | Public names come from Cloudflare's wildcard record; Pi-hole must not answer them. |
-| Authentik | Route `auth` on `docker02` → `https://10.101.1.41:9443`, so **`https://auth.phoenixstack.net`** works from anywhere. The admin interface (`/if/admin/`) is blocked on the public route, so it stays LAN and VPN only (decided 2026-11-23). | Users outside need the login page for OIDC. Admins don't need the admin pages from the internet. |
-| Authentik's base URL | **`https://auth.phoenixstack.net`** (decided 2026-11-23; was `auth.int`), so OIDC issuers and links work from anywhere. `auth.int` stays as a LAN and VPN entry. | The public apps' OIDC clients must reach the same issuer from home and away. |
-| UDM rules | Forward `8443` → `10.101.2.102:443`, Cloudflare's addresses only, for the test (Cloudflare proxies `8443`). `docker02` → `authentik01` `9443`. `authentik01`'s firewall also accepts `9443` from `docker02`. | Tests the whole path without touching the live `443` forward. |
-| DNS | Nothing new: the zone's proxied wildcard record already sends every name to the home address. DMZ guests ask the UDM. | |
-| Smoke test | `whoami` at `https://whoami.phoenixstack.net:8443` while its route is in the inventory. | Shows the client address Traefik sees (should be the tester's, not Cloudflare's). |
-| Not in this step | Moving the `443` forward; any app; the NAS mount; where each public app runs. | Step B. |
+| Route names | Each Docker host has a `routes_domain`: `int.phoenixstack.net` on `docker01`, `phoenixstack.net` on `docker02`. Pi-hole adds names only for the `int.` routes. | Public names come from Cloudflare's wildcard record; Pi-hole must not answer them. |
+| Authentik | Route `auth` on `docker02` → `https://10.101.1.41:9443`, so **`https://auth.phoenixstack.net`** works from anywhere, and it's Authentik's base URL (`auth.int` stays as a LAN and VPN entry). The admin pages (`/if/admin/`) are refused on the public name; the admin API isn't (review item S3). | Users outside need the login pages, and OIDC issuers must be the same at home and away. |
+| UDM rules | Forward "Cloudflare - 443" → `10.101.2.102:443`, from the "Cloudflare IPv4 Ranges" group, port `443` only. Rules `docker02 -> authentik01` (TCP `9443`), `docker02 -> NAS (SMB)` (TCP `445`) and the temporary `docker02 -> Docker-Temp (temporary)` ([UDM rules](#udm-rules)). `authentik01`'s own firewall also accepts `9443` from `docker02`. | `docker02` reaches only what its apps need. |
+| DNS | Nothing new: the zone's proxied wildcard record sends every name to the home address. DMZ guests ask the UDM. | |
 
-Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
+Checked (2026-11-23 and 24):
 
-1. ~~Roles: `traefik` gets the Origin CA option, trusted Cloudflare addresses and `routes_domain`; Terraform the
-   `cloudflare` firewall source; the Pi-hole template skips non-`int.` routes.~~ Written 2026-11-23, with `docker02`
-   in the inventory. Checked: `docker.yml -l docker01 --check --diff` changes only a comment and adds the unused
-   `deny-all` middleware (`traefik.yml` and the routes render as before); `docker02`'s files render with the Origin
-   CA and Cloudflare as trusted proxies; Pi-hole's list gains only `docker02` (not its public routes). The
-   Authentik base URL change waits for step 6.
-2. ~~Cloudflare: check the SSL mode is Full (strict); create the Origin CA certificate; store it in 1Password.~~
-   Done 2026-11-23: SSL mode changed from Full to **Full (strict)**; 1Password `(Cloudflare) - Origin CA Certificate`
-   (`lztixhdcrujfgcjpqkqnzq2kym`) holds two files, `origin-cert.pem` and `origin-key.pem` (ECC, valid until
-   2041-11-19). Files, not fields: 1Password's concealed fields turn PEM line breaks into spaces.
-3. ~~`tf plan`: expect `docker02` and its firewall, and `authentik01`'s firewall. Then `apply`.~~ Applied 2026-11-23
-   (4 added; changed: `authentik01`'s firewall and `docker01`'s description).
-4. ~~`apb site.yml -l docker02`; reboot if the first upgrade brought a new kernel; `apb docker.yml -l docker02`.~~
-   Done 2026-11-23 (rebooted to 6.12.118); repeat runs `changed=0`; `dns.yml` on both resolvers adds the name
-   `docker02` only. On the guest: Origin CA certificate served, `whoami` answers, `/if/admin` → `403`, unknown
-   name → `404`, `auth` → `504` until the UDM rule (step 5).
-5. ~~UniFi: the `8443` forward and the `docker02` → `authentik01` rule.~~ Done 2026-11-23: forward
-   "Cloudflare - 8443 (docker02 test)" from the "Cloudflare IPv4 Ranges" group (the same 15 ranges); rule
-   `docker02 -> authentik01` (DMZ → Services, TCP `9443`; first set with source port `9443` too, which matched
-   nothing).
-6. ~~Authentik: trusts `docker02`'s Traefik for `X-Forwarded-For`.~~ Applied 2026-11-23. **The base URL moves to
-   `auth.phoenixstack.net` with the `443` forward (Step B):** until then that name on `443` still goes to
-   docker-temp (Cloudflare `520`), and Authentik's links would point there.
-
-Done when:
-
-- [x] `tf plan` and repeat Ansible runs: no changes (2026-11-23).
-- [x] From outside (phone on mobile data, 2026-11-23): `https://whoami.phoenixstack.net:8443` answers with
-      Cloudflare's edge certificate and shows the phone's address; `https://auth.phoenixstack.net:8443` shows the
-      login page; `/if/admin/` there is refused.
-- [x] Direct to the home address on `8443` without Cloudflare: no answer (2026-11-23).
-- [x] `docker02` can't reach Services except `authentik01:9443`, nor mgmt or the client LANs (checked 2026-11-23:
-      13 targets; only `authentik01:9443` open, the UDM's admin page closed too).
-- [x] Through Cloudflare on `8443` (2026-11-23, from the LAN): `whoami` answers, `auth` shows the login flow,
-      `/if/admin/` → `403`; the home address on `8443` without Cloudflare: no answer. Still to do from a phone on
-      mobile data (done, above). `X-Forwarded-For` starts with the visitor's address; `X-Real-Ip` shows Cloudflare's.
-- [x] From the LAN: `https://auth.int.phoenixstack.net` still works; the Traefik dashboard on `docker01` too (sends
-      to the Authentik login).
-- [x] `whoami` route removed (2026-11-23: container and route file gone, repeat run `changed=0`). The `8443`
-      forward stays for now, to try each moved app on `docker02` before the `443` forward moves (Step B).
+- [x] `tf plan` and repeat Ansible runs: no changes.
+- [x] Through Cloudflare, from a phone on mobile data and from the LAN: the names answer with Cloudflare's
+      certificate; Traefik sees the visitor's address (`X-Forwarded-For`); `/if/admin/` → `403`; `http://` →
+      `301` to `https://`. Without Cloudflare, the home address doesn't answer.
+- [x] `docker02` reaches only `authentik01:9443` in Services, the NAS on `445` and docker-temp's temporary ports;
+      nothing else in mgmt or the client LANs (13 targets, 2026-11-23; the temporary ports again 2026-11-24).
+- [x] From the LAN, `auth.int` and the Traefik dashboard on `docker01` still work; the dashboard sends to the
+      Authentik login on `auth.int`, where the YubiKeys are registered.
 
 ### Moving the public apps
 
-Step B (designed 2026-11-23): the `443` forward moves to `docker02` first, then the public apps follow one at a
-time, Audiobookshelf first. Until every public app has moved, the public Traefik forwards to docker-temp through a
-temporary rule, so the internet stops reaching mgmt the day the forward moves.
+Step B (designed 2026-11-23): the `443` forward moved to `docker02` first; the public apps follow one at a time.
+Until the last one has moved, the public Traefik reaches docker-temp through the temporary rule, now only for
+Immich (`2283`), IT-Tools (`8081`) and Mealie (`9925`); the rule goes with the last.
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Where | Every public app runs on **`docker02`** (decided 2026-11-23). | A broken app reaches only the DMZ. |
-| Databases | Each app keeps its own, inside its stack on `docker02`: SQLite (Audiobookshelf, Mealie), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
-| NAS | **Read-only** (decided 2026-11-23), mounted inside `docker02` at `/mnt/nas/media` by the role `nas_mount` (below) as its own NAS user **`svc_docker02`**, read-only on `Media` (1Password `(UNAS) - svc_docker02`, `cxeg5kim7a3wfgxhhs4najt4ye`). UDM rule `docker02 -> NAS (SMB)`: TCP `445`, to the NAS only. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
-| Podcasts | **A NAS share of their own, `Podcasts`** (decided 2026-11-24; was `docker02`'s own disk, decided 2026-11-23): 32 GB of mostly complete archives, growing. `svc_docker02` may read and write it (only it), mounted at `/mnt/nas/podcasts` for Audiobookshelf's uid `2001` only (`nas_mount`: `rw: true, owner: 2001`). The share reports 94 GB. Disk stays 128 GB. | They need writing, and `Media` stays read-only. On the disk they'd go into every nightly guest backup. The DMZ's only write to the NAS: one share, of data that can be downloaded again. |
+| Where | Every public app runs on **`docker02`** (decided 2026-11-23), as a stack of role `apps`. | A broken app reaches only the DMZ. |
+| Databases | Each app keeps its own, inside its stack: SQLite (Audiobookshelf, Mealie), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
+| NAS | **Read-only** `Media` (decided 2026-11-23), mounted inside `docker02` at `/mnt/nas/media` (role `nas_mount`, below) as its own NAS user **`svc_docker02`** (1Password `(UNAS) - svc_docker02`), which may only read it on the NAS too. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
+| Writable shares | **One share per app that must write**, read-write for `svc_docker02` only (`nas_mounts`: `rw: true`, `owner` = the app's uid). First: `Podcasts` (decided 2026-11-24), 32 GB of mostly complete archives, growing; the share reports 94 GB. | `Media` stays read-only. On `docker02`'s disk they'd go into every nightly guest backup. Each writable share holds data its one app can download or rebuild. |
 | App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
 | Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. Until then its files sit in `Media`, which `docker02` can read (accepted, below). | `Media` stays read-only. |
-| `8443` forward | Deleted when `443` moved (2026-11-24). From then on, a moved app is tried under a temporary name on `443`. | |
-| Admin tools | Not reachable from outside once `443` moves (LAN and VPN only, decision 3). Until they're on `docker01`, admins use docker-temp's address and port. | |
+| Not published | Calibre (its basic auth lived in docker-temp's Traefik) and `absdev`, agreed 2026-11-24: admins reach them, and the admin tools, at `10.101.0.166:<port>` until they move to `docker01` (LAN and VPN only, decision 3). MyBibliotheca: deleted 2026-11-24; a fresh install if it comes back. | |
+| Names | Kept as on docker-temp (`immich-p`, `meal`, `tools`) until each app moves, then renamed after the app. | Phones and bookmarks keep working meanwhile. |
 
 Steps (each dry-run first):
 
-1. ~~**Prepare** (nobody notices)~~ Done 2026-11-23: `docker02`'s disk 128 GB (root filesystem 126 GB, grown with
-   `sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1` after `tf apply`); the NAS user and its 1Password item;
-   the UDM rule `docker02 -> NAS (SMB)` (by Aaron); the mount role, applied and checked (below); Audiobookshelf's
-   backups working again on docker-temp, and one made by hand (a copy also on Aaron's laptop).
-2. ~~**Move the `443` forward:** a route on `docker02` for each public app, pointing at docker-temp for now; the
-   temporary rule `docker02` → docker-temp, those ports only; Authentik's base URL → `auth.phoenixstack.net`; the
-   forward → `docker02`, Cloudflare only; the `8443` forward deleted. Test every public name from a phone on mobile
-   data.~~ Done 2026-11-24 (below).
-   - 2026-11-24: rule in place; routes `abs` (83), `immich-p` (2283), `meal` (9925), `tools` (8081), `bibliotheca`
-     (5054) on `docker02`, applied. Through Cloudflare on `8443`: all five answer, Audiobookshelf's `/ping` and
-     socket, Immich's ping; other docker-temp ports stay closed to `docker02`. Not published after the switch
-     (agreed): Calibre (its basic auth lived in docker-temp's Traefik) and `absdev`; admins reach them, and the
-     admin tools, at `10.101.0.166:<port>`. Names kept as today (`immich-p`, `meal`, `tools`); each is renamed
-     when its app moves.
-   - 2026-11-24, the switch: Cloudflare's **Always Use HTTPS** turned on (it was off: plain `http://` reached the
-     origin and failed with `522`) and SSL mode **Full (strict)**. UniFi forward "Cloudflare - 443" →
-     `10.101.2.102:443`, port `443` only (`80`, `81`, `444` gone), Cloudflare's addresses only; the `8443` forward
-     deleted. Authentik's base URL → `https://auth.phoenixstack.net` (applied, healthy).
-   - [x] Through Cloudflare on `443` (from the LAN, IPv4): `abs` `/ping` and socket, `immich-p` ping, `meal`,
-         `tools` → `200`; `bibliotheca` → its login page; `auth` → the login flow, `/if/admin/` → `403` (so it's
-         `docker02` answering); `http://` → `301` to `https://`; `:8443` → `522`.
-   - [x] Admin forward-auth on `docker01` (Traefik dashboard) still sends to `auth.int.phoenixstack.net`, where the
-         YubiKeys are registered.
-   - [x] From a phone on mobile data (Aaron, 2026-11-24): the names in a browser, and the Audiobookshelf app.
-   - 2026-11-24, later: **MyBibliotheca deleted** (Aaron undecided whether to keep it; if so, rebuilt from scratch).
-     On docker-temp: container, image, `appdata/bibliotheca` (1.2 GB), its compose file and `include` line, its
-     Traefik rule, its three `.env` lines, the empty backups folder; the rest of docker-temp checked (compose file
-     parses, 19 containers up). Route `bibliotheca` removed from `docker02` (now `404`). `5054` out of the
-     temporary rule (Aaron). DNS: `bibliotheca` resolves only through the `*.phoenixstack.net` wildcard (a
-     made-up name gets the same answer); Cloudflare lists no record of its own (Aaron: wildcard only).
-3. ~~**Move Audiobookshelf** (the pilot, below).~~ Done 2026-11-24 (evening, Denver; 01:47–01:50 UTC on the 25th):
-   - Role **`apps`** (new, in `docker.yml` after `traefik`): one compose stack per app in `/opt/stacks/<app>`, listed per
-     host in the inventory (`apps: [audiobookshelf]`), settings in `roles/apps/defaults/main.yml`; Traefik reaches it
-     over the `proxy` network (route `abs` → `http://audiobookshelf:80`). Runs as uid `2001` (no account on the
-     host; uid 1000 is `aaron` there), no capabilities, healthcheck on `/healthcheck`.
-   - Image `2.37.2` pinned: the same digest docker-temp ran as `latest` (`b897c33f…`).
-   - Podcasts: on docker-temp they were on the NAS (`Media/Podcasts`), not local. Copied from the NAS by `docker02`
-     itself (32 GB, 513 files, 193 s), then the files changed since, at the switch. The same evening (decision
-     above), moved again to the new share `Podcasts` (copy 390 s while it ran; the switch 02:16–02:17 UTC, 44 s):
-     healthy, 513 files, `/podcasts` writable. The local copy deleted after Aaron's test, and the frozen
-     `Media/Podcasts` on the NAS (Aaron).
-   - The switch: Audiobookshelf stopped on docker-temp (`docker stop`, so it stays stopped after a reboot);
-     `config` (32 MB) and `metadata` (776 MB) streamed docker-temp → laptop → `docker02` (`tar` over SSH; no rsync
-     on `docker02`); `apb docker.yml -l docker02` started it and moved the route. Offline about 2 minutes.
-   - [x] Through Cloudflare: `/ping`, `/healthcheck`, `/status` (`2.37.2`), the socket. Container healthy, no
-         restarts; database "already up to date" (no migration); 372 entries in `/audiobooks` (read-only: writing
-         fails), 5 podcasts; its backups came along in `/metadata/backups`.
-   - [x] Aaron (2026-11-24): logged in on the web and in the phone app, played, progress kept.
-   - Library scans: Audiobooks nightly at midnight (`0 0 * * *`, set by Aaron 2026-11-24; the watcher can't see
-     what Libation writes over SMB). App containers run on local time since the same evening: `TZ` from the inventory's
-     `app_timezone` (`America/Denver`), so that midnight, and the 01:30 backup, are Denver time (they were UTC).
-   - **Time zones** (Aaron, 2026-11-24): **UTC for critical systems**, local time only for user-facing apps
-     without a hard dependency on UTC. Guests' clocks (`timezone: Etc/UTC`, role `base`; all six moved the same
-     night), PostgreSQL (`timezone`, `log_timezone`), Traefik and Authentik run on UTC; app containers (role `apps`)
-     on `app_timezone`. The move to UTC ran one extra database dump at 04:16 UTC (the timer saw 00:30 as missed;
-     it succeeded). pve01 followed the same night (`pve-bootstrap.sh`, stages `system`, `pbs`, `backups`): clock UTC, `nightly-pbs` 08:00, `nightly-nas` 10:30, PBS prune 11:00, GC 11:30, verify Saturdays 12:00, all UTC: the same Denver night as before (an hour later in summer). The script now also updates existing PBS jobs' schedules, and moves Debian's monthly ZFS trim and scrub to Sundays 13:24 UTC (they'd have run Saturday evenings in Denver).
-   - **Rollback:** `docker start audiobookshelf` on docker-temp and the route `abs` back to `http://10.101.0.166:83`;
-     anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
-   - `83` out of the temporary UDM rule (with `5054`; Aaron, 2026-11-24, checked closed). `absdev` stays on
-     docker-temp, offline from the internet (agreed).
-4. ~~**Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12). Rehearsed first on
-   its staging copy (below).~~ Done 2026-11-24 (Denver evening; 03:48 UTC on the 25th, 14 s offline):
-   - Authentik: OIDC client `abs` from the route's `oidc` entry on `docker02` (`authentik Admins`, `Family`).
-   - Audiobookshelf (stopped, database copied first to `/opt/stacks/audiobookshelf/rollback/`, root only):
-     Microsoft 365's 4 links and its settings removed; `Aaron Young`'s email → his Authentik address
-     (his work address); OpenID → Authentik as on staging (client `abs`, match by email, no auto-register, button
-     "Sign in with PhoenixStack"); local login kept. Healthy; the button leads to Authentik's login page.
-   - Still to do (Aaron): each person's Authentik user (clean username, email = their Google address, group
-     `Young` or `Porter`), checking their Audiobookshelf email matches (the list of accounts is on Aaron's laptop,
-     not in this repo); Microsoft 365's app registration for Audiobookshelf deleted in Entra.
-   - Staging deleted the same night (it had done its job): inventory entries, its route and DNS name, the
-     `abs-staging` client and app in Authentik (a blueprint doesn't delete what it created), the stack, its data
-     and image on `docker01`.
-   - **Rollback:** stop Audiobookshelf, put the copy back as `config/absdatabase.sqlite` (owner `2001`), start.
-5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
+1. ~~Prepare~~ Done 2026-11-23: the disk, the NAS user, `docker02 -> NAS (SMB)`, the role `nas_mount`, and
+   Audiobookshelf's own backups working again on docker-temp.
+2. ~~Move the `443` forward~~ Done 2026-11-24: routes to docker-temp for each public app, the temporary rule,
+   Authentik's public base URL, then the forward; the `8443` test forward deleted.
+3. ~~Move Audiobookshelf~~ Done 2026-11-24, about 2 minutes offline ([Audiobookshelf](#audiobookshelf)).
+4. ~~Its logins through Authentik~~ Done 2026-11-24, rehearsed first on a staging copy ([Staging](#staging));
+   14 seconds offline.
+5. **Next:** Immich, Mealie, IT-Tools, one at a time, with the checklist below.
+
+#### Moving an app
+
+From the Audiobookshelf move. Each step dry-run first; the switch in the quietest hours (for Audiobookshelf,
+01:00–05:00 Denver).
+
+1. **Read it on docker-temp**, read-only: its compose file and mounts, image digest, container user, data sizes,
+   its own backups and schedules, its login settings. Note which folders change (database, uploads, downloads),
+   and which live on the NAS: Audiobookshelf's podcasts did, not on docker-temp's disk.
+2. **Decide where its data goes:** app data on `docker02`'s disk in `/opt/stacks/<app>`; files it only reads, from
+   `Media`; files it writes on the NAS, on a share of its own (Aaron creates it, read-write for `svc_docker02`).
+3. **Code it:** an `apps_catalog` entry (its own uid, with no account on the host: uid 1000 is `aaron`; its
+   folders; the version whose **digest matches** docker-temp's) and `templates/<app>/compose.yml.j2` with **the
+   same paths inside the container**, `TZ: {{ app_timezone }}`, no capabilities and a healthcheck. Dry-run with
+   `-e '{"apps": ["<app>"]}'` before it goes into the inventory.
+4. **Copy while it runs:** the big data first, NAS to NAS on `docker02` itself, or through the laptop with `tar`
+   over SSH (`docker02` has no rsync; 776 MB took about a minute).
+5. **Switch:** stop it on docker-temp (`docker stop`, so it stays stopped after a reboot); copy what changed; add it
+   to the inventory's `apps` and point its route at `http://<app>:<port>`; `apb docker.yml -l docker02`. Check its
+   health, log, mounts (read-only where expected, writable where needed), then the app on a phone.
+6. **Close the door:** Aaron removes its port from the temporary rule; check from `docker02` that it's closed.
+7. **Logins:** through Authentik where the app does OIDC (an `oidc` entry on its route,
+   [above](#apps-with-their-own-login-oidc-and-google-sign-in)), rehearsed on a staging copy first.
+8. **Rollback** until it's settled: start it on docker-temp and point the route back. A week later, delete the
+   rollback copies.
+
+#### Audiobookshelf
+
+On `docker02` since 2026-11-24.
+
+| Area | State |
+| --- | --- |
+| Stack | `/opt/stacks/audiobookshelf` (role `apps`); image `2.37.2`, the digest docker-temp ran as `latest`; uid `2001`, no capabilities, healthcheck `/healthcheck`; route `abs` → `http://audiobookshelf:80`. |
+| Files | `config` and `metadata` on `docker02`'s disk; `/audiobooks` read-only from `Media/Books/Audiobooks`; `/podcasts` read-write on the share `Podcasts`. |
+| Schedules | Library scan of Audiobooks nightly at midnight, Denver time (the folder watcher can't see what Libation writes over SMB); its own backup nightly at 01:30 into `/metadata/backups`. |
+| Logins | "Sign in with PhoenixStack": Authentik client `abs` (`authentik Admins`, `Family`), matching existing accounts by **email**, no auto-register. Local logins stay, for e-readers, the API accounts and people without a Google Account. Microsoft 365's links and settings were removed. |
+| Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on Aaron's laptop, not in this repo. |
+| Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), and docker-temp's stopped copy (`docker start audiobookshelf`, the route back to `http://10.101.0.166:83`). `absdev` stays on docker-temp, offline from the internet. |
 
 ### Staging
 
-Decision 11's app staging, built with Audiobookshelf on 2026-11-24 (Denver evening): **`abs-staging.int.phoenixstack.net`**
-on `docker01`, admin sources only, version `2.37.2` (production's, for now: the first use is rehearsing step 4).
-Deleted the same night after the rehearsal; the design and steps below are for the next one.
+Decision 11's app staging: a copy on `docker01`, built for one test and deleted after it. Used once, on
+2026-11-24, to rehearse Audiobookshelf's switch to Authentik.
 
 | Area | Design (2026-11-24) | Why |
 | --- | --- | --- |
-| Where | `docker01` (Services), LAN and VPN only, `admin_only` route. In the inventory: `apps_staging: [{app, version}]` on `docker01`; role `apps` deploys stack `<app>-staging` from the same template (`stack.staging`). | Never public; the same template as production, so staging tries what production will run. |
+| Where | `docker01` (Services), LAN and VPN only, `admin_only` route `<app>-staging`. In the inventory: `apps_staging: [{app, version}]` on `docker01`; role `apps` deploys stack `<app>-staging` from the same template (`stack.staging`). | Never public; the same template as production, so staging tries what production will run. |
 | Data | Restored from production's **latest backup**, by hand, before the first start (so no empty instance is ever reachable). | Decision 11. Production's data is never touched. |
 | Getting the backup there | Through the laptop: `docker02` → laptop → `docker01` over SSH. | Services can't reach the DMZ; no new firewall rule. |
-| Media | **None yet** (Aaron, 2026-11-24): `docker01` has no NAS access. `/audiobooks` and `/podcasts` are empty, read-only folders: books show, nothing plays. Media comes when `docker01` gets the NAS (the *arr apps need it), before the first version upgrade is tested there. | Enough for logins; no new NAS user or rule now. |
-| Side effects | Switched off in the copy's database before it starts: podcast auto-download, the nightly backup, the folder watcher. Email settings kept (sending only on a user's action). | A copy must not download, write backups or act on its own. |
-| Scrubbing | None: the copy holds the 34 accounts and their history, admins only. | It's deleted after use. |
-| Lifetime | **Temporary.** Built for a test, deleted (`apps_staging` entry, route, `dns.yml`, then `/opt/stacks/<app>-staging`) once the change is in production. | Nothing to patch or keep in step in between. |
-| Logins | Its own OIDC client in Authentik when step 4 is rehearsed (redirect `abs-staging.int…`). Sessions copied from production stay valid here (same signing key). | Production's client never points at staging. |
+| Media | **None yet** (Aaron, 2026-11-24): `docker01` has no NAS access. The NAS folders are empty, read-only stand-ins: items show, nothing plays. Media comes when `docker01` gets the NAS (the *arr apps need it), before the first version upgrade is tested there. | Enough for logins; no new NAS user or rule now. |
+| Side effects | Switched off in the copy's database before it starts (for Audiobookshelf: podcast auto-download, the nightly backup, the folder watcher). | A copy must not download, write backups or act on its own. |
+| Scrubbing | None: the copy holds the accounts and their history, admins only. | It's deleted after use. |
+| Lifetime | **Temporary:** deleted once the change is in production: the `apps_staging` entry and the route, `dns.yml`, its client in Authentik (a blueprint doesn't delete it), then `/opt/stacks/<app>-staging` and its image. | Nothing to patch or keep in step in between. |
+| Logins | Its own OIDC client (an `oidc` entry on its route). Sessions copied from production stay valid in the copy (same signing key). | Production's client never points at staging. |
 
 Restore (Audiobookshelf; dry runs first):
 
-1. `apb docker.yml -l docker01 --check --diff` with the `apps_staging` entry and the `abs-staging` route.
+1. `apb docker.yml -l docker01 --check --diff` with the `apps_staging` entry and the `<app>-staging` route.
 2. Before applying, the latest backup (`/opt/stacks/audiobookshelf/metadata/backups/*.audiobookshelf` on `docker02`)
    through the laptop to `docker01`, unpacked into `/opt/stacks/audiobookshelf-staging` as Audiobookshelf restores
    it: `absdatabase.sqlite` → `config/`, `metadata-items/` → `metadata/items/`, `metadata-authors/` →
    `metadata/authors/`; owner `2001`, folders `0750`.
 3. In the copy's database: `podcasts.autoDownloadEpisodes` 0; `server-settings`: `backupSchedule` false,
    `scannerDisableWatcher` true.
-4. `apb docker.yml -l docker01`, then `apb dns.yml -l dns01` and `-l dns02` (one at a time; `dns.yml`'s dry run
-   can't show the names: the Pi-hole role applies its settings only for real).
+4. `apb docker.yml -l docker01`, then `apb dns.yml -l dns01` and `-l dns02`, one at a time. `dns.yml`'s dry run
+   can't show the names (the Pi-hole role applies its settings only for real), so check each resolver answers.
 
-- [x] 2026-11-24: backup `2026-11-25T0130` (made on docker-temp, `2.37.2`) restored: database 32 MB, metadata
-      189 MB. Started healthy, quiet log (no downloads, backups or scans); both resolvers answer; `/ping`, `/status`
-      over HTTPS from the laptop.
+### The NAS mount
 
-Step 4 rehearsal on staging (2026-11-24, Denver evening):
-
-- Authentik, as code (role `authentik`): blueprint `PhoenixStack - People and Google sign-in` (groups `Family`,
-  `Young`, `Porter`; Google source, `email_link`, no enrollment flow; its own login flow
-  `phoenix-source-authentication` in "all" mode: from Google **and** not in `authentik Admins`; the Google button
-  on the login page) and `PhoenixStack - OIDC apps` (an OIDC client per route with `oidc` in the inventory;
-  Authentik generates the secret; a scope mapping that sends `email_verified: true`, which Authentik's own doesn't).
-  Google's client in `.env.google` (root only), from 1Password `(Google Cloud) - Authentik sign-in`.
-- Lessons: Authentik's default source flow runs in "any" mode, so a policy added there doesn't block anyone (hence
-  the own flow); a blueprint's OAuth2 provider needs `grant_types` listed (empty otherwise: "Invalid grant_type",
-  shown by Audiobookshelf as "Error in callback"); Audiobookshelf accepts return URLs only under
-  `/audiobookshelf/`.
-- Staging Audiobookshelf: Microsoft 365's settings and its 4 links removed; OpenID → Authentik (issuer
-  `https://auth.phoenixstack.net/application/o/abs-staging/`, client `abs-staging`, secret piped from Authentik,
-  never shown), button "Sign in with PhoenixStack", match existing users by **email**, no auto-register; local
-  login kept.
-- [x] Admin path: `aaron` (password + TOTP; YubiKeys are registered on `auth.int`) → his Audiobookshelf account,
-      once its email matched (it was a different address: "User not found", then "Unauthorized").
-- [x] Google path (a non-admin user), the admin block on Google, the phone app over VPN (Aaron, 2026-11-24: successful).
-
-The NAS mount (role `nas_mount` in `docker.yml`, for hosts with `nas_mounts`; **applied 2026-11-23**):
+Role `nas_mount` in `docker.yml`, for hosts with `nas_mounts` (since 2026-11-23):
 
 - `cifs-utils`; `/etc/nas/credentials` (root, `0600`): the NAS user, and its password read once from 1Password.
-  Per share a systemd `.mount` and `.automount` unit (`mnt-nas-media`). Options: `ro`, SMB `3.1.1`, `soft`, files
-  `0444` and folders `0555` for everyone, `noexec,nosuid,nodev`; a mount attempt gives up within 30 s.
+  Per share a systemd `.mount` and `.automount` unit (`mnt-nas-media`). Options: SMB `3.1.1`, `soft`,
+  `noexec,nosuid,nodev`; read-only shares `ro`, files `0444` and folders `0555`; writable shares (`rw: true`,
+  `owner`) `rw`, files `0640` and folders `0750`, for that uid only. A mount attempt gives up within 30 s.
 - Mounted on first use, then kept. The guest boots without the NAS, and a container that starts while the NAS is
   away fails to start rather than finding an empty folder.
 - **What `docker02` can read:** all of `Media`, since the NAS sets permissions per share. That includes
@@ -876,53 +811,20 @@ The NAS mount (role `nas_mount` in `docker.yml`, for hosts with `nas_mounts`; **
   `Media`, and Immich on `docker02` holds that data anyway. Narrower later: a `Books` share instead of `Media` for
   `docker02`, with Calibre's redesign.
 - To rotate the password: change it on the NAS and in 1Password, delete `/etc/nas/credentials`, run
-  `apb docker.yml -l docker02`; stop the apps using the share, `sudo systemctl stop mnt-nas-media.mount`, start
-  them again (the share mounts again on first use).
+  `apb docker.yml -l docker02`; stop the apps using the shares, stop each `mnt-nas-*.mount`, start the apps again
+  (the shares mount again on first use).
+- [x] Checked 2026-11-23 for `Media`: with the NAS away, a listing fails after 10 s and a container using the share
+      refuses to start; writes are refused by the mount and by the NAS; `Backups` and `Porter` can't be mounted;
+      only `445` answers; the mount survives a reboot. 2026-11-24 for `Podcasts`: uid `2001` writes, `aaron`
+      can't list it.
 
-Done when (all checked 2026-11-23):
+### docker-temp: what's left to move
 
-- [x] Applied to both Docker hosts (`docker02`: the role's six changes; `docker01`: nothing from it); a repeat run
-      `changed=0` on both.
-- [x] NAS away (the UDM rule already existed, so a temporary block on `docker02` itself): `ls /mnt/nas/media` fails
-      after 10 s with "No such device"; a container with a folder from the share refuses to start; nothing is
-      created under the mount point. Unblocked, the share mounts on first use.
-- [x] `ls /mnt/nas/media/Books/Audiobooks` lists the books (372 entries); `touch` there: "Read-only file system".
-- [x] The NAS refuses `svc_docker02` too: on a test mount of `Media` with `rw`, a write gets "Permission denied";
-      `Backups` and `Porter` can't be mounted ("Permission denied").
-- [x] From `docker02`, the NAS answers on `445` only (`22`, `80`, `139`, `443`, `8443`, `9443`: no answer).
-- [x] After a reboot of `docker02`: the automount is active, the share mounts on first use, Traefik is up.
+Read 2026-11-23: a Deployrr layout in `~/docker` (one compose file including one file per app, `appdata/`,
+Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools). Its user
+`svc_docker` has no passwordless `sudo`, but is in the `docker` group. Since 2026-11-24 the internet doesn't reach
+it; `docker02` reaches only the temporary rule's ports.
 
-Moving Audiobookshelf without listeners noticing:
-
-- **Same version** (`2.37.2`, pinned) and **the same paths inside the container** (`/config`, `/metadata`,
-  `/audiobooks`, `/podcasts`): its database stores file paths. Upgrades come afterwards, through staging (decision 11).
-- **Before:** on docker-temp, the libraries' "store covers with item" off (new covers go to `/metadata`; existing
-  ones stay readable; **done 2026-11-24** by Aaron). Copy `/metadata` (409 MB then; 776 MB at the move) and the podcasts to `docker02` while
-  it runs.
-- **The switch**, about five minutes in the quietest hours (08:00–12:00 UTC, 01:00–05:00 in Denver, over the last 60
-  days): stop it on docker-temp; copy what changed in `/config`, `/metadata` and the podcasts; start it on `docker02`
-  and check; point the route `abs` at it.
-- **Users:** the database carries the accounts, progress, bookmarks, the key that signs logins and every phone's
-  login, so nobody logs in again. Phones keep playing from their buffer and sync progress when the server answers.
-- **Library scans on a schedule:** the folder watcher can't see files that other machines write over SMB (Libation).
-- **Rollback:** point the route back at docker-temp and start it there; anything since the switch is lost.
-
-docker-temp today (read 2026-11-23): Deployrr layout in `~/docker` (one compose file including one file per app,
-`appdata/`, Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools).
-Its Traefik has internal (`80`/`443`) and external (`81`/`444`) entry points, but the UDM forwards the internet's
-`443` to the internal one, so LAN-only routes (e.g. glances) answer from outside, behind basic auth. Fixed the
-same day: `8080` (Traefik's dashboard and API without a login, `--api.insecure`) taken out of the forward by
-Aaron; checked closed through Cloudflare. Stale: the `amp` route (AMP-TEMP deleted).
-
-Also found 2026-11-23:
-
-- Audiobookshelf's nightly backups **fail** (`EACCES` on `/backups`, every night in its logs since at least
-  2026-11-21): docker-temp's `/mnt/pve/cifs-backups` hasn't been a NAS mount since pve01's rebuild, just a folder.
-  Its newest backup of its own is an older one in `/metadata/backups`. (MyBibliotheca's pointed at the same
-  folder.) Fix before the move: backup location `/metadata/backups`, then a backup by hand. (docker-temp itself is in
-  the nightly guest backups.) **Fixed 2026-11-23** for Audiobookshelf (by Aaron): location `/metadata/backups`, a
-  backup made by hand, and a copy kept on his laptop.
-- Audiobookshelf: 34 accounts; 14 listened in the last 90 days, 19 in the last year, 15 never.
 - Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
   video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
   from the `Porter` share (`PhotoArchive`) as an external library. Server `v3.1.0` but machine learning `v2.5.3`:
@@ -948,7 +850,7 @@ Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
 - [x] Failover: with either resolver stopped, the other answers at once; with both stopped, internal names fail and
       public names still resolve.
 - [x] A phone rejoined the Young Wi-Fi: DNS `10.1.1.254`, websites load.
-- [ ] A day later: Pi-hole's logs show the UDM's queries, and nothing broke for the household.
+- [x] Pi-hole's logs show the UDM's queries (914 a day to each resolver, checked 2026-11-24), and nothing broke for the household.
 
 ### Porter LAN
 
@@ -989,77 +891,77 @@ Done when:
       `https://pve01.int.phoenixstack.net:8006` opens without a certificate warning.
 - [ ] A day later: nothing broke for the Porter household.
 
-## Open decisions
+## Decisions by number
 
-1. ~~Cloudflare in front of the public web apps (proxy or tunnel), or DNS only?~~ Settled 2026-11-23: **proxy**, as
-   today; the `443` forward accepts Cloudflare's addresses only. The public Traefik uses a **Cloudflare Origin CA**
-   certificate, so no Cloudflare API token sits on the internet-facing host (a stolen zone token could redirect any
-   name, mail included).
-2. Plex, Jellyfin, or both?
-3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)? Started 2026-11-23
-   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, Calibre. MyBibliotheca: deleted 2026-11-24 (container, data, settings, route); if it comes back, a fresh install. Admins only
-   (Aaron and Ben, for now): the *arr apps, libraforge, libation, metube, glances. These are **LAN and VPN only**
-   (`<app>.int.phoenixstack.net` on `docker01`), reached from outside over Teleport, not published (decided
-   2026-11-23). Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). Calibre: later,
-   maybe a fresh design rather than a move. Not moved: the Audiobookshelf dev copy (`absdev`). Logins: each app's **built-in OIDC** with
-   Authentik wherever it has one (as on docker-temp today), forward-auth only for browser-only apps without it.
-   Authentik's public name: **`auth.phoenixstack.net`** (through the public Traefik). When Audiobookshelf moves,
-   its existing users must carry over as seamlessly as possible (e.g. matching them to Authentik by username or
-   email through OIDC claim mapping): design that with the move. Found 2026-11-23: Audiobookshelf has OIDC set
-   up against **Microsoft 365** (Entra ID), switched off, with 4 users linked; Immich uses password logins (none
-   linked); docker-temp has no Authentik. **Microsoft 365 isn't used for user logins** (decided 2026-11-23): its
-   setup in Audiobookshelf and its app registration in Entra go when Audiobookshelf switches to Authentik
-   (decision 12).
-4. AI tier code (proposed 12, `.121`).
-5. ~~A second Pi-hole off pve01~~ Settled 2026-11-21: `dns02` on pve01 for guest maintenance; off-host DNS will be a Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
-6. Monitoring (uptime and service alerts): which zone and when.
-7. Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
-8. Authentik audiences (groups) for non-admin users. **Settled 2026-11-23: `Family`, with `Young` and `Porter` below
-   it**, to start. The proposal (2026-11-22): groups
-   describe people, not apps; nested households, `Family` with `Young` and `Porter` below it (a binding to a group
-   also admits its child groups), plus outside audiences if needed (`Guests`?). Group definitions in a blueprint,
-   memberships in the UI; routes get a list, `authentik_groups`. New users by invitation link or created by hand.
-9. **Ad blocking**, together with the off-host Pi-hole at Porter (decided 2026-11-22: roadmap, not now). Household
-   networks use the UDM, which forwards only `int.phoenixstack.net` to Pi-hole (LAN-wide DNS rollout, 2026-11-22),
-   so a pve01 outage doesn't take the household's DNS down. Ad blocking needs Pi-hole to see every query: once the
-   Porter Pi-hole exists, switch household networks to Pi-hole directly (DHCP DNS + a LAN → Services port 53
-   rule), for per-device logs and blocklists. Networks that shouldn't depend on Pi-hole (IOT, guests) keep the UDM.
-10. **SIEM / central logs** (roadmap 2026-11-22, after the core services; decide together with 6). Sources: the UDM's
-   firewall log, pve01, guests' journals, Authentik events, Traefik access logs, Pi-hole queries. First decide the
-   scope: log aggregation with alerts (e.g. Grafana + Loki, shared with monitoring) or a full SIEM (e.g. Wazuh:
-   agents, detection rules, a search index, much heavier). Tier 08 (`.81`) is the monitoring tier. Until then logs
-   stay local (guest journals capped at 200 MB).
-11. **Testing before production** (decided 2026-11-23; pilot: Audiobookshelf). Image versions are pinned in git,
-    so going to a new version is a change to its pin, tried somewhere else first. Two levels:
-    - **App staging:** a copy of the app on `docker01` as `<app>-staging.int.phoenixstack.net` (LAN and VPN only,
-      never public), on the candidate version, with a **copy** of production's data restored from its latest
-      backup; it never touches production's data or database. Once it works, change the production pin in git
-      and apply. In the inventory: a staging flag on the route, which the roles understand.
-    - **Test guests:** for changes to roles, Terraform or a whole host, a throwaway guest in tier 99
-      (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
-    - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
-      drifts from production.
-    - Designed with the pilot (2026-11-24): see [Staging](#staging). Still to design there: the staging app's own
-      OIDC client in Authentik (with step 4's rehearsal).
-12. **Users log in with their Google account, through Authentik** (decided 2026-11-23). Authentik is the one place
-    that says who a person is (username, email, groups); the Google account is only the key they prove it with,
-    and the apps only ever see Authentik. Each person is created by hand (a clean username such as `aaron.young`,
-    email = the address they sign in to Google with, group); their first Google login links to that user by email.
-    No open sign-up: an unknown account gets nothing. Each app keeps one local admin (break-glass), and local logins
-    for clients that can't do OIDC (e-readers, scripts) and for people without a Google Account (they keep their
-    app username and password). **Audiobookshelf matches by email** (changed 2026-11-24 from "by username": its
-    usernames are display names with spaces, which Authentik doesn't allow in usernames): each person's
-    Audiobookshelf email must equal their Authentik email, and for Google users that's their Google Account's
-    address (any address; a Google Account doesn't need Gmail). Admins' Authentik emails stay as they are (Aaron's:
-    his work address; his Audiobookshelf email changes to it at the switch). Its 4 Microsoft 365 links
-    are removed first, since it refuses a second link. Users can't change their own email in Authentik (off by
-    default), so nobody can take over an unlinked account. The list of people stays out of this repo.
-    - **Providers: Google only** (decided 2026-11-23): free, and the simplest to set up. Not now: Apple (needs a
-      paid Apple Developer account, and can hide the email), Facebook (a Meta app in Live mode), Plex (can admit
-      only accounts our Plex server is shared with).
-    - **MFA** (decided 2026-11-23): Google logins rely on Google's own sign-in security, with no Authentik MFA on
-      top. **Admins never log in with Google**, only with their password and a YubiKey (the exception to L5e's
-      MFA for every account).
+Each keeps its number: code comments and the other docs refer to them ("decision 11").
+
+### Open
+
+- **2.** Plex, Jellyfin, or both?
+- **3.** Which docker-temp apps are public (on `docker02`) and which LAN and VPN only (on `docker01`)? Started
+  2026-11-23, not exhaustive:
+  - Public, for every user: Audiobookshelf (moved 2026-11-24), Plex, Immich, Mealie, IT-Tools, Calibre (later,
+    maybe a fresh design rather than a move). MyBibliotheca was deleted 2026-11-24.
+  - Admins only (Aaron and Ben, for now), **LAN and VPN only** (`<app>.int.phoenixstack.net` on `docker01`),
+    reached from outside over Teleport, never published (decided 2026-11-23): the *arr apps, libraforge, libation,
+    metube, glances.
+  - Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). `absdev` doesn't move.
+  - Logins: each app's **built-in OIDC** with Authentik wherever it has one, forward-auth only for browser-only apps
+    without it. Immich has password logins today (7 users, none linked to anything).
+- **4.** AI tier code (proposed 12, `.121`).
+- **6.** Monitoring (uptime and service alerts): which zone and when.
+- **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
+
+### Roadmap (decided: later)
+
+- **9. Ad blocking**, together with the off-host Pi-hole at Porter (decided 2026-11-22). Household networks use the
+  UDM, which forwards only `int.phoenixstack.net` to Pi-hole, so a pve01 outage doesn't take the household's DNS
+  down. Ad blocking needs Pi-hole to see every query: once the Porter Pi-hole exists, switch household networks to
+  Pi-hole directly (DHCP DNS + a LAN → Services port 53 rule), for per-device logs and blocklists. Networks that
+  shouldn't depend on Pi-hole (IOT, guests) keep the UDM.
+- **10. SIEM / central logs** (2026-11-22, after the core services; decide together with 6). Sources: the UDM's
+  firewall log, pve01, guests' journals, Authentik events, Traefik access logs, Pi-hole queries. First decide the
+  scope: log aggregation with alerts (e.g. Grafana + Loki, shared with monitoring) or a full SIEM (e.g. Wazuh:
+  agents, detection rules, a search index, much heavier). Tier 08 (`.81`) is the monitoring tier. Until then logs
+  stay local (guest journals capped at 200 MB).
+
+### Settled
+
+- **1. Cloudflare's proxy** in front of the public web apps (settled 2026-11-23): the `443` forward accepts
+  Cloudflare's addresses only, and the public Traefik uses a **Cloudflare Origin CA** certificate, so no Cloudflare
+  API token sits on the internet-facing host (a stolen zone token could redirect any name, mail included).
+- **5. DNS on pve01** (settled 2026-11-21): `dns02` on pve01 covers guest maintenance; off-host DNS will be a
+  Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin
+  machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
+- **8. Authentik audiences** (settled 2026-11-23, built 2026-11-24): `Family`, with `Young` and `Porter` below it.
+  Groups describe people, not apps; a binding to a group also admits its child groups; outside audiences
+  (`Guests`?) if needed. Group definitions in a blueprint, memberships in the UI; new users created by hand.
+- **11. Testing before production** (decided 2026-11-23). Image versions are pinned in git, so a new version is a
+  change to its pin, tried somewhere else first:
+  - **App staging:** a copy on `docker01` (`<app>-staging.int.phoenixstack.net`, LAN and VPN only, never public) on
+    the candidate version, with a **copy** of production's data from its latest backup, never touching production.
+    Once it works, change the production pin in git and apply. Designed and used once, 2026-11-24: [Staging](#staging).
+  - **Test guests:** for changes to roles, Terraform or a whole host, a throwaway guest in tier 99
+    (`test01`/`test02`, as for L5a), built from a git branch with the same roles; merge, then destroy it.
+  - Not a permanent second environment (a second `docker02`, a second Authentik): twice the patching, and it
+    drifts from production.
+- **12. Users log in with their Google account, through Authentik** (decided 2026-11-23, live 2026-11-24 with
+  Audiobookshelf; [how](#apps-with-their-own-login-oidc-and-google-sign-in)). Authentik is the one place that says
+  who a person is (username, email, groups); the Google account is only the key they prove it with, and the apps
+  only ever see Authentik. Each person is created by hand; their first Google login links to that user by email. No
+  open sign-up. Each app keeps one local admin (break-glass), and local logins for clients that can't do OIDC
+  (e-readers, scripts) and for people without a Google Account.
+  - **Apps match by email** (changed 2026-11-24 from "by username": Audiobookshelf's usernames are display names
+    with spaces, which Authentik doesn't allow): each person's app email must equal their Authentik email, and for
+    Google users that's their Google Account's address (any address; a Google Account doesn't need Gmail). Admins'
+    Authentik emails stay as they are. The list of people stays out of this repo.
+  - **Providers: Google only** (decided 2026-11-23): free, and the simplest to set up. Not now: Apple (needs a paid
+    Apple Developer account, and can hide the email), Facebook (a Meta app in Live mode), Plex (can admit only
+    accounts our Plex server is shared with).
+  - **MFA** (decided 2026-11-23): Google logins rely on Google's own sign-in security, with no Authentik MFA on
+    top. **Admins never log in with Google**, only with their password and a YubiKey (the exception to L5e's MFA
+    for every account).
+  - **Microsoft 365 isn't used for user logins** (decided 2026-11-23): removed from Audiobookshelf at its switch.
 
 Settled 2026-11-20: Terraform state (local, with a 1Password copy), guest patching (automatic security updates,
 the rest weekly), mgmt back to `/24`, three zones (mgmt VLAN 10, Services VLAN 100, DMZ VLAN 200), the archived
