@@ -796,6 +796,11 @@ Rehearsed 2026-11-25 on a staging copy (`meal-staging` on `docker01`, production
       login opened `svc_mealie`, still an admin and still a password account; no new account.
 - [x] An admin refused on Google (by design).
 
+In production since 2026-11-25 (`apb docker.yml -l docker02`, a few seconds offline). Authentik accounts for
+Camille and Spencer were added the same day (group `Young`, no password, like Tina's); Roly has none yet.
+Still to do: Aaron's and Tina's first logins in production, then `password_login: false`; delete the staging
+copy ([Staging](#staging), Lifetime).
+
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
 | Image | `ghcr.io/mealie-recipes/mealie:latest` = `v3.30.0`, digest `sha256:90f83da6…d784` (built 2026-11-01) | `v3.30.0`, the same digest (checked with `docker buildx imagetools inspect` on `docker02`) |

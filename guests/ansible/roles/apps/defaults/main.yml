@@ -50,8 +50,8 @@ apps_catalog:
     # "Home" and "Family"; with no group "Home", logins through Authentik failed to create the account.
     default_group: Young Family
     default_household: Family
-    env_op: {}
-    # 1Password "(Authentik) - Mealie OIDC (staging)"; production's is "(Authentik) - Mealie OIDC"
-    # (op://infrastructure/parb3agp5afn7bdwf4r7pf5sly/password), set once staging has passed.
+    # 1Password "(Authentik) - Mealie OIDC"; staging's "(Authentik) - Mealie OIDC (staging)".
+    env_op:
+      OIDC_CLIENT_SECRET: "op://infrastructure/parb3agp5afn7bdwf4r7pf5sly/password"
     env_op_staging:
       OIDC_CLIENT_SECRET: "op://infrastructure/mlvowk64uvcaqbfthnysukbynq/password"
