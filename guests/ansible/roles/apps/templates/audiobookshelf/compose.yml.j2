@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+# Audiobookshelf (role apps). Reached through Traefik only: route abs → http://audiobookshelf:80.
+# If the NAS is away at start, the NAS mounts fail and the container doesn't start (fails closed).
+name: audiobookshelf
+
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:{{ audiobookshelf_version }}
+    container_name: audiobookshelf
+    restart: unless-stopped
+    user: "{{ apps_catalog.audiobookshelf.uid }}:{{ apps_catalog.audiobookshelf.uid }}"
+    networks:
+      - proxy
+    volumes:
+      - ./config:/config
+      - ./metadata:/metadata
+      - {{ audiobookshelf_audiobooks }}:/audiobooks:ro
+      - {{ audiobookshelf_podcasts }}:/podcasts
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true

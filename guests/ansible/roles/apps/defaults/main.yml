@@ -1,0 +1,20 @@
+# Apps on a Docker host (L5f Step B): one compose stack per app in {{ apps_dir }}/<app>, reached by
+# Traefik over the "proxy" network (route url http://<app>:<port>). The inventory lists a host's apps
+# (apps: [audiobookshelf]); each app has templates/<app>/compose.yml.j2 and an entry in apps_catalog.
+apps: []
+apps_dir: /opt/stacks
+
+# Per app: the uid its container runs as (no account on the host; its data folders belong to it) and
+# its data folders inside the stack folder.
+apps_catalog:
+  audiobookshelf:
+    uid: 2001
+    folders: [config, metadata]
+
+# Audiobookshelf. Version pinned; a new version goes through staging first (decision 11).
+# Same paths inside the container as on docker-temp (its database stores them). Audiobooks read-only
+# from the NAS (Media); podcasts read-write on the NAS share Podcasts (they're downloaded; a share of their
+# own since 2026-11-24, for Audiobookshelf's uid only); its own backups in /metadata/backups.
+audiobookshelf_version: "2.37.2"
+audiobookshelf_audiobooks: /mnt/nas/media/Books/Audiobooks
+audiobookshelf_podcasts: /mnt/nas/podcasts

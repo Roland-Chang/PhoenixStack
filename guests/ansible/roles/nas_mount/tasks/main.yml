@@ -1,6 +1,7 @@
-# NAS shares inside the guest (L5f Step B): read-only CIFS, mounted by systemd on first use (automount)
-# and then kept mounted. The guest boots without the NAS, and an app that starts while the NAS is away
-# gets an error, never an empty folder. Does nothing on a host without nas_mounts.
+# NAS shares inside the guest (L5f Step B): CIFS, read-only unless a share has rw: true, mounted by
+# systemd on first use (automount) and then kept mounted. The guest boots without the NAS, and an app
+# that starts while the NAS is away gets an error, never an empty folder. Does nothing on a host without
+# nas_mounts.
 #
 # The NAS user's password is written once, read with op read on this computer; dry runs and later runs
 # don't read it. To rotate it: change it on the NAS and in 1Password, delete the credentials file on the
@@ -14,9 +15,11 @@
       - nas_op_password | length > 0
       - nas_mounts | map(attribute='path') | select('match', '^(/[a-z0-9_]+)+$') | list | length == nas_mounts | length
       - nas_mounts | map(attribute='share') | select('match', '^[A-Za-z0-9_.-]+$') | list | length == nas_mounts | length
+      - nas_mounts | selectattr('rw', 'defined') | selectattr('rw') | rejectattr('owner', 'defined') | list | length == 0
     fail_msg: >-
       Set nas_address, nas_username and nas_op_password with nas_mounts. Each path: lowercase letters,
-      digits, _ and / (it names the systemd units); each share name without spaces.
+      digits, _ and / (it names the systemd units); each share name without spaces; a writable share
+      (rw: true) needs owner: <uid>.
   when: nas_mounts | length > 0
 
 - name: CIFS client

@@ -174,7 +174,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `83`, `2283`, `5054`, `8081`, `9925` |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081`, `9925` (to remove: `83`, Audiobookshelf moved, and `5054`, MyBibliotheca deleted, both 2026-11-24) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -723,9 +723,9 @@ temporary rule, so the internet stops reaching mgmt the day the forward moves.
 | Area | Decision | Why |
 | --- | --- | --- |
 | Where | Every public app runs on **`docker02`** (decided 2026-11-23). | A broken app reaches only the DMZ. |
-| Databases | Each app keeps its own, inside its stack on `docker02`: SQLite (Audiobookshelf, Mealie), Kuzu (MyBibliotheca), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
+| Databases | Each app keeps its own, inside its stack on `docker02`: SQLite (Audiobookshelf, Mealie), Immich its own PostgreSQL. **No PostgreSQL guest in the DMZ and no way to `pgsql01`** (proposed 2026-11-23). | No public app would use a shared one, and it would put every public app's data where any of them could reach it. |
 | NAS | **Read-only** (decided 2026-11-23), mounted inside `docker02` at `/mnt/nas/media` by the role `nas_mount` (below) as its own NAS user **`svc_docker02`**, read-only on `Media` (1Password `(UNAS) - svc_docker02`, `cxeg5kim7a3wfgxhhs4najt4ye`). UDM rule `docker02 -> NAS (SMB)`: TCP `445`, to the NAS only. The same paths inside the containers as on docker-temp. | The UNAS sets permissions per share, not per folder. The DMZ's only way into mgmt: SMB, to the NAS. |
-| Podcasts | On `docker02`'s own disk (decided 2026-11-23): 32 GB, and three podcasts download new episodes. Disk 64 → **128 GB**. | They need writing, and `Media` stays read-only. |
+| Podcasts | **A NAS share of their own, `Podcasts`** (decided 2026-11-24; was `docker02`'s own disk, decided 2026-11-23): 32 GB of mostly complete archives, growing. `svc_docker02` may read and write it (only it), mounted at `/mnt/nas/podcasts` for Audiobookshelf's uid `2001` only (`nas_mount`: `rw: true, owner: 2001`). The share reports 94 GB. Disk stays 128 GB. | They need writing, and `Media` stays read-only. On the disk they'd go into every nightly guest backup. The DMZ's only write to the NAS: one share, of data that can be downloaded again. |
 | App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
 | Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. Until then its files sit in `Media`, which `docker02` can read (accepted, below). | `Media` stays read-only. |
 | `8443` forward | Deleted when `443` moved (2026-11-24). From then on, a moved app is tried under a temporary name on `443`. | |
@@ -757,7 +757,34 @@ Steps (each dry-run first):
    - [x] Admin forward-auth on `docker01` (Traefik dashboard) still sends to `auth.int.phoenixstack.net`, where the
          YubiKeys are registered.
    - [x] From a phone on mobile data (Aaron, 2026-11-24): the names in a browser, and the Audiobookshelf app.
-3. **Move Audiobookshelf** (the pilot, below).
+   - 2026-11-24, later: **MyBibliotheca deleted** (Aaron undecided whether to keep it; if so, rebuilt from scratch).
+     On docker-temp: container, image, `appdata/bibliotheca` (1.2 GB), its compose file and `include` line, its
+     Traefik rule, its three `.env` lines, the empty backups folder; the rest of docker-temp checked (compose file
+     parses, 19 containers up). Route `bibliotheca` removed from `docker02` (now `404`). Still to do (Aaron): `5054`
+     out of the temporary rule. DNS: `bibliotheca` resolves only through the `*.phoenixstack.net` wildcard (a
+     made-up name gets the same answer), so it needs no record of its own removed unless Cloudflare lists one.
+3. ~~**Move Audiobookshelf** (the pilot, below).~~ Done 2026-11-24 (evening, Denver; 01:47–01:50 UTC on the 25th):
+   - Role **`apps`** (new, in `docker.yml` after `traefik`): one compose stack per app in `/opt/stacks/<app>`, listed per
+     host in the inventory (`apps: [audiobookshelf]`), settings in `roles/apps/defaults/main.yml`; Traefik reaches it
+     over the `proxy` network (route `abs` → `http://audiobookshelf:80`). Runs as uid `2001` (no account on the
+     host; uid 1000 is `aaron` there), no capabilities, healthcheck on `/healthcheck`.
+   - Image `2.37.2` pinned: the same digest docker-temp ran as `latest` (`b897c33f…`).
+   - Podcasts: on docker-temp they were on the NAS (`Media/Podcasts`), not local. Copied from the NAS by `docker02`
+     itself (32 GB, 513 files, 193 s), then the files changed since, at the switch. The same evening (decision
+     above), moved again to the new share `Podcasts` (copy 390 s while it ran; the switch 02:16–02:17 UTC, 44 s):
+     healthy, 513 files, `/podcasts` writable. The local copy deleted after Aaron's test. Still to delete
+     (Aaron, on the NAS): the frozen `Media/Podcasts`.
+   - The switch: Audiobookshelf stopped on docker-temp (`docker stop`, so it stays stopped after a reboot);
+     `config` (32 MB) and `metadata` (776 MB) streamed docker-temp → laptop → `docker02` (`tar` over SSH; no rsync
+     on `docker02`); `apb docker.yml -l docker02` started it and moved the route. Offline about 2 minutes.
+   - [x] Through Cloudflare: `/ping`, `/healthcheck`, `/status` (`2.37.2`), the socket. Container healthy, no
+         restarts; database "already up to date" (no migration); 372 entries in `/audiobooks` (read-only: writing
+         fails), 5 podcasts; its backups came along in `/metadata/backups`.
+   - [x] Aaron (2026-11-24): logged in on the web and in the phone app, played, progress kept.
+   - **Rollback:** `docker start audiobookshelf` on docker-temp and the route `abs` back to `http://10.101.0.166:83`;
+     anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
+   - Still to do (Aaron): `83` out of the temporary UDM rule (with `5054`); `absdev` stays on docker-temp, offline
+     from the internet (agreed).
 4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12).
 5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
 
@@ -796,7 +823,8 @@ Moving Audiobookshelf without listeners noticing:
 - **Same version** (`2.37.2`, pinned) and **the same paths inside the container** (`/config`, `/metadata`,
   `/audiobooks`, `/podcasts`): its database stores file paths. Upgrades come afterwards, through staging (decision 11).
 - **Before:** on docker-temp, the libraries' "store covers with item" off (new covers go to `/metadata`; existing
-  ones stay readable). Copy `/metadata` (409 MB) and the podcasts to `docker02` while it runs.
+  ones stay readable; **done 2026-11-24** by Aaron). Copy `/metadata` (409 MB then; 776 MB at the move) and the podcasts to `docker02` while
+  it runs.
 - **The switch**, about five minutes in the quietest hours (08:00–12:00 UTC, 01:00–05:00 in Denver, over the last 60
   days): stop it on docker-temp; copy what changed in `/config`, `/metadata` and the podcasts; start it on `docker02`
   and check; point the route `abs` at it.
@@ -816,10 +844,10 @@ Also found 2026-11-23:
 
 - Audiobookshelf's nightly backups **fail** (`EACCES` on `/backups`, every night in its logs since at least
   2026-11-21): docker-temp's `/mnt/pve/cifs-backups` hasn't been a NAS mount since pve01's rebuild, just a folder.
-  Its newest backup of its own is an older one in `/metadata/backups`. MyBibliotheca's `/backups` points at the same
-  folder. Fix before the move: backup location `/metadata/backups`, then a backup by hand. (docker-temp itself is in
+  Its newest backup of its own is an older one in `/metadata/backups`. (MyBibliotheca's pointed at the same
+  folder.) Fix before the move: backup location `/metadata/backups`, then a backup by hand. (docker-temp itself is in
   the nightly guest backups.) **Fixed 2026-11-23** for Audiobookshelf (by Aaron): location `/metadata/backups`, a
-  backup made by hand, and a copy kept on his laptop. MyBibliotheca's still to check.
+  backup made by hand, and a copy kept on his laptop.
 - Audiobookshelf: 34 accounts; 14 listened in the last 90 days, 19 in the last year, 15 never.
 - Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
   video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
@@ -895,7 +923,7 @@ Done when:
    name, mail included).
 2. Plex, Jellyfin, or both?
 3. Which docker-temp apps are public (to `docker02`) and which LAN and VPN only (to `docker01`)? Started 2026-11-23
-   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, MyBibliotheca, Calibre. Admins only
+   (not exhaustive). Public, for every user: Audiobookshelf, Plex, Immich, Mealie, IT-Tools, Calibre. MyBibliotheca: deleted 2026-11-24 (container, data, settings, route); if it comes back, a fresh install. Admins only
    (Aaron and Ben, for now): the *arr apps, libraforge, libation, metube, glances. These are **LAN and VPN only**
    (`<app>.int.phoenixstack.net` on `docker01`), reached from outside over Teleport, not published (decided
    2026-11-23). Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). Calibre: later,

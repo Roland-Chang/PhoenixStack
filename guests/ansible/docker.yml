@@ -1,5 +1,5 @@
-# Docker hosts: Docker Engine, the NAS shares (hosts with nas_mounts), then Traefik
-# (docker01: Services, L5d; docker02: public, L5f). Run after site.yml has set up the guest.
+# Docker hosts: Docker Engine, the NAS shares (hosts with nas_mounts), Traefik (docker01: Services,
+# L5d; docker02: public, L5f), then the apps listed in the host's `apps` (role apps, L5f Step B). Run after site.yml has set up the guest.
 # Always with --check --diff first.
 #
 #   apb docker.yml -l docker01 --check --diff
@@ -16,3 +16,4 @@
     - docker_host
     - nas_mount
     - traefik
+    - apps
