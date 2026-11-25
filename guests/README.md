@@ -726,8 +726,8 @@ Steps (each dry-run first):
 3. ~~Move Audiobookshelf~~ Done 2026-11-24, about 2 minutes offline ([Audiobookshelf](#audiobookshelf)).
 4. ~~Its logins through Authentik~~ Done 2026-11-24, rehearsed first on a staging copy ([Staging](#staging));
    14 seconds offline.
-5. **Next:** Mealie (under way, [below](#mealie)), then Immich and IT-Tools, one at a time, with the checklist
-   below.
+5. ~~Move Mealie~~ Done 2026-11-25, about 90 seconds offline ([Mealie](#mealie)).
+6. **Next:** Immich and IT-Tools, one at a time, with the checklist below.
 
 #### Moving an app
 
@@ -769,12 +769,15 @@ On `docker02` since 2026-11-24.
 
 #### Mealie
 
-Moving to `docker02` (started 2026-11-25). Steps 1–4 of [Moving an app](#moving-an-app) done: data copied
-(951 files, `mealie.db` checksum equal), then the stack started on `docker02` with
-`-e '{"apps": ["audiobookshelf", "mealie"]}'` as a test (healthy as uid `2002`, no capabilities, 5 users and 414
-recipes, no errors in its log, Traefik reaches `http://mealie:9000`). It isn't in the inventory's `apps` yet and the
-route still goes to docker-temp. **Next:** the switch (step 5): stop docker-temp's copy, copy again, the inventory
-change, `apb`.
+On `docker02` since 2026-11-25, about 90 seconds offline (18:06:27–18:07:56 UTC). Before the switch, the stack was
+test-started with its data copied while docker-temp still served it: healthy as uid `2002` with no capabilities.
+At the switch, both copies were stopped, the data copied again (951 files, `mealie.db` checksum equal), then
+`apb docker.yml -l docker02`. Checked through Cloudflare: `200`, `http://` → `301`, a wrong login `401` and logged
+with the client's real address; 5 users and 414 recipes; the data folder writable.
+
+Still open: Aaron removes `9925` from the temporary rule, then a check from `docker02` that it's closed (step 6);
+logins through Authentik (step 7). **Rollback** until about 2026-12-02: docker-temp's stopped copy
+(`docker start mealie`, the route back to `http://10.101.0.166:9925`, and `9925` back in the temporary rule).
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
