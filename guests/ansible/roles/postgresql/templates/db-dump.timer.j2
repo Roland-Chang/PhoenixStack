@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Before the host's nightly-pbs job (08:00 UTC), so both backup jobs carry tonight's dumps. UTC, like the host.
+[Unit]
+Description=Nightly database dumps at {{ postgresql_dump_time }}
+
+[Timer]
+OnCalendar=*-*-* {{ postgresql_dump_time }}:00
+# A run missed while the guest was off happens at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

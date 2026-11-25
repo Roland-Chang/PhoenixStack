@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Mounts NAS share {{ item.share }} at {{ item.path }} the first time something looks inside; it then
+# stays mounted (no idle timeout). Without the NAS, that access fails after {{ nas_mount_timeout }} s.
+[Unit]
+Description=NAS share {{ item.share }}, mounted on first use
+
+[Automount]
+Where={{ item.path }}
+TimeoutIdleSec=0
+
+[Install]
+WantedBy=remote-fs.target

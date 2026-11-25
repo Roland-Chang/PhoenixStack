@@ -1,0 +1,217 @@
+# PostgreSQL (L5c) from Debian, with the PhoenixStack settings, access rules and nightly dumps.
+# Application databases and their pg_hba lines come from the inventory's pg_databases.
+#
+# A dry run on a brand-new guest only pretends to install the packages, so the steps that need
+# the cluster's folders, the postgres user or the service skip in that one case.
+
+# Debian's package creates the first cluster when it's installed, so its settings go in first.
+- name: Settings for new clusters (folder)
+  ansible.builtin.file:
+    path: /etc/postgresql-common/createcluster.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Settings for new clusters (UTF-8)
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed (role postgresql)
+      initdb_options = '{{ postgresql_initdb_options }}'
+    dest: /etc/postgresql-common/createcluster.d/phoenix.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: PostgreSQL and the snakeoil certificate for TLS (version {{ postgresql_version }})
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_version }}"
+      - ssl-cert
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: postgresql_packages
+
+- name: New-guest dry run (nothing installed yet to check against)
+  ansible.builtin.set_fact:
+    postgresql_dry_new: "{{ ansible_check_mode and postgresql_packages.changed }}"
+
+- name: PhoenixStack settings (conf.d/phoenix.conf)
+  ansible.builtin.template:
+    src: phoenix.conf.j2
+    dest: "{{ postgresql_conf_dir }}/conf.d/phoenix.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: Restart postgresql
+  when: not postgresql_dry_new
+
+- name: Access rules (pg_hba.conf)
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Reload postgresql
+  when: not postgresql_dry_new
+
+- name: Run PostgreSQL
+  ansible.builtin.service:
+    name: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}"
+    enabled: true
+    state: started
+  when: not postgresql_dry_new
+
+- name: Apply settings now (the dump below needs the running server)
+  ansible.builtin.meta: flush_handlers
+
+- name: Cluster encoding
+  ansible.builtin.command: psql -tAc "SHOW server_encoding"
+  become: true
+  become_user: postgres
+  check_mode: false
+  changed_when: false
+  register: postgresql_encoding
+  when: not postgresql_dry_new
+
+- name: The cluster is UTF-8
+  ansible.builtin.assert:
+    that: postgresql_encoding.stdout == 'UTF8'
+    fail_msg: >-
+      The cluster is {{ postgresql_encoding.stdout }}, not UTF8: it was created before the settings
+      above. Re-create it (guests/README.md, L5e, "Found on the way").
+    quiet: true
+  when: not postgresql_dry_new
+
+# --- Application databases (inventory pg_databases) ---------------------------
+# One database per app, owned by a login role of the same name. A new role's password is read from
+# 1Password (op read, on this computer) once, when the role is created; a dry run doesn't read it.
+# Later runs never touch existing passwords: to rotate one, change it in 1Password and with
+# ALTER ROLE ... PASSWORD by hand (see guests/README.md, L5e).
+
+- name: Python driver for the database tasks below
+  ansible.builtin.apt:
+    name: python3-psycopg2
+    state: present
+  register: postgresql_driver
+  when: pg_databases | default([]) | length > 0
+
+# Plain psql, so a dry run can list what it would create before the driver is installed.
+- name: Roles that already exist
+  ansible.builtin.command: psql -tAc "SELECT rolname FROM pg_roles"
+  become: true
+  become_user: postgres
+  check_mode: false
+  changed_when: false
+  register: postgresql_roles
+  when: not postgresql_dry_new and pg_databases | default([]) | length > 0
+
+- name: Databases to create
+  ansible.builtin.set_fact:
+    postgresql_new_dbs: >-
+      {{ pg_databases | default([]) | rejectattr('name', 'in', postgresql_roles.stdout_lines | default([]))
+         | map(attribute='name') | list }}
+    postgresql_dry_driver: "{{ ansible_check_mode and postgresql_driver.changed | default(false) }}"
+
+- name: New roles and databases (dry run before the driver is installed)
+  ansible.builtin.debug:
+    msg: "Would create role and database: {{ postgresql_new_dbs | join(', ') }}"
+  when: postgresql_dry_driver and postgresql_new_dbs | length > 0
+
+- name: New owner roles, password from 1Password
+  community.postgresql.postgresql_user:
+    name: "{{ item.name }}"
+    password: "{{ omit if ansible_check_mode else lookup('ansible.builtin.pipe', 'op read ' ~ (item.password | quote)) }}"
+  become: true
+  become_user: postgres
+  no_log: true
+  loop: "{{ pg_databases | default([]) | selectattr('name', 'in', postgresql_new_dbs) | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not postgresql_dry_new and not postgresql_dry_driver
+
+- name: Application databases
+  community.postgresql.postgresql_db:
+    name: "{{ item.name }}"
+    owner: "{{ item.name }}"
+    encoding: UTF8
+  become: true
+  become_user: postgres
+  loop: "{{ pg_databases | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not postgresql_dry_new and not postgresql_dry_driver
+
+# By default every role may connect to every database; pg_hba already limits that, this too.
+- name: Only the owner connects (no CONNECT for PUBLIC)
+  community.postgresql.postgresql_privs:
+    login_db: "{{ item.name }}"
+    type: database
+    privs: CONNECT
+    roles: PUBLIC
+    state: absent
+  become: true
+  become_user: postgres
+  loop: "{{ pg_databases | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  # (a dry run can't check a database that doesn't exist yet)
+  when: >-
+    not postgresql_dry_new and not postgresql_dry_driver
+    and not (ansible_check_mode and item.name in postgresql_new_dbs)
+
+# --- Database dump standard -------------------------------------------------
+
+- name: Dump folder, readable by postgres only
+  ansible.builtin.file:
+    path: "{{ postgresql_dump_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+  when: not postgresql_dry_new
+
+- name: Dump script
+  ansible.builtin.copy:
+    src: db-dump
+    dest: /usr/local/sbin/db-dump
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Dump service and nightly timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - db-dump.service
+    - db-dump.timer
+  notify: Reload systemd
+
+- name: Load the new units now
+  ansible.builtin.meta: flush_handlers
+
+- name: Run the timer
+  ansible.builtin.systemd_service:
+    name: db-dump.timer
+    enabled: true
+    state: started
+  when: not postgresql_dry_new
+
+# A new guest gets its first dump at once, so the dump path is proven at setup and the weekly
+# freshness check in patch.yml has something to check before the first night.
+- name: Has a dump ever succeeded?
+  ansible.builtin.stat:
+    path: "{{ postgresql_dump_dir }}/last-ok"
+  register: postgresql_dump_last_ok
+
+- name: First dump (new guests only)
+  ansible.builtin.systemd_service:
+    name: db-dump.service
+    state: started
+  when: not postgresql_dump_last_ok.stat.exists and not postgresql_dry_new

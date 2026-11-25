@@ -1,0 +1,54 @@
+# {{ ansible_managed }}
+# Traefik static settings (role traefik).
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+accessLog: {}
+
+api:
+  dashboard: true
+
+entryPoints:
+  websecure:
+    address: ":443"
+{% if traefik_trusted_ips | length > 0 %}
+    forwardedHeaders:
+      trustedIPs:
+{% for s in traefik_trusted_ips %}
+        - "{{ s }}"
+{% endfor %}
+{% endif %}
+    http:
+{% if traefik_cert == 'acme' %}
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "{{ traefik_domain }}"
+            sans:
+              - "*.{{ traefik_domain }}"
+{% else %}
+      tls: {}
+{% endif %}
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+{% if traefik_cert == 'acme' %}
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: "{{ traefik_acme_email }}"
+      caServer: "{{ traefik_acme_ca }}"
+      storage: /letsencrypt/acme.json
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+{% for r in traefik_acme_resolvers %}
+          - "{{ r }}"
+{% endfor %}
+{% endif %}

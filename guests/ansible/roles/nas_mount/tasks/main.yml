@@ -1,0 +1,102 @@
+# NAS shares inside the guest (L5f Step B): CIFS, read-only unless a share has rw: true, mounted by
+# systemd on first use (automount) and then kept mounted. The guest boots without the NAS, and an app
+# that starts while the NAS is away gets an error, never an empty folder. Does nothing on a host without
+# nas_mounts.
+#
+# The NAS user's password is written once, read with op read on this computer; dry runs and later runs
+# don't read it. To rotate it: change it on the NAS and in 1Password, delete the credentials file on the
+# guest, run again, then remount (guests/README.md, "Moving the public apps").
+
+- name: NAS settings are complete
+  ansible.builtin.assert:
+    that:
+      - nas_address | default('') | length > 0
+      - nas_username | length > 0
+      - nas_op_password | length > 0
+      - nas_mounts | map(attribute='path') | select('match', '^(/[a-z0-9_]+)+$') | list | length == nas_mounts | length
+      - nas_mounts | map(attribute='share') | select('match', '^[A-Za-z0-9_.-]+$') | list | length == nas_mounts | length
+      - nas_mounts | selectattr('rw', 'defined') | selectattr('rw') | rejectattr('owner', 'defined') | list | length == 0
+    fail_msg: >-
+      Set nas_address, nas_username and nas_op_password with nas_mounts. Each path: lowercase letters,
+      digits, _ and / (it names the systemd units); each share name without spaces; a writable share
+      (rw: true) needs owner: <uid>.
+  when: nas_mounts | length > 0
+
+- name: CIFS client
+  ansible.builtin.apt:
+    name: cifs-utils
+    state: present
+  when: nas_mounts | length > 0
+
+- name: Credentials folder (root only)
+  ansible.builtin.file:
+    path: "{{ nas_credentials_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: nas_mounts | length > 0
+
+- name: Are the credentials there?
+  ansible.builtin.stat:
+    path: "{{ nas_credentials_file }}"
+  register: nas_credentials
+  when: nas_mounts | length > 0
+
+- name: NAS user and password (root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      username={{ nas_username }}
+      password={{ lookup('ansible.builtin.pipe', 'op read ' ~ (nas_op_password | quote)) }}
+    dest: "{{ nas_credentials_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: nas_mounts | length > 0 and not nas_credentials.stat.exists and not ansible_check_mode
+
+- name: Credentials (dry run, 1Password not read)
+  ansible.builtin.debug:
+    msg: "{{ nas_credentials_file }} would be written: user {{ nas_username }}, password from 1Password"
+  when: nas_mounts | length > 0 and not nas_credentials.stat.exists and ansible_check_mode
+
+- name: Mount unit per share
+  ansible.builtin.template:
+    src: nas.mount.j2
+    dest: "/etc/systemd/system/{{ item.path[1:] | replace('/', '-') }}.mount"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ nas_mounts }}"
+  loop_control:
+    label: "{{ item.share }} → {{ item.path }}"
+  register: nas_mount_units
+
+- name: Automount unit per share (mounts on first use)
+  ansible.builtin.template:
+    src: nas.automount.j2
+    dest: "/etc/systemd/system/{{ item.path[1:] | replace('/', '-') }}.automount"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ nas_mounts }}"
+  loop_control:
+    label: "{{ item.share }} → {{ item.path }}"
+  register: nas_automount_units
+
+# A share that is already mounted keeps its old options until it's mounted again.
+- name: Load the changed units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: nas_mount_units is changed or nas_automount_units is changed
+
+- name: Automount on, also after a reboot
+  ansible.builtin.systemd_service:
+    name: "{{ item.item.path[1:] | replace('/', '-') }}.automount"
+    enabled: true
+    state: started
+  loop: "{{ nas_automount_units.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  # A dry run can't start a unit it hasn't written yet.
+  when: not (ansible_check_mode and item is changed)

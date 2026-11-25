@@ -1,0 +1,53 @@
+# Pi-hole installer: a release tag of pi-hole/pi-hole, checked by SHA-256 before it runs.
+# The installer then fetches the current Pi-hole release (core, web, FTL); FTL is checked by the
+# installer against Pi-hole's published checksum. Updates: `pihole -up` in the weekly window.
+# To move to a newer installer: change the tag and the checksum (sha256sum of the downloaded file).
+pihole_installer_tag: v6.6
+pihole_installer_url: "https://raw.githubusercontent.com/pi-hole/pi-hole/{{ pihole_installer_tag }}/automated%20install/basic-install.sh"
+pihole_installer_sha256: 4627fc5209064039a3b2ee615119db93b2c9ca8f9d69dea7967b7fdf67df71c8
+
+# Web password, 1Password item "(Pi-hole) - DNS Admin" (one password for both resolvers). Read
+# with op read only when a resolver has none yet.
+pihole_op_password: "op://infrastructure/6rgmkyk7enemcundji75k7omeu/password"
+
+# Local names: inventory's dns_records (e.g. pve01), every guest in the inventory, and each
+# Docker host's routes under the internal domain (app names served by its Traefik, pointing at the
+# host), as "<ip> <name>.<domain>". Public routes (routes_domain, docker02) come from Cloudflare.
+pihole_hosts: >-
+  {%- set out = [] -%}
+  {%- for name, addr in (dns_records | default({})).items() -%}
+  {%- set _ = out.append(addr ~ ' ' ~ name ~ '.' ~ domain) -%}
+  {%- endfor -%}
+  {%- for h in groups['all'] | sort -%}
+  {%- set _ = out.append(hostvars[h].ip ~ ' ' ~ h ~ '.' ~ domain) -%}
+  {%- if (hostvars[h].routes_domain | default(domain)) == domain -%}
+  {%- for r in hostvars[h].routes | default([]) -%}
+  {%- set _ = out.append(hostvars[h].ip ~ ' ' ~ r.name ~ '.' ~ domain) -%}
+  {%- endfor -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {{ out }}
+
+# pihole.toml settings (key: value). Written into the pre-seeded pihole.toml before the install,
+# and applied with `pihole-FTL --config` on every run after it. Anything not listed keeps
+# Pi-hole's default.
+pihole_config:
+  # Unbound on this guest is the only upstream (recursive, DNSSEC-checking).
+  dns.upstreams: ["127.0.0.1#5335"]
+  # Answer on eth0 from any source network; the Proxmox firewall limits who reaches port 53.
+  # (Pi-hole's default, LOCAL, ignores clients outside 10.101.1.0/24.)
+  dns.listeningMode: SINGLE
+  dns.interface: eth0
+  # No ad blocking for now (decided 2026-11-21); no blocklists are installed either.
+  dns.blocking.active: false
+  dns.hosts: "{{ pihole_hosts }}"
+  # The internal zone is answered here only: unknown names get NXDOMAIN instead of
+  # going upstream, where the public wildcard record would answer.
+  misc.dnsmasq_lines: ["local=/{{ domain }}/"]
+  # Web interface over HTTPS only (Pi-hole's self-signed certificate for this name for now).
+  webserver.port: "443s"
+  webserver.domain: "{{ inventory_hostname }}.{{ domain }}"
+  # No NTP server or clock sync: containers use pve01's clock.
+  ntp.ipv4.active: false
+  ntp.ipv6.active: false
+  ntp.sync.active: false

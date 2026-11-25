@@ -1,0 +1,14 @@
+# Pre-seeded by Ansible (PhoenixStack pihole role) so the installer runs unattended.
+# Pi-hole's FTL owns this file after the install: it adds every other setting with its default.
+# Change settings in roles/pihole/defaults/main.yml, not here.
+{% set rows = [] %}
+{% for key, value in pihole_config.items() %}
+{% set _ = rows.append({'section': key.rsplit('.', 1)[0], 'name': key.rsplit('.', 1)[1], 'value': value}) %}
+{% endfor %}
+{% for section, items in rows | groupby('section') %}
+
+[{{ section }}]
+{% for r in items %}
+  {{ r.name }} = {{ r.value | to_json }}
+{% endfor %}
+{% endfor %}

@@ -1,0 +1,14 @@
+# DNS (L5b): Pi-hole with Unbound on the dns guests. Run after site.yml has set up the guest.
+# Always with --check --diff first.
+#
+#   apb dns.yml -l dns01 --check --diff
+#   apb dns.yml -l dns01
+#
+# One resolver at a time (clients use them). A new resolver's first real run reads the web
+# password from 1Password (op read, on this computer).
+
+- name: DNS
+  hosts: dns*
+  roles:
+    - unbound
+    - pihole

@@ -1,0 +1,119 @@
+# {{ ansible_managed }}
+# PhoenixStack: who people are, and how they log in (role authentik; decisions 8 and 12, guests/README.md).
+# Authentik re-applies this hourly; a change made by hand in the UI to these objects is put back.
+#
+# - Groups (decision 8): Family, with Young and Porter below it. Memberships are set in the UI.
+# - Google sign-in (decision 12): a Google login links to the existing Authentik user with the same
+#   email (email_link), so each person's email must be the address they sign in to Google with. No
+#   sign-up: an unknown Google account gets nothing (no enrollment flow).
+# - Admins never log in with Google: Google's login flow (our own) refuses members of "authentik Admins".
+version: 1
+metadata:
+  name: PhoenixStack - People and Google sign-in
+  labels:
+    blueprints.goauthentik.io/description: Family groups, Google sign-in (link by email, no sign-up), no Google for admins
+entries:
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Authentication flow
+      required: true
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Source authentication flow
+      required: true
+
+  # Groups (decision 8). Binding an app to Family also admits Young and Porter.
+  - model: authentik_core.group
+    id: family
+    identifiers:
+      name: Family
+    state: present
+  - model: authentik_core.group
+    identifiers:
+      name: Young
+    state: present
+    attrs:
+      parents:
+        - !KeyOf family
+  - model: authentik_core.group
+    identifiers:
+      name: Porter
+    state: present
+    attrs:
+      parents:
+        - !KeyOf family
+
+  # Logins through a source (Google) refuse admins: they use their password and security key.
+  # A flow of our own, in "all" mode: the user must come from the source AND not be an admin.
+  # (Authentik's default-source-authentication runs in "any" mode, so a policy added there wouldn't
+  # stop anyone; it's left as it is.) Flow policies see the user being logged in as request.user.
+  - model: authentik_policies_expression.expressionpolicy
+    id: no-admins
+    identifiers:
+      name: phoenix-source-login-not-admins
+    state: present
+    attrs:
+      expression: |
+        # Admins log in with their password and a security key only (decision 12).
+        if ak_is_group_member(request.user, name="authentik Admins"):
+            ak_message("Admin accounts can't sign in with Google.")
+            return False
+        return True
+  - model: authentik_flows.flow
+    id: source-login
+    identifiers:
+      slug: phoenix-source-authentication
+    state: present
+    attrs:
+      name: PhoenixStack - Login through Google
+      title: Welcome to PhoenixStack
+      designation: authentication
+      policy_engine_mode: all
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf source-login
+      stage: !Find [authentik_stages_user_login.userloginstage, [name, default-source-authentication-login]]
+    state: present
+    attrs:
+      order: 0
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf source-login
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, default-source-authentication-if-sso]]
+    state: present
+    attrs:
+      order: 0
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf source-login
+      policy: !KeyOf no-admins
+    state: present
+    attrs:
+      order: 10
+
+  - model: authentik_sources_oauth.oauthsource
+    id: google
+    identifiers:
+      slug: google
+    state: present
+    attrs:
+      name: Google
+      provider_type: google
+      consumer_key: !Env PHX_GOOGLE_CLIENT_ID
+      consumer_secret: !Env PHX_GOOGLE_CLIENT_SECRET
+      authentication_flow: !KeyOf source-login
+      enrollment_flow: null
+      user_matching_mode: email_link
+      promoted: true
+      enabled: true
+
+  # The "Sign in with Google" button on the login page.
+  - model: authentik_stages_identification.identificationstage
+    identifiers:
+      name: default-authentication-identification
+    state: present
+    attrs:
+      sources:
+        - !KeyOf google

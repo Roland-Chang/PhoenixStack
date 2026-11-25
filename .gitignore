@@ -1,53 +1,51 @@
-# Ignore sensitive files and directories
+# Ignore sensitive files and directories.
+# Comments must be on their own line: git treats a trailing "# ..." as part of the pattern.
 
-# Terraform
+# Proxmox unattended installer: the ISO and answer file contain the root password hash
+*.iso
+answer.toml
+
+# Terraform (state and variable files hold credentials)
 **/.terraform/
-# .terraform.lock.hcl is NOT ignored - it should be committed to ensure consistent provider versions
 **/terraform.tfstate
-**/terraform.tfstate.backup
-**/terraform.tfstate.*.backup
-**/.terraform.tfvars
-terraform/terraform.tfvars       # CRITICAL: Contains Proxmox API credentials - NEVER commit
-**/terraform.tfvars.*.auto.tfvars
+**/terraform.tfstate.*
+**/terraform.tfvars
+**/*.auto.tfvars
 **/tfplan*
 **/plan_output_*.txt
-**/.env
-# Use terraform.tfvars.example as a template instead
+# .terraform.lock.hcl is NOT ignored: commit it to pin provider versions
 
 # Ansible
-inventory/group_vars/*.secrets.yml
-inventory/host_vars/*.secrets.yml
-ansible/vault/*.yml              # CRITICAL: Encrypted vault files - NEVER commit unencrypted
-!ansible/vault/*.example         # But DO include examples
-ansible/vault/.vault_pass        # CRITICAL: Vault password file - NEVER commit
+**/group_vars/*.secrets.yml
+**/host_vars/*.secrets.yml
+**/.vault_pass
 **/.ansible_vault_pass
 **/vault_pass.txt
+
+# Credentials: files that hold secret values. Kept narrow on purpose: broad patterns such
+# as token* or secret* would silently ignore source files (tokens.tf, a secrets role, ...).
+.env
+.env.*
+!.env.example
+**/credentials
+*.cred
+*.secret
+*.pem
+*.key
+*.p12
+*.pfx
+
+# SSH
+**/.ssh/id_*
+**/.ssh/known_hosts
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-.venv
-env/
+.venv/
 venv/
-ENV/
-.vscode-test
 
-# IDE
+# Editors and OS
 .vscode/
 .idea/
 *.swp
@@ -55,32 +53,9 @@ ENV/
 *~
 .DS_Store
 
-# SSH
-**/.ssh/id_rsa
-**/.ssh/id_ed25519
-**/.ssh/known_hosts
-
-# Credentials
-.env
-.env.local
-.env.*.local
-**/credentials
-**/secret*
-**/password*
-**/api_key*
-**/token*
-
-# Logs
+# Logs and temporary files
 *.log
 logs/
-
-# Temporary
 *.tmp
 *.temp
 .cache/
-.pytest_cache/
-.fact_cache/
-
-# Proxmox unattended installer: the ISO and answer file contain the root password hash
-*.iso
-answer.toml

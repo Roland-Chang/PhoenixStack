@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# =============================================================================
+# db-dump: nightly PostgreSQL dumps (PhoenixStack database dump standard, guests/README.md)
+#
+# Runs as postgres from db-dump.service (timer db-dump.timer, 00:30). Writes
+#   <dir>/<YYYY-MM-DD>/globals.sql      roles and their settings (pg_dumpall --globals-only)
+#   <dir>/<YYYY-MM-DD>/<database>.dump  one per database, custom format (pg_restore)
+# Each dump is read back with pg_restore --list. The day's folder appears only when every
+# dump succeeded; then the oldest folders beyond KEEP_DAYS are removed and last-ok is written.
+#
+# Restore one database:  pg_restore --create --dbname=postgres <dir>/<day>/<database>.dump
+# =============================================================================
+set -Eeuo pipefail
+umask 077
+
+dir="${DB_DUMP_DIR:-/var/backups/db-dump}"
+keep="${KEEP_DAYS:-7}"
+day="$(date +%F)"
+work="$dir/.partial-$day"
+
+rm -rf -- "$work"
+mkdir -- "$work"
+
+pg_dumpall --globals-only --file="$work/globals.sql"
+
+count=0
+while IFS= read -r db; do
+  pg_dump --format=custom --file="$work/$db.dump" --dbname="$db"
+  pg_restore --list "$work/$db.dump" >/dev/null
+  count=$((count + 1))
+done < <(psql -XAt -c "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY 1")
+[[ $count -gt 0 ]] || { echo "db-dump: no databases found" >&2; exit 1; }
+
+rm -rf -- "${dir:?}/$day"
+mv -- "$work" "$dir/$day"
+
+# Keep the newest $keep day folders.
+find "$dir" -mindepth 1 -maxdepth 1 -type d -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' \
+  | sort | head -n -"$keep" | xargs -r rm -rf --
+
+date --iso-8601=seconds > "$dir/last-ok"
+# --apparent-size: the files' real size (right after writing, ZFS still reports almost nothing on disk).
+echo "db-dump: $count database(s) and globals in $dir/$day ($(du -sh --apparent-size "$dir/$day" | cut -f1))"

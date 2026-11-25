@@ -1,0 +1,244 @@
+# PhoenixStack guests: the one list both tools read.
+#   Terraform (guests/terraform) creates each host below as a guest on pve01.
+#   Ansible  (guests/ansible)   configures them; this file is its inventory.
+# Design and address scheme: guests/README.md. Add a guest by adding one host entry, then
+# follow the "New guest checklist" there (Terraform, Ansible, DNS name, UniFi alias, docs).
+#
+# Per host:
+#   kind      lxc | vm
+#   vmid      1XXYY (tier code XX, instance YY)
+#   mac       02:aa:bb:cc:XX:YY (same code and instance)
+#   ip        10.101.<zone>.<octet>; octet = code x 10 + instance (dns01 = .21), unique across zones
+#   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
+#   dns_servers   optional; the guest's DNS servers (default: the group's, else the gateway)
+#   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
+#   firewall_in   extra inbound rules: [{port: 53, proto: udp, source: lan}]; source is
+#                 admin | lan | cloudflare | any | a guest's name (its address) | a CIDR. SSH and ping from
+#                 admin sources are always allowed. Every guest may only send from its own
+#                 address (Proxmox IP filter), so a source address can be trusted.
+#   pg_databases  PostgreSQL hosts only: [{name, client, password}]. Database and owner role <name>,
+#                 reachable over TLS only from <client> (a guest in this file); <password> is the
+#                 op:// reference of its 1Password item, read once when the role is created.
+#                 Open 5432 from <client> in firewall_in too.
+#   routes        Docker hosts only: names served by its Traefik as <name>.<routes_domain> (Pi-hole
+#                 points the int. ones at the guest), each {name, url} plus, optionally:
+#                   admin_only     admin sources only
+#                   self_signed    the backend's HTTPS certificate isn't checked (firewall the backend
+#                                  to the Docker host instead)
+#                   authentik      log in through Authentik first (forward auth); the app, named
+#                                  title, lets in authentik_group only (default "authentik Admins")
+#                   oidc           the app logs in through its own OIDC support: a client in Authentik,
+#                                  {title, redirects: [paths on the app's name], groups: [who may use it]}
+#                   blocked_paths  path prefixes Traefik refuses (403) on that name
+#   routes_domain Docker hosts only; the domain of its routes (default: domain). Pi-hole serves
+#                 only routes under domain; public names come from Cloudflare's wildcard record.
+#   apps          Docker hosts only: the apps run as compose stacks (role apps; their settings are
+#                 apps_catalog in roles/apps/defaults/main.yml)
+#   apps_staging  Docker hosts only: staging copies, [{app, version}] (decision 11; guests/README.md,
+#                 "Staging")
+#   nas_mounts    Docker hosts only: NAS shares mounted inside the guest (role nas_mount) as the NAS
+#                 user nas_username, whose password is the op:// reference nas_op_password.
+#                 {share: Media, path: /mnt/nas/media} is read-only; rw: true and owner: <uid> make a
+#                 share writable, for that uid only. On the NAS, the user may use only these shares.
+all:
+  vars:
+    domain: int.phoenixstack.net
+    # Public names (<app>.phoenixstack.net): the public Traefik on docker02, through Cloudflare's proxy.
+    public_domain: phoenixstack.net
+    # Cloudflare's IPv4 ranges (https://www.cloudflare.com/ips-v4, checked 2026-11-23): the only
+    # sources docker02 accepts on 443 ("cloudflare" in firewall_in) and whose X-Forwarded-For
+    # its Traefik trusts. The UDM's port forwards use the same list.
+    cloudflare_sources:
+      - 173.245.48.0/20
+      - 103.21.244.0/22
+      - 103.22.200.0/22
+      - 103.31.4.0/22
+      - 141.101.64.0/18
+      - 108.162.192.0/18
+      - 190.93.240.0/20
+      - 188.114.96.0/20
+      - 197.234.240.0/22
+      - 198.41.128.0/17
+      - 162.158.0.0/15
+      - 104.16.0.0/13
+      - 104.24.0.0/14
+      - 172.64.0.0/13
+      - 131.0.72.0/22
+    # Admin sources: the same list as pve01's ADMIN_SOURCES (proxmox/config/pve01.conf)
+    # and the UDM's Management rules. Keep the three in step.
+    admin_sources: [10.1.1.69/32, 10.1.1.169/32, 10.2.1.69/32, 10.2.1.169/32, 192.168.2.0/24]
+    # Home and VPN client networks ("lan" in firewall_in).
+    lan_sources: [10.1.1.0/24, 10.2.1.0/24, 10.3.1.0/24, 192.168.2.0/24]
+    # Public keys allowed to log in as the admin user (and as root on a new container).
+    ssh_public_keys:
+      # yamllint disable-line rule:line-length
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDALPhbtjtcR5Pn46UQLyQ7rKWhUp9LzJklbRvH0C/BIBEQuvZYixpnc3eBkLfmN7xPKUKuEF5cgzvPGhAOA5Jflup3Klwa19iSDSbLiOn9kZAWFHL0TwFM2BudrWdlPm7111ueeVQ04PVfHilz6SygzEohlWVhWqGZU5U9rELuEUZYcWQZgmz/oCR+6XVGP7nLFlhV5ZD9S2d776n7goGYKIG5FDb/owDktFbSFXYn2EnYFCf+khF2lHGMVgO9LeawJ80CeGYD6y/TvkfRVQM5u849H1l6YiqA8/IEeoWHfrwuMB6ECYolcGznX894flRZUobYBA2QcFe2xL9KNJhwrqiClDB4BZ34GBKTRDNZedJ0ie2RcsyYob2dPnSNvyYcHg+RYnbJRkfOGbZkCzX3mNe0bMGGraTub2b0DOfo9bjUW+/H9Bv/Ln0qKjBHP7eGGuoCwKAYu/blcAwwSHlk5X1kFpSoDGEuiE5igIFJAsJ2QivVWlU+KoUE5D7Mgg5+f3wME5A6eiZwKfoIX7Trwyc2LCo4X4iFCbp602afD7krFOaWgX3MML6k1aBCTFqHTwzDJrK0KpomBqQO5vHVpHmxQocS/ZJKpuqC0rIUmaRuUkNTKQkQ83Cj+6BDcTQo+GNPUCgNPGu7XXoSML/UC6qAcVo9227h9wqaQebc5w== pve01 root key"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILrvkAKsD6jDuWegn2puiYvJH1Uds+5W+jwteNwmILEm aaron@ayoung-lap"
+    admin_user: aaron
+    # DNS names that aren't guests in this file (Pi-hole serves these plus every guest's name).
+    dns_records:
+      pve01: 10.101.0.11
+      idrac-pve01: 10.101.0.1       # pve01's iDRAC (mgmt); self-signed certificate
+      # Service name apps connect to (guests/README.md, L5c): moves with the primary database.
+      postgres: 10.101.1.71
+    # The NAS (UNAS Pro, mgmt): file shares that guests mount (nas_mounts), by address.
+    nas_address: 10.101.0.101
+    # Time zones (decided 2026-11-24): UTC for critical systems, local time only for user-facing apps
+    # without a hard dependency on UTC.
+    #   timezone      guests' clocks (role base) and infrastructure containers (Traefik); Authentik's
+    #                 containers have no TZ at all (UTC, as its documentation requires)
+    #   app_timezone  user-facing app containers (role apps), so their schedules and logs read in local time
+    # pve01's clock is UTC too (proxmox/config/pve01.conf, TIMEZONE), its backup jobs scheduled in UTC.
+    timezone: Etc/UTC
+    app_timezone: America/Denver
+    # Ansible connects to the guest's static IP as the admin user. A brand-new container only
+    # has root: the first run passes -e ansible_user=root (see guests/README.md).
+    ansible_host: "{{ ip }}"
+    ansible_user: "{{ admin_user }}"
+    # sudo only when not already root (a new container has no sudo yet).
+    ansible_become: "{{ ansible_user != 'root' }}"
+  children:
+    services:
+      vars:
+        zone: services
+        vlan: 100
+        gateway: 10.101.1.254
+        # Guests ask Pi-hole: internal names are only there (the UDM has no local records).
+        dns_servers: [10.101.1.21, 10.101.1.22]
+      hosts:
+        dns01:
+          kind: lxc
+          vmid: 10201
+          mac: "02:aa:bb:cc:02:01"
+          ip: 10.101.1.21
+          dns_servers: [10.101.1.254]   # the resolvers themselves use the UDM, not each other
+          startup_order: 1
+          description: "DNS: Pi-hole with Unbound (L5b)"
+          firewall_in:
+            - {port: 53, proto: udp, source: lan}
+            - {port: 53, proto: tcp, source: lan}
+            - {port: 53, proto: udp, source: 10.101.1.0/24}   # Services guests
+            - {port: 53, proto: tcp, source: 10.101.1.0/24}
+            - {port: 443, proto: tcp, source: admin}
+        # Second resolver on the same host: covers dns01's maintenance, not pve01's (decided 2026-11-21).
+        dns02:
+          kind: lxc
+          vmid: 10202
+          mac: "02:aa:bb:cc:02:02"
+          ip: 10.101.1.22
+          dns_servers: [10.101.1.254]   # the resolvers themselves use the UDM, not each other
+          startup_order: 1
+          description: "DNS: Pi-hole with Unbound (L5b), second resolver"
+          firewall_in:
+            - {port: 53, proto: udp, source: lan}
+            - {port: 53, proto: tcp, source: lan}
+            - {port: 53, proto: udp, source: 10.101.1.0/24}   # Services guests
+            - {port: 53, proto: tcp, source: 10.101.1.0/24}
+            - {port: 443, proto: tcp, source: admin}
+        # PostgreSQL (L5c). Port 5432 opens per client, together with that client's database.
+        pgsql01:
+          kind: lxc
+          vmid: 10701
+          mac: "02:aa:bb:cc:07:01"
+          ip: 10.101.1.71
+          cores: 2
+          memory: 2048
+          disk_gb: 32
+          storage: nvme
+          startup_order: 2
+          description: "Database: PostgreSQL 17 (L5c)"
+          firewall_in:
+            - {port: 5432, proto: tcp, source: authentik01}
+          pg_databases:
+            - name: authentik
+              client: authentik01
+              password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
+        # Docker host for Services (L5d): the Services Traefik and the apps behind it.
+        docker01:
+          kind: vm
+          vmid: 11001
+          mac: "02:aa:bb:cc:10:01"
+          ip: 10.101.1.101
+          cores: 8
+          memory: 32768
+          disk_gb: 64
+          storage: nvme
+          description: "Docker host, Services: Traefik and apps (L5d)"
+          firewall_in:
+            - {port: 443, proto: tcp, source: lan}
+          # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
+          # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
+          routes:
+            - {name: traefik, url: "api@internal", admin_only: true, authentik: true, title: Traefik dashboard}
+            # authentik01's address typed out: other guests' roles read these routes (the authentik
+            # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
+            - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}
+            # Staging copies (decision 11) go here when needed: a route <app>-staging (admin_only), and
+            # apps_staging: [{app, version}] (role apps; guests/README.md, "Staging"). None now.
+        # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
+        # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.
+        authentik01:
+          kind: vm
+          vmid: 10401
+          mac: "02:aa:bb:cc:04:01"
+          ip: 10.101.1.41
+          cores: 2
+          memory: 4096
+          disk_gb: 32
+          storage: nvme
+          description: "Identity: Authentik (L5e)"
+          firewall_in:
+            - {port: 9443, proto: tcp, source: docker01}   # Services Traefik
+            - {port: 9443, proto: tcp, source: docker02}   # public Traefik (auth.phoenixstack.net)
+    dmz:
+      vars:
+        zone: dmz
+        vlan: 200
+        gateway: 10.101.2.254
+      hosts:
+        # Docker host for the DMZ (L5f): the public Traefik and the public apps behind it.
+        # 443 from Cloudflare only; its routes are public names (routes_domain).
+        docker02:
+          kind: vm
+          vmid: 11002
+          mac: "02:aa:bb:cc:10:02"
+          ip: 10.101.2.102
+          cores: 8
+          memory: 16384
+          disk_gb: 128   # grown for the podcasts before they moved to the NAS (2026-11-24); disks don't shrink
+          storage: nvme
+          description: "Docker host, DMZ: public Traefik and apps (L5f)"
+          firewall_in:
+            - {port: 443, proto: tcp, source: cloudflare}
+          routes_domain: phoenixstack.net
+          # Cloudflare Origin CA certificate (phoenixstack.net, *.phoenixstack.net) instead of
+          # Let's Encrypt: no Cloudflare token on this host. 1Password "(Cloudflare) - Origin CA
+          # Certificate", two file attachments (PEM keeps its line breaks only in files, not in fields).
+          traefik_cert: origin_ca
+          traefik_op_origin_cert: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-cert.pem"
+          traefik_op_origin_key: "op://infrastructure/lztixhdcrujfgcjpqkqnzq2kym/origin-key.pem"
+          # NAS as svc_docker02 (1Password "(UNAS) - svc_docker02"): Media read-only (it may only read it on
+          # the NAS too); Podcasts read-write, for Audiobookshelf (uid 2001) only (share of its own, 2026-11-24).
+          nas_username: svc_docker02
+          nas_op_password: "op://infrastructure/cxeg5kim7a3wfgxhhs4najt4ye/password"
+          nas_mounts:
+            - {share: Media, path: /mnt/nas/media}
+            - {share: Podcasts, path: /mnt/nas/podcasts, rw: true, owner: "{{ apps_catalog.audiobookshelf.uid }}"}
+          # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
+          apps: [audiobookshelf]
+          routes:
+            # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
+            - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}
+            # oidc: an OIDC client in Authentik for the app's own login (role authentik).
+            - name: abs                # Audiobookshelf (moved 2026-11-24)
+              url: "http://audiobookshelf:80"
+              oidc:
+                title: Audiobookshelf
+                redirects: [/auth/openid/callback, /auth/openid/mobile-redirect]
+                groups: [authentik Admins, Family]
+            # Step B, temporary: the public apps still on docker-temp (10.101.0.166, mgmt), straight to their
+            # ports (UDM rule "docker02 -> Docker-Temp (temporary)"). Today's names, so phones and bookmarks
+            # keep working. Each line goes when its app moves to this host.
+            - {name: immich-p, url: "http://10.101.0.166:2283"}     # Immich (Porter)
+            - {name: meal, url: "http://10.101.0.166:9925"}         # Mealie
+            - {name: tools, url: "http://10.101.0.166:8081"}        # IT-Tools

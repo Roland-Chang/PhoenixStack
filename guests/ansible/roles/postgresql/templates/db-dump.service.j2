@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Nightly database dumps (PhoenixStack dump standard)
+After=postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}.service
+Requires=postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=DB_DUMP_DIR={{ postgresql_dump_dir }}
+Environment=KEEP_DAYS={{ postgresql_dump_keep_days }}
+ExecStart=/usr/local/sbin/db-dump
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

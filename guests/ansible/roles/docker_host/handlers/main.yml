@@ -1,0 +1,6 @@
+# live-restore keeps containers running while the engine restarts.
+- name: Restart docker
+  ansible.builtin.service:
+    name: docker
+    state: restarted
+  when: not docker_dry_new

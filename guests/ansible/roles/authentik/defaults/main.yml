@@ -1,0 +1,68 @@
+# Authentik (L5e) as a compose stack. The image version is pinned here; updating it is a change in
+# git, deployed in the weekly window after reading Authentik's release notes (some need steps).
+# No TZ here, unlike the other containers: Authentik's documentation says to leave its containers on UTC
+# (a changed time zone breaks OAuth and SAML).
+authentik_image: ghcr.io/goauthentik/server
+authentik_version: "2026.8.6"
+
+authentik_dir: "{{ docker_stacks_dir }}/authentik"
+
+# The address people use. Authentik builds links from it, and a future release requires it.
+# Decided 2026-11-23: the public name auth.<public_domain> (docker02's Traefik), so OIDC issuers and
+# links work at home and away; auth.<domain> (docker01) stays as a LAN and VPN entry. Switched with
+# the 443 forward's move to docker02 (L5f Step B, 2026-11-24).
+authentik_base_url: "https://auth.{{ public_domain }}"
+# The image runs as this user; its folders belong to it.
+authentik_uid: 1000
+
+# Database on pgsql01 (pg_databases there), over TLS. "require", not "verify-full": the server has
+# Debian's self-signed snakeoil certificate.
+authentik_db_host: "postgres.{{ domain }}"
+authentik_db_name: authentik
+authentik_db_user: authentik
+authentik_db_sslmode: require
+
+# Only the two Traefiks may set X-Forwarded-For (Authentik then logs the real client address;
+# docker02's Traefik takes it from Cloudflare).
+authentik_trusted_proxies: ["{{ hostvars['docker01'].ip }}/32", "{{ hostvars['docker02'].ip }}/32"]
+
+# akadmin's email on first start (the password comes from 1Password, below).
+authentik_bootstrap_email: alerts@phoenixstack.net
+
+# 1Password references for the .env file, read once when the file is first written.
+authentik_op_secret_key: "op://infrastructure/433bhnakbk4j55mkyrtnv3uhce/password"
+authentik_op_db_password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
+authentik_op_bootstrap_password: "op://infrastructure/gc5okp343bflwbgpv53o4ypm6i/password"
+
+# Google sign-in (decision 12): the OAuth client in Google Cloud (project PhoenixStack), 1Password
+# "(Google Cloud) - Authentik sign-in". Written once into .env.google (root only), like .env; the
+# blueprint reads them from there. Redirect URI at Google: https://auth.<public domain>/source/oauth/callback/google/
+authentik_op_google_client_id: "op://infrastructure/nso4imv4a5he4tc6pkhvnsgoia/username"
+authentik_op_google_client_secret: "op://infrastructure/nso4imv4a5he4tc6pkhvnsgoia/password"
+
+# Our blueprints (templates/blueprints/*.j2), written to blueprints/ and mounted read-only.
+authentik_blueprints:
+  - phoenix-mfa.yaml
+  - phoenix-proxy-apps.yaml
+  - phoenix-people.yaml
+  - phoenix-oidc-apps.yaml
+
+# Apps behind Traefik's forward-auth: every Docker host route with `authentik: true`.
+authentik_proxy_apps: >-
+  {{ groups['all'] | map('extract', hostvars) | selectattr('routes', 'defined')
+     | map(attribute='routes') | flatten | selectattr('authentik', 'defined')
+     | selectattr('authentik') | list }}
+
+# Apps that log in through their own OIDC support (decision 3): every Docker host route with `oidc`
+# ({title, redirects: [paths on the app's name], groups: [who may use it]}). Client ID = route name;
+# Authentik generates the secret, which is entered in the app (never in git).
+authentik_oidc_apps: >-
+  {%- set out = [] -%}
+  {%- for h in groups['all'] | sort -%}
+  {%- for r in hostvars[h].routes | default([]) -%}
+  {%- if r.oidc is defined -%}
+  {%- set _ = out.append(r | combine({'host': r.name ~ '.' ~ (hostvars[h].routes_domain | default(domain))})) -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {%- endfor -%}
+  {{ out }}

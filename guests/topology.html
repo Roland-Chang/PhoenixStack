@@ -1,0 +1,430 @@
+<title>PhoenixStack Topology</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: one wide network diagram (zones as bands, the UDM as the spine), then decisions and open questions in two columns. */
+  :root {
+    --bg: #f6f7f8; --card: #ffffff; --fg: #16191d; --muted: #5b6470; --line: #c3c9d0;
+    --accent: #c2410c;                    /* internet-facing paths */
+    --dmz: #fff3ea; --dmz-line: #f0b48c;
+    --svc: #edf3fb; --svc-line: #9dbde3;
+    --mgmt: #f0f1f3; --mgmt-line: #b9bec5;
+    --pill: #f3f5f7;
+    --ok-bg: #e9f5ec;
+    --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0e10; --card: #14181c; --fg: #e5e8eb; --muted: #9aa4ae; --line: #3b434c;
+      --accent: #fb923c;
+      --dmz: #241911; --dmz-line: #7a4a2a;
+      --svc: #121c27; --svc-line: #35577c;
+      --mgmt: #17191c; --mgmt-line: #454b52;
+      --pill: #1c2126;
+      --ok-bg: #13251a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0e10; --card: #14181c; --fg: #e5e8eb; --muted: #9aa4ae; --line: #3b434c;
+    --accent: #fb923c;
+    --dmz: #241911; --dmz-line: #7a4a2a;
+    --svc: #121c27; --svc-line: #35577c;
+    --mgmt: #17191c; --mgmt-line: #454b52;
+    --pill: #1c2126;
+    --ok-bg: #13251a;
+    color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  header { display: grid; gap: 4px; margin-bottom: 20px; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin: 0; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0; }
+  .sub code, li code { font-family: var(--mono); font-size: 0.88em; }
+  figure { margin: 0; }
+  .scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+  svg.topo { display: block; width: 100%; min-width: 980px; height: auto; font-family: var(--font); }
+  figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 10px; max-width: 75ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 12px; font-size: 0.88rem; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .sw { width: 26px; height: 14px; border-radius: 3px; border: 1.5px solid var(--line); background: var(--card); }
+  .sw.dash { border-style: dashed; }
+  .sw.ln { height: 0; border: 0; border-top: 2px solid var(--accent); border-radius: 0; }
+  .sw.ln2 { height: 0; border: 0; border-top: 2px solid var(--fg); border-radius: 0; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; margin-top: 32px; }
+  .cols > section { min-width: 0; }
+  h2 { font-size: 1rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; margin: 0 0 10px; color: var(--muted); }
+  ul { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; max-width: 65ch; }
+
+  /* SVG parts, styled from the page so both themes work */
+  .topo text { fill: var(--fg); font-size: 12px; }
+  .topo .t-name { font-weight: 600; font-size: 13.5px; }
+  .topo .t-zone { font-weight: 600; font-size: 14px; }
+  .topo .t-muted { fill: var(--muted); }
+  .topo .t-mono { font-family: var(--mono); font-size: 11.5px; }
+  .topo .t-badge { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+  .topo .t-acc { fill: var(--accent); font-weight: 500; }
+  .topo .z-dmz { fill: var(--dmz); stroke: var(--dmz-line); }
+  .topo .z-svc { fill: var(--svc); stroke: var(--svc-line); }
+  .topo .z-mgmt { fill: var(--mgmt); stroke: var(--mgmt-line); }
+  .topo .node { fill: var(--card); stroke: var(--line); stroke-width: 1.5; }
+  .topo .node.later, .topo .ln.later { stroke-dasharray: 6 4; }
+  .topo .udm { fill: var(--card); stroke: var(--fg); stroke-width: 1.5; }
+  .topo .pill { fill: var(--pill); stroke: none; }
+  .topo .ln { stroke: var(--fg); stroke-width: 1.6; fill: none; }
+  .topo .ln.acc { stroke: var(--accent); stroke-width: 2; }
+  .topo .ah { fill: var(--fg); }
+  .topo .ah.acc { fill: var(--accent); }
+  .topo .dot { fill: var(--fg); }
+  @media (prefers-reduced-motion: no-preference) { .scroll { scroll-behavior: smooth; } }
+
+  /* Zone matrix */
+  .matrix-sec { margin-top: 40px; }
+  .matrix-sec > p { color: var(--muted); max-width: 75ch; margin: 0 0 12px; }
+  .mx { border-collapse: separate; border-spacing: 4px; min-width: 820px; font-size: 0.86rem; }
+  .mx th { font-weight: 600; text-align: left; padding: 6px 8px; color: var(--muted); white-space: nowrap; }
+  .mx thead th { text-align: center; }
+  .mx th small { display: block; font-weight: 400; font-size: 0.78rem; }
+  .mx td { vertical-align: top; padding: 8px 10px; border-radius: 6px; border: 1.5px solid transparent; min-width: 110px; }
+  .mx td b { display: block; font-weight: 600; }
+  .mx td span { color: var(--muted); font-size: 0.8rem; }
+  .c-allow { background: var(--ok-bg); }
+  .c-block { background: var(--mgmt); }
+  .c-part  { background: var(--svc); }
+  .c-fwd   { background: var(--dmz); }
+  .c-flag  { border-color: var(--accent) !important; }
+  .c-self  { background: transparent; color: var(--muted); }
+  .flags { list-style: none; padding: 0; display: grid; gap: 10px; max-width: 80ch; counter-reset: f; }
+  .flags li { padding-left: 2.2em; position: relative; }
+  .flags li::before { counter-increment: f; content: counter(f); position: absolute; left: 0; top: 0.05em;
+    width: 1.5em; height: 1.5em; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent);
+    font-size: 0.8rem; display: grid; place-items: center; font-weight: 600; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>PhoenixStack Topology</h1>
+    <p class="sub">L5 design, updated 2026-11-23. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
+  </header>
+
+  <figure>
+    <div class="scroll">
+      <svg class="topo" viewBox="0 0 1240 900" role="img"
+           aria-label="Three zones behind the UDM firewall: a DMZ with the public Traefik, game servers and the media server; a Services zone with the Services Traefik, Authentik, Pi-hole and databases; and the management network with pve01, the NAS and the iDRAC. Only three paths come in from the internet, all into the DMZ.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah" d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+          <marker id="ahA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path class="ah acc" d="M0,0 L10,5 L0,10 z"/>
+          </marker>
+        </defs>
+
+        <!-- Outside: internet, Cloudflare, home/VPN clients -->
+        <rect class="node" x="20" y="40" width="210" height="100" rx="8"/>
+        <text class="t-name" x="125" y="74" text-anchor="middle">Internet</text>
+        <text class="t-muted" x="125" y="96" text-anchor="middle">family, friends,</text>
+        <text class="t-muted" x="125" y="114" text-anchor="middle">game players</text>
+
+        <rect class="node" x="20" y="160" width="210" height="70" rx="8"/>
+        <text class="t-name" x="125" y="188" text-anchor="middle">Cloudflare</text>
+        <text class="t-muted" x="125" y="210" text-anchor="middle">public DNS · proxy for web apps</text>
+
+        <rect class="node" x="20" y="360" width="210" height="130" rx="8"/>
+        <text class="t-name" x="125" y="388" text-anchor="middle">Home &amp; VPN clients</text>
+        <text class="t-mono" x="125" y="413" text-anchor="middle">Young LAN 10.1.1.0/24</text>
+        <text class="t-mono" x="125" y="434" text-anchor="middle">Porter LAN 10.2.1.0/24</text>
+        <text class="t-mono" x="125" y="455" text-anchor="middle">VPN 192.168.2.0/24</text>
+        <text class="t-muted" x="125" y="477" text-anchor="middle">also the admin sources</text>
+
+        <!-- UDM spine -->
+        <rect class="udm" x="320" y="40" width="130" height="840" rx="10"/>
+        <text class="t-name" x="385" y="472" text-anchor="middle">UDM SE</text>
+        <text class="t-muted" x="385" y="494" text-anchor="middle">router and</text>
+        <text class="t-muted" x="385" y="512" text-anchor="middle">zone firewall</text>
+        <text class="t-mono" x="385" y="536" text-anchor="middle">gateway .254</text>
+        <text class="t-muted" x="385" y="554" text-anchor="middle">on every VLAN</text>
+
+        <!-- Zone bands -->
+        <rect class="z-dmz" x="520" y="40" width="660" height="235" rx="10"/>
+        <text class="t-zone" x="1164" y="62" text-anchor="end">DMZ · VLAN 200 · 10.101.2.0/24</text>
+        <text class="t-muted" x="1164" y="79" text-anchor="end">internet-facing</text>
+
+        <rect class="z-svc" x="520" y="290" width="660" height="325" rx="10"/>
+        <text class="t-zone" x="1164" y="312" text-anchor="end">Services · VLAN 100 · 10.101.1.0/24</text>
+        <text class="t-muted" x="1164" y="329" text-anchor="end">LAN and VPN only</text>
+
+        <rect class="z-mgmt" x="520" y="630" width="660" height="250" rx="10"/>
+        <text class="t-zone" x="1164" y="652" text-anchor="end">Management · VLAN 10 · 10.101.0.0/24</text>
+        <text class="t-muted" x="1164" y="669" text-anchor="end">admin only</text>
+
+        <!-- Arrows: outside into the UDM -->
+        <line class="ln acc" x1="230" y1="90" x2="316" y2="90" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="274" y="66" text-anchor="middle">32400</text>
+        <text class="t-acc" x="274" y="81" text-anchor="middle">game ports · later</text>
+        <!-- Web apps only through Cloudflare's proxy -->
+        <line class="ln acc" x1="125" y1="140" x2="125" y2="157" marker-end="url(#ahA)"/>
+        <line class="ln acc" x1="230" y1="195" x2="316" y2="195" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="274" y="186" text-anchor="middle">443</text>
+        <line class="ln" x1="230" y1="420" x2="316" y2="420" marker-end="url(#ah)"/>
+        <text x="274" y="410" text-anchor="middle">LAN · VPN</text>
+
+        <!-- DMZ: the only three doors from the internet -->
+        <polyline class="ln acc" points="450,90 1066,90"/>
+        <text class="t-acc" x="456" y="83">port forwards</text>
+        <line class="ln acc" x1="634" y1="90" x2="634" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="640" y="104">443</text>
+        <line class="ln acc later" x1="850" y1="90" x2="850" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="856" y="104">game ports · later</text>
+        <line class="ln acc later" x1="1066" y1="90" x2="1066" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="1072" y="104">32400 · later</text>
+
+        <rect class="node" x="536" y="110" width="196" height="145" rx="8"/>
+        <text class="t-name" x="548" y="134">docker02</text><text class="t-badge" x="722" y="134" text-anchor="end">VM</text>
+        <text class="t-muted" x="548" y="153">.102 · Docker host</text>
+        <rect class="pill" x="546" y="168" width="176" height="30" rx="5"/><text x="556" y="188">Traefik · public routes</text>
+        <rect class="pill" x="546" y="206" width="176" height="30" rx="5"/><text x="556" y="226">Audiobookshelf; more to come</text>
+
+        <rect class="node later" x="752" y="110" width="196" height="145" rx="8"/>
+        <text class="t-name" x="764" y="134">amp01</text><text class="t-badge" x="938" y="134" text-anchor="end">VM</text>
+        <text class="t-muted" x="764" y="153">.51 · game servers</text>
+        <rect class="pill" x="762" y="168" width="176" height="30" rx="5"/><text x="772" y="188">AMP instances</text>
+        <rect class="pill" x="762" y="206" width="176" height="30" rx="5"/><text x="772" y="226">direct UDP / TCP</text>
+
+        <rect class="node later" x="968" y="110" width="196" height="145" rx="8"/>
+        <text class="t-name" x="980" y="134">plex01</text><text class="t-badge" x="1154" y="134" text-anchor="end">VM · GPU</text>
+        <text class="t-muted" x="980" y="153">.61 · media server</text>
+        <rect class="pill" x="978" y="168" width="176" height="30" rx="5"/><text x="988" y="188">Plex / Jellyfin</text>
+        <rect class="pill" x="978" y="206" width="176" height="30" rx="5"/><text x="988" y="226">Quadro P2000</text>
+
+        <!-- DMZ into Services, through the UDM on one allowed port -->
+        <line class="ln" x1="700" y1="255" x2="788" y2="356" marker-end="url(#ah)"/>
+        <text x="756" y="297">Authentik 9443</text>
+
+        <!-- Services: LAN and VPN come in here -->
+        <polyline class="ln" points="450,340 1066,340"/>
+        <line class="ln" x1="634" y1="340" x2="634" y2="357" marker-end="url(#ah)"/>
+        <text x="640" y="354">443 · LAN, VPN</text>
+        <line class="ln" x1="1066" y1="340" x2="1066" y2="357" marker-end="url(#ah)"/>
+        <text x="1072" y="354">53 · UDM forward</text>
+
+        <rect class="node" x="536" y="360" width="196" height="110" rx="8"/>
+        <text class="t-name" x="548" y="383">docker01</text><text class="t-badge" x="722" y="383" text-anchor="end">VM</text>
+        <text class="t-muted" x="548" y="401">.101 · Docker host</text>
+        <rect class="pill" x="546" y="410" width="176" height="24" rx="5"/><text x="556" y="427">Traefik · int. routes</text>
+        <rect class="pill" x="546" y="439" width="176" height="24" rx="5"/><text x="556" y="456">staging when needed · media later</text>
+
+        <rect class="node" x="752" y="360" width="196" height="110" rx="8"/>
+        <text class="t-name" x="764" y="383">authentik01</text><text class="t-badge" x="938" y="383" text-anchor="end">VM</text>
+        <text class="t-muted" x="764" y="401">.41 · identity</text>
+        <rect class="pill" x="762" y="410" width="176" height="24" rx="5"/><text x="772" y="427">SSO · MFA · SAML</text>
+        <rect class="pill" x="762" y="439" width="176" height="24" rx="5"/><text x="772" y="456">Google sign-in for users</text>
+
+        <rect class="node" x="968" y="360" width="196" height="110" rx="8"/>
+        <text class="t-name" x="980" y="383">dns01 · dns02</text><text class="t-badge" x="1154" y="383" text-anchor="end">LXC</text>
+        <text class="t-muted" x="980" y="401">.21 · .22 · Pi-hole + Unbound</text>
+        <rect class="pill" x="978" y="410" width="176" height="24" rx="5"/><text x="988" y="427">local names, no blocking yet</text>
+        <text class="t-muted" x="980" y="456">both on pve01; off-host one later</text>
+
+        <line class="ln" x1="634" y1="470" x2="634" y2="498" marker-end="url(#ah)"/>
+        <text x="640" y="489">SQL</text>
+        <line class="ln" x1="776" y1="470" x2="720" y2="498" marker-end="url(#ah)"/>
+        <text x="756" y="492">SQL</text>
+
+        <rect class="node" x="536" y="500" width="196" height="100" rx="8"/>
+        <text class="t-name" x="548" y="523">pgsql01</text><text class="t-badge" x="722" y="523" text-anchor="end">LXC</text>
+        <text class="t-muted" x="548" y="541">.71 · PostgreSQL</text>
+        <rect class="pill" x="546" y="554" width="176" height="26" rx="5"/><text x="556" y="572">Authentik, app DBs</text>
+
+        <rect class="node later" x="752" y="500" width="196" height="100" rx="8"/>
+        <text class="t-name" x="764" y="523">mariadb01</text><text class="t-badge" x="938" y="523" text-anchor="end">LXC</text>
+        <text class="t-muted" x="764" y="541">.73 · MariaDB</text>
+        <rect class="pill" x="762" y="554" width="176" height="26" rx="5"/><text x="772" y="572">when an app needs it</text>
+
+        <rect class="node later" x="968" y="500" width="196" height="100" rx="8"/>
+        <text class="t-name" x="980" y="523">ai01</text><text class="t-badge" x="1154" y="523" text-anchor="end">VM · GPU</text>
+        <text class="t-muted" x="980" y="541">.121 · local AI</text>
+        <rect class="pill" x="978" y="554" width="176" height="26" rx="5"/><text x="988" y="572">RTX 3070, not fitted</text>
+
+        <!-- Management -->
+        <line class="ln" x1="450" y1="725" x2="533" y2="725" marker-end="url(#ah)"/>
+        <text x="456" y="717">admin only</text>
+        <text class="t-mono t-muted" x="456" y="742">22 · 8006</text>
+
+        <rect class="node" x="536" y="680" width="196" height="90" rx="8"/>
+        <text class="t-name" x="548" y="704">pve01</text>
+        <text class="t-muted" x="548" y="723">.11 · Proxmox VE + PBS</text>
+        <text class="t-muted" x="548" y="744">runs every guest</text>
+
+        <rect class="node" x="752" y="680" width="196" height="90" rx="8"/>
+        <text class="t-name" x="764" y="704">NAS</text>
+        <text class="t-muted" x="764" y="723">.101 · UNAS Pro</text>
+        <text class="t-muted" x="764" y="744">Media · Porter · Backups</text>
+
+        <rect class="node" x="968" y="680" width="196" height="90" rx="8"/>
+        <text class="t-name" x="980" y="704">iDRAC</text>
+        <text class="t-muted" x="980" y="723">.1 · remote console</text>
+        <text class="t-muted" x="980" y="744">break-glass access</text>
+
+        <!-- Media paths to the NAS -->
+        <polyline class="ln" points="536,445 500,445 500,792 800,792 800,773" marker-end="url(#ah)"/>
+        <text x="512" y="786">media, read-write</text>
+        <polyline class="ln" points="1164,190 1200,190 1200,800 900,800 900,773" marker-end="url(#ah)"/>
+        <polyline class="ln" points="725,255 725,266 1200,266"/>
+        <circle class="dot" cx="1200" cy="266" r="3.5"/>
+        <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media read-only · plex01, docker02 · podcasts read-write · docker02</text>
+
+        <rect class="node later" x="536" y="818" width="628" height="44" rx="8"/>
+        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests stay here until moved: docker-temp .166 · PLEX-TEMP .111 (Plex 32400 from the internet)</text>
+      </svg>
+    </div>
+    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to PLEX-TEMP on mgmt until <code>plex01</code> exists. The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media, read-write for the one <code>Podcasts</code> share (<code>docker02</code>).</figcaption>
+    <div class="legend">
+      <span><i class="sw"></i>decided</span>
+      <span><i class="sw dash"></i>later or optional</span>
+      <span><i class="sw ln"></i>from the internet</span>
+      <span><i class="sw ln2"></i>allowed internal path</span>
+    </div>
+  </figure>
+
+  <div class="cols">
+    <section>
+      <h2>Decided in this picture</h2>
+      <ul>
+        <li>Three zones: DMZ (VLAN 200), Services (VLAN 100), Management (VLAN 10).</li>
+        <li>Cloudflare proxies the public web apps; the public Traefik has a Cloudflare Origin CA certificate, so no API token sits in the DMZ.</li>
+        <li>Two Traefik instances: a public one in the DMZ with only public routes, and a Services one for LAN and VPN users.</li>
+        <li>Names follow who reaches the app: <code>&lt;app&gt;.phoenixstack.net</code> for general users from anywhere (public Traefik; works at home too), <code>&lt;name&gt;.int.phoenixstack.net</code> for LAN and VPN only (Services Traefik). <code>int.</code> isn't admin-only; the UDM rules decide that.</li>
+        <li>Authentik lives in Services. The public Traefik asks it to log people in (forward-auth); its database never leaves Services.</li>
+        <li>Public apps log in with their own OIDC against Authentik (<code>auth.phoenixstack.net</code>). Users sign in there with their Google account (each person created by hand, no open sign-up); admins with a password and a YubiKey. Groups: <code>Family</code>, with <code>Young</code> and <code>Porter</code> below it.</li>
+        <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
+        <li>Every public app runs on <code>docker02</code> with its own database (no database guest in the DMZ). It reads the NAS's <code>Media</code> share read-only, as its own NAS user, and writes only to the <code>Podcasts</code> share (Audiobookshelf's downloads).</li>
+        <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
+        <li>Testing before production: app upgrades on a staging copy (<code>&lt;app&gt;-staging.int</code>, copied data); role and host changes on throwaway test guests. Pilot: Audiobookshelf.</li>
+        <li>Every guest may only send from its own address (Proxmox IP filter), so the rules between guests can trust the source address.</li>
+        <li>Each GPU belongs to one VM and is shared by the containers inside it: P2000 for media, RTX 3070 for AI.</li>
+        <li>Addresses: MAC <code>02:aa:bb:cc:XX:YY</code>, VMID <code>1XXYY</code>, last octet = code × 10 + instance (<code>pgsql01</code> = <code>10701</code>, <code>.71</code>), the same in every zone.</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Still open</h2>
+      <ul>
+        <li>Plex, Jellyfin, or both?</li>
+        <li>Which of docker-temp's other apps are public (to <code>docker02</code>) and which LAN and VPN only (to <code>docker01</code>)? The first list is decided.</li>
+        <li>AI tier code: proposed 12, address <code>.121</code>.</li>
+        <li>An off-host Pi-hole (Porter network), so DNS survives a pve01 reboot; ad blocking comes with it.</li>
+        <li>Monitoring (uptime and service alerts) and central logs (SIEM): which zone and when.</li>
+        <li>Install the 990 Pro drives (<code>data</code> pool) and the RTX 3070.</li>
+      </ul>
+    </section>
+  </div>
+
+  <section class="matrix-sec">
+    <h2>UDM firewall today</h2>
+    <p>From the read-only export of 2026-11-23, 10:58 (UniFi Network 11.0.104), updated for the changes since: five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <div class="scroll">
+      <table class="mx">
+        <thead>
+          <tr><th>From \ To</th>
+            <th>Internal<small>Young LAN</small></th>
+            <th>Management<small>VLAN 10</small></th>
+            <th>VPN<small>Teleport + 2 sites</small></th>
+            <th>Services<small>VLAN 100</small></th>
+            <th>DMZ<small>VLAN 200</small></th>
+            <th>IOT<small>VLAN 99</small></th>
+            <th>Internet</th>
+            <th>Gateway<small>the UDM itself</small></th></tr>
+        </thead>
+        <tbody>
+          <tr><th>Internal</th>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69, 10.1.1.169: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · 443 for everyone with the first household app (names come through the UDM)</span></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · everyone else blocked</span></td>
+            <td class="c-allow"><b>Allow all</b><span>control your devices</span></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-allow"><b>Allow all</b></td>
+          </tr>
+          <tr><th>Management</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>VPN</th>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69, 10.2.1.169: all · sites: NAS 445, Plex 32400</span></td>
+            <td class="c-allow"><b>Allow all</b></td>
+            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · Porter gateway → Pi-hole 53</span></td>
+            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · everyone else blocked</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-allow"><b>Allow all</b></td>
+          </tr>
+          <tr><th>Services</th>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b><span>NAS for docker01 to add</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>DMZ</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-part"><b>2 rules</b><span>docker02 → NAS 445; its NAS user may only read Media, and read and write Podcasts · docker02 → docker-temp 2283, 8081, 9925 (temporary, until those apps move)</span></td>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-part"><b>1 rule</b><span>docker02 → authentik01 9443</span></td>
+            <td class="c-self">same network</td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-allow"><b>Allow</b></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>IOT</th>
+            <td class="c-block"><b>Block</b><span>replies only</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b><span>names come through the UDM</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">same network</td>
+            <td class="c-allow c-flag"><b>Allow</b><span>straight out · outbound DNS still open (2)</span></td>
+            <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
+          </tr>
+          <tr><th>Internet</th>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-fwd c-flag"><b>1 forward</b><span>Plex 32400 → PLEX-TEMP .111 (1)</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-fwd"><b>1 forward</b><span>443 → docker02 (Cloudflare IPs only); docker02 passes the apps not yet moved on to docker-temp</span></td>
+            <td class="c-block"><b>Block</b></td>
+            <td class="c-self">—</td>
+            <td class="c-part"><b>VPN ports</b><span>IPsec, WireGuard 20000–20001</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--ok-bg)"></i>allowed</span>
+      <span><i class="sw" style="background:var(--mgmt)"></i>blocked</span>
+      <span><i class="sw" style="background:var(--svc)"></i>limited</span>
+      <span><i class="sw" style="background:var(--dmz)"></i>port forwards</span>
+      <span><i class="sw" style="border-color:var(--accent)"></i>still open</span>
+    </div>
+
+    <h2 style="margin-top:28px">Still open</h2>
+    <ol class="flags">
+      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 passes the public apps not yet moved on to docker-temp (temporary rule, their ports only). Accepted until those apps move to the DMZ.</li>
+      <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
+      <li><b>Teleport clients count as admins.</b> The whole Teleport range (192.168.2.0/24) is an admin source, with all ports into Management. Fine while only admins use Teleport; before anyone else does, give admins fixed Teleport addresses and list only those.</li>
+    </ol>
+    <p style="margin-top:14px">Last updated 2026-11-24. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
+  </section>
+</div>

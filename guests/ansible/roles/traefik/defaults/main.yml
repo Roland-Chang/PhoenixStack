@@ -1,0 +1,32 @@
+# Traefik on a Docker host: the Services one (docker01, L5d) and the public one (docker02, L5f).
+# Routes come from the host's `routes` in the inventory.
+# Image versions are pinned here; updating one is a change in git, deployed in the weekly window.
+traefik_version: v3.7.19
+
+traefik_dir: "{{ docker_stacks_dir }}/traefik"
+
+# The domain of this host's routes: int.phoenixstack.net on docker01, phoenixstack.net on docker02.
+traefik_domain: "{{ routes_domain | default(domain) }}"
+
+# Certificate: acme = Let's Encrypt over Cloudflare DNS-01 (docker01); origin_ca = a Cloudflare
+# Origin CA certificate and key from 1Password (docker02: no Cloudflare token on that host).
+traefik_cert: acme
+traefik_op_origin_cert: ""
+traefik_op_origin_key: ""
+
+# Proxies whose X-Forwarded-For Traefik believes (docker02: Cloudflare's addresses). Empty: none.
+traefik_trusted_ips: "{{ cloudflare_sources if traefik_cert == 'origin_ca' else [] }}"
+
+# Let's Encrypt over Cloudflare DNS-01: one wildcard certificate for the internal domain. The token
+# is 1Password item "(Cloudflare) - Traefik DNS Token", read only when the guest has none yet.
+traefik_op_cloudflare_token: "op://infrastructure/6jwbiosa4zf5wg32uh333srn2m/credential"
+traefik_acme_email: alerts@phoenixstack.net
+traefik_acme_ca: https://acme-v02.api.letsencrypt.org/directory
+# The challenge check asks public resolvers: Pi-hole answers NXDOMAIN for anything under the
+# internal domain, including _acme-challenge records.
+traefik_acme_resolvers: ["1.1.1.1:53", "9.9.9.9:53"]
+
+# Authentik, for routes with `authentik: true` (forward auth to its embedded outpost).
+traefik_authentik_host: authentik01
+traefik_authentik_url: "https://{{ hostvars[traefik_authentik_host].ip }}:9443"
+traefik_authentik: "{{ routes | default([]) | selectattr('authentik', 'defined') | selectattr('authentik') | list | length > 0 }}"

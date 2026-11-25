@@ -1,0 +1,122 @@
+# Authentik server and worker as a compose stack in {{ authentik_dir }}. Needs the docker_host role
+# first. Differences from Authentik's own compose file: no bundled PostgreSQL (pgsql01 instead),
+# no Docker socket and no root for the worker, only 9443 published.
+#
+# Secrets go into .env (root only), written once from 1Password. To rotate one: change it in
+# 1Password (and in PostgreSQL for the database password), delete .env on the guest, run again.
+
+# An application with no group binding admits every Authentik user, so every OIDC app names its
+# groups (and its title and redirect paths) before any blueprint is written.
+- name: OIDC apps are complete (title, redirects, groups)
+  ansible.builtin.assert:
+    that:
+      - item.oidc.title | default('') | length > 0
+      - item.oidc.redirects | default([]) | length > 0
+      - item.oidc.groups | default([]) | length > 0
+    fail_msg: "Route {{ item.name }}: oidc needs title, redirects and groups (without groups, every user gets in)"
+    quiet: true
+  loop: "{{ authentik_oidc_apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Stack folder
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Data folders, owned by the container user
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ authentik_uid }}"
+    group: "{{ authentik_uid }}"
+    mode: "0750"
+  loop:
+    - data
+    - certs
+    - custom-templates
+
+- name: Our blueprints folder (mounted read-only at /blueprints/custom)
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}/blueprints"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Authentik notices new or changed files by itself; a removed file leaves its settings in place.
+- name: Our blueprints
+  ansible.builtin.template:
+    src: "blueprints/{{ item }}.j2"
+    dest: "{{ authentik_dir }}/blueprints/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ authentik_blueprints }}"
+
+- name: Is the .env file there?
+  ansible.builtin.stat:
+    path: "{{ authentik_dir }}/.env"
+  register: authentik_env_file
+
+# A dry run doesn't read 1Password: it only reports that the file would be written.
+- name: Secrets (.env, root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      {% if ansible_check_mode %}
+      (dry run: secrets not read)
+      {% else %}
+      AUTHENTIK_SECRET_KEY={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_secret_key | quote)) }}
+      AUTHENTIK_POSTGRESQL__PASSWORD={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_db_password | quote)) }}
+      AUTHENTIK_BOOTSTRAP_PASSWORD={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_bootstrap_password | quote)) }}
+      {% endif %}
+    dest: "{{ authentik_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not authentik_env_file.stat.exists
+
+- name: Is the .env.google file there?
+  ansible.builtin.stat:
+    path: "{{ authentik_dir }}/.env.google"
+  register: authentik_env_google_file
+
+# Google sign-in's client (decision 12), from 1Password the first time; same rules as .env above.
+- name: Google client (.env.google, root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      {% if ansible_check_mode %}
+      (dry run: secrets not read)
+      {% else %}
+      PHX_GOOGLE_CLIENT_ID={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_google_client_id | quote)) }}
+      PHX_GOOGLE_CLIENT_SECRET={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_google_client_secret | quote)) }}
+      {% endif %}
+    dest: "{{ authentik_dir }}/.env.google"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not authentik_env_google_file.stat.exists
+
+- name: Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ authentik_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+# The first start migrates the empty database, which takes a few minutes.
+- name: Run the stack (docker compose up), wait until healthy
+  community.docker.docker_compose_v2:
+    project_src: "{{ authentik_dir }}"
+    state: present
+    pull: missing
+    remove_orphans: true
+    wait: true
+    wait_timeout: 600
+  when: not docker_dry_new

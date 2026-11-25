@@ -1,0 +1,45 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+# Audiobookshelf, staging copy (role apps, decision 11). LAN and VPN only, admins only: route
+# abs-staging → http://{{ stack.name }}:80. Data restored from production's backup.
+{% else %}
+# Audiobookshelf (role apps). Reached through Traefik only: route abs → http://audiobookshelf:80.
+# If the NAS is away at start, the NAS mounts fail and the container doesn't start (fails closed).
+{% endif %}
+name: {{ stack.name }}
+
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:{{ stack.version or apps_catalog.audiobookshelf.version }}
+    container_name: {{ stack.name }}
+    restart: unless-stopped
+    user: "{{ apps_catalog.audiobookshelf.uid }}:{{ apps_catalog.audiobookshelf.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+    volumes:
+      - ./config:/config
+      - ./metadata:/metadata
+{% if stack.staging %}
+      # No NAS on this host yet: empty, read-only stand-ins (nothing plays; podcasts can't download).
+      - ./audiobooks:/audiobooks:ro
+      - ./podcasts:/podcasts:ro
+{% else %}
+      - {{ apps_catalog.audiobookshelf.audiobooks }}:/audiobooks:ro
+      - {{ apps_catalog.audiobookshelf.podcasts }}:/podcasts
+{% endif %}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:80/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true

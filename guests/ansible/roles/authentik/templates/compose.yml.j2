@@ -1,0 +1,48 @@
+# {{ ansible_managed }}
+# Authentik (role authentik). Secrets in .env (root only); settings below.
+name: authentik
+
+x-authentik: &authentik
+  image: {{ authentik_image }}:{{ authentik_version }}
+  restart: unless-stopped
+  env_file:
+    - .env
+    - .env.google
+  environment:
+    AUTHENTIK_WEB__BASE_URL: {{ authentik_base_url }}
+    AUTHENTIK_POSTGRESQL__HOST: {{ authentik_db_host }}
+    AUTHENTIK_POSTGRESQL__NAME: {{ authentik_db_name }}
+    AUTHENTIK_POSTGRESQL__USER: {{ authentik_db_user }}
+    AUTHENTIK_POSTGRESQL__SSLMODE: {{ authentik_db_sslmode }}
+    AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "{{ authentik_trusted_proxies | join(',') }}"
+    AUTHENTIK_BOOTSTRAP_EMAIL: {{ authentik_bootstrap_email }}
+    AUTHENTIK_AVATARS: initials
+    AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+  shm_size: 512mb
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  server:
+    <<: *authentik
+    command: server
+    ports:
+      - "9443:9443"
+    volumes:
+      - ./data:/data
+      - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro
+
+  # Upstream runs the worker as root with the Docker socket (for outposts it manages itself).
+  # Not here: outposts, if any, are deployed from git like everything else.
+  worker:
+    <<: *authentik
+    command: worker
+    volumes:
+      - ./data:/data
+      - ./certs:/certs
+      - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro

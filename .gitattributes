@@ -1,0 +1,4 @@
+# Everything outside archive/ runs on Linux or is read there: LF line endings, also on Windows checkouts.
+* text=auto eol=lf
+# archive/ is reference only and kept byte for byte (some of its files are CRLF).
+archive/** -text

@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# NAS share {{ item.share }}, {{ 'read-write for uid ' ~ item.owner if item.rw | default(false) else 'read-only' }} (role nas_mount). Started on first use by its .automount unit.
+[Unit]
+Description=NAS share {{ item.share }} ({{ 'read-write' if item.rw | default(false) else 'read-only' }})
+Wants=network-online.target
+After=network-online.target
+
+[Mount]
+What=//{{ nas_address }}/{{ item.share }}
+Where={{ item.path }}
+Type=cifs
+Options=credentials={{ nas_credentials_file }},{{ nas_mount_options_rw | replace('{owner}', item.owner | string) if item.rw | default(false) else nas_mount_options }}
+TimeoutSec={{ nas_mount_timeout }}

@@ -1,0 +1,55 @@
+# {{ ansible_managed }}
+# Route "{{ route.name }}" from the inventory (docker host {{ inventory_hostname }}).
+http:
+  routers:
+    {{ route.name }}:
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`)"
+      entryPoints:
+        - websecure
+      service: {{ 'api@internal' if route.url == 'api@internal' else route.name }}
+{% if route.admin_only | default(false) or route.authentik | default(false) %}
+      middlewares:
+{% if route.admin_only | default(false) %}
+        - admin-only@file
+{% endif %}
+{% if route.authentik | default(false) %}
+        - authentik@file
+{% endif %}
+{% endif %}
+{% if route.authentik | default(false) %}
+    # Authentik's login callback and sign-out on this name.
+    {{ route.name }}-outpost:
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      entryPoints:
+        - websecure
+      service: authentik-outpost@file
+{% if route.admin_only | default(false) %}
+      middlewares:
+        - admin-only@file
+{% endif %}
+{% endif %}
+{% if route.blocked_paths | default([]) | length > 0 %}
+    # Refused on this name (403). The longer rule wins over the route above.
+    {{ route.name }}-blocked:
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`) && ({% for p in route.blocked_paths %}PathPrefix(`{{ p }}`){{ ' || ' if not loop.last }}{% endfor %})"
+      entryPoints:
+        - websecure
+      service: noop@internal
+      middlewares:
+        - deny-all@file
+{% endif %}
+{% if route.url != 'api@internal' %}
+  services:
+    {{ route.name }}:
+      loadBalancer:
+        servers:
+          - url: "{{ route.url }}"
+{% if route.self_signed | default(false) %}
+        serversTransport: {{ route.name }}
+  # The backend has its own self-signed certificate: encrypted, not verified. Its firewall
+  # accepts this Docker host only.
+  serversTransports:
+    {{ route.name }}:
+      insecureSkipVerify: true
+{% endif %}
+{% endif %}

@@ -1,0 +1,205 @@
+# Baseline for every PhoenixStack guest (Debian 13): a first full upgrade, admin user, SSH hardening, time,
+# journal size, automatic security updates; on VMs also the QEMU guest agent, no LLMNR or mDNS, and
+# SSH host keys that survive cloud-init changes.
+# Order matters: the admin user and its keys exist before root's SSH login is turned off.
+
+# A new guest starts from the template's packages, which can be weeks old. Bring it up to date
+# once, before anything is installed on it. After that, updates go through the weekly window
+# (patch.yml) and the daily security updates below, never through this role.
+- name: Has this guest had its first full upgrade?
+  ansible.builtin.stat:
+    path: /etc/phoenix/initial-upgrade
+  register: initial_upgrade
+
+- name: First full upgrade (new guests only)
+  when: not initial_upgrade.stat.exists
+  block:
+    - name: Upgrade every package (apt full-upgrade)
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+        autoremove: true
+    - name: PhoenixStack marker folder
+      ansible.builtin.file:
+        path: /etc/phoenix
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+    - name: Record the first full upgrade
+      ansible.builtin.copy:
+        dest: /etc/phoenix/initial-upgrade
+        content: "First full upgrade by Ansible (base role). Later updates: guests/ansible/patch.yml.\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+- name: Packages every guest needs
+  ansible.builtin.apt:
+    name:
+      - sudo
+      - ca-certificates
+      - curl
+      - unattended-upgrades
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: QEMU guest agent (VMs)
+  when: kind == 'vm'
+  block:
+    - name: Install the QEMU guest agent
+      ansible.builtin.apt:
+        name: qemu-guest-agent
+        state: present
+    - name: Run the QEMU guest agent
+      ansible.builtin.service:
+        name: qemu-guest-agent
+        state: started
+
+- name: Time zone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Time sync (VMs; containers use pve01's clock)
+  when: kind == 'vm'
+  block:
+    - name: Install systemd-timesyncd
+      ansible.builtin.apt:
+        name: systemd-timesyncd
+        state: present
+    - name: Run systemd-timesyncd
+      ansible.builtin.service:
+        name: systemd-timesyncd
+        enabled: true
+        state: started
+
+# VMs run systemd-resolved, which by default also answers LLMNR (port 5355, every address):
+# Windows-style name guessing on the local network that nothing here uses, and a classic spoofing
+# target. Names come from Pi-hole. mDNS is off by default; set here too so it stays off.
+# (Containers don't run systemd-resolved.)
+- name: Name resolver settings folder (VMs)
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: kind == 'vm'
+
+- name: No LLMNR or mDNS (VMs)
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed (role base): names come from Pi-hole only.
+      [Resolve]
+      LLMNR=no
+      MulticastDNS=no
+    dest: /etc/systemd/resolved.conf.d/phoenix.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: kind == 'vm'
+  notify: Restart resolved
+
+# Proxmox gives a VM a new cloud-init instance ID when its cloud-init settings change (DNS,
+# address), and cloud-init then replaces the SSH host keys (2026-11-22: a DNS change did that to
+# both VMs). The first boot has made the VM's own keys by the time this runs; keep them from now on.
+- name: Keep the SSH host keys when cloud-init settings change (VMs)
+  ansible.builtin.copy:
+    content: |
+      # Ansible managed (role base): keep this VM's SSH host keys when its instance ID changes.
+      ssh_deletekeys: false
+    dest: /etc/cloud/cloud.cfg.d/99-phoenix-ssh-host-keys.cfg
+    owner: root
+    group: root
+    mode: "0644"
+  when: kind == 'vm'
+
+- name: Admin user
+  ansible.builtin.user:
+    name: "{{ admin_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+  register: admin_user_account
+
+- name: Admin user's SSH keys (exactly the keys in the inventory)
+  ansible.posix.authorized_key:
+    user: "{{ admin_user }}"
+    key: "{{ ssh_public_keys | join('\n') }}"
+    exclusive: true
+  # A dry run on a new guest only pretends to create the user, so its keys can't be checked yet.
+  when: not (ansible_check_mode and admin_user_account.changed)
+
+- name: Admin user uses sudo without a password (key-only login; Ansible needs it)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-phoenix-admin
+    content: "{{ admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s
+
+- name: Journal settings folder (Debian doesn't ship it)
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Journal size cap
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/50-phoenix.conf
+    content: |
+      # Managed by Ansible (PhoenixStack base role)
+      [Journal]
+      SystemMaxUse=200M
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Automatic updates run daily
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      // Managed by Ansible (PhoenixStack base role)
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Automatic updates install Debian security updates only, without rebooting
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52phoenix-unattended-upgrades
+    # #clear drops the origins Debian's 50unattended-upgrades adds (it also allows point releases).
+    content: |
+      // Managed by Ansible (PhoenixStack base role). Everything else is updated in the weekly window.
+      #clear Unattended-Upgrade::Origins-Pattern;
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: SSH hardening (keys only, no root login)
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-phoenix.conf
+    # sshd uses the first value it reads; Debian includes sshd_config.d/*.conf in name order,
+    # so 10- wins over cloud-init's 50- file.
+    content: |
+      # Managed by Ansible (PhoenixStack base role)
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+    owner: root
+    group: root
+    mode: "0644"
+    validate: sshd -t -f %s
+  notify: Reload ssh

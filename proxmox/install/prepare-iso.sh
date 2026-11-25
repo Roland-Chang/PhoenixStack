@@ -8,8 +8,8 @@
 #
 # Usage:
 #   ./prepare-iso.sh --config ../config/pve01.conf \
-#                    --iso /mnt/pve/cifs-iso/proxmox-ve_9.x-y.iso \
-#                    --out /mnt/pve/cifs-iso/pve01-auto.iso
+#                    --iso /mnt/nas/nas-iso/template/iso/proxmox-ve_9.x-y.iso \
+#                    --out /root/pve01-auto.iso
 #   Options:  --skip-device-check   (when not running on the target hardware)
 #
 # The root password is prompted (never stored); only its SHA-512 crypt hash is
@@ -41,6 +41,7 @@ if grep -v '^[[:space:]]*#' "$CONFIG" | grep -q REPLACE_ME; then die "config sti
 source "$CONFIG"
 
 FQDN="${NODE_NAME}.${NODE_DOMAIN}"
+# shellcheck disable=SC2153  # UPLINK_MACS comes from the sourced config
 UPLINK_MAC=${UPLINK_MACS%% *}
 MAC_FILTER="*$(tr -d ':' <<<"${UPLINK_MAC,,}")"
 DNS1=${DNS_SERVERS%% *}
