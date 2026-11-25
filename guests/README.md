@@ -778,7 +778,23 @@ with the client's real address; 5 users and 414 recipes; the data folder writabl
 Port `9925` removed from the temporary rule by Aaron the same day; checked from `docker02`: `9925` times out
 (dropped), `2283` and `8081` connect. Mealie was then removed from docker-temp's stack by Aaron, so the rollback is
 the copy of its data folder, still on docker-temp's disk (`~/docker/appdata/mealie`), until about 2026-12-02.
-Still open: logins through Authentik (step 7).
+Logins through Authentik (step 7), designed 2026-11-25: visitors go straight to Authentik (no Mealie login
+screen); anyone in `authentik Admins` or `Family` gets in; new people get an account on first login, in group
+`Young Family`, household `Family`; existing accounts are matched by email; `authentik Admins` are Mealie admins.
+Mealie's own password form stays at `/login?direct=1` until everyone has logged in through Authentik once, then
+goes off; `svc_mealie` stays as the break-glass admin (a password account: turn password logins back on to use it
+when Authentik is down). The client secret is in 1Password `(Authentik) - Mealie OIDC`, written into
+`/opt/stacks/mealie/.env` (root only) by role `apps` (`env_op`).
+
+Rehearsed 2026-11-25 on a staging copy (`meal-staging` on `docker01`, production's data):
+
+- [x] An admin by password and TOTP (security keys are bound to `auth.int`, and OIDC uses the public name), straight
+      from Mealie to Authentik and back: a new Mealie admin account. The first try looped: Mealie's default group
+      is `Home`, this instance's is `Young Family`, so it couldn't create the account (`DEFAULT_GROUP` and
+      `DEFAULT_HOUSEHOLD` now set).
+- [x] An existing account matched by email: after its email was given to `svc_mealie` (staging only), the same
+      login opened `svc_mealie`, still an admin and still a password account; no new account.
+- [x] An admin refused on Google (by design).
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
