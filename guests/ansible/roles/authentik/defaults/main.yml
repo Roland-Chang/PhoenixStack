@@ -7,10 +7,9 @@ authentik_dir: "{{ docker_stacks_dir }}/authentik"
 
 # The address people use. Authentik builds links from it, and a future release requires it.
 # Decided 2026-11-23: the public name auth.<public_domain> (docker02's Traefik), so OIDC issuers and
-# links work at home and away; auth.<domain> (docker01) stays as a LAN and VPN entry. Switched only
-# when the 443 forward moves to docker02 (L5f Step B): until then the public name on 443 still goes
-# to docker-temp, and links there would break.
-authentik_base_url: "https://auth.{{ domain }}"
+# links work at home and away; auth.<domain> (docker01) stays as a LAN and VPN entry. Switched with
+# the 443 forward's move to docker02 (L5f Step B, 2026-11-24).
+authentik_base_url: "https://auth.{{ public_domain }}"
 # The image runs as this user; its folders belong to it.
 authentik_uid: 1000
 

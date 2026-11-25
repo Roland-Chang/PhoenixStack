@@ -165,7 +165,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 
 | From | To | Allow (design) | Today (UniFi export, 2026-11-22) |
 | --- | --- | --- | --- |
-| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | Not yet: the forwards still go to docker-temp on mgmt (REBUILD_STATE item 7) |
+| Internet | DMZ | Port forwards only: `443` → `docker02`, `32400` → `plex01`, game ports → `amp01` | `443` → `docker02` since 2026-11-24 (Cloudflare only, port `443` only; the `8443` test forward deleted). `32400` and game ports still go to mgmt (REBUILD_STATE item 7) |
 | LAN and VPN clients | Services | `443` → `docker01`. DNS goes through the UDM ([Household DNS](#household-dns)), so no `53` | Not yet: with the first app for household users |
 | LAN and VPN clients | DMZ | Nothing (decided 2026-11-23): public names resolve to Cloudflare, so home users come in through the proxy like everyone else, and `docker02` accepts only Cloudflare | As designed (`Internal -> DMZ (Block)`, `VPN -> DMZ (Block)`) |
 | Admin sources | Services, DMZ | SSH (`22`) and each guest's admin page | **All ports** (`Young/Porter/VPN Admin -> Services/DMZ`); narrow to the design once the services settle |
@@ -174,7 +174,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user, read-only on `Media` ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | Not yet (Step B) |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `83`, `2283`, `5054`, `8081`, `9925` |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -728,7 +728,7 @@ temporary rule, so the internet stops reaching mgmt the day the forward moves.
 | Podcasts | On `docker02`'s own disk (decided 2026-11-23): 32 GB, and three podcasts download new episodes. Disk 64 → **128 GB**. | They need writing, and `Media` stays read-only. |
 | App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
 | Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. Until then its files sit in `Media`, which `docker02` can read (accepted, below). | `Media` stays read-only. |
-| `8443` forward | Deleted when `443` moves. From then on, a moved app is tried under a temporary name on `443`. | |
+| `8443` forward | Deleted when `443` moved (2026-11-24). From then on, a moved app is tried under a temporary name on `443`. | |
 | Admin tools | Not reachable from outside once `443` moves (LAN and VPN only, decision 3). Until they're on `docker01`, admins use docker-temp's address and port. | |
 
 Steps (each dry-run first):
@@ -737,10 +737,26 @@ Steps (each dry-run first):
    `sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1` after `tf apply`); the NAS user and its 1Password item;
    the UDM rule `docker02 -> NAS (SMB)` (by Aaron); the mount role, applied and checked (below); Audiobookshelf's
    backups working again on docker-temp, and one made by hand (a copy also on Aaron's laptop).
-2. **Move the `443` forward:** a route on `docker02` for each public app, pointing at docker-temp for now; the
+2. ~~**Move the `443` forward:** a route on `docker02` for each public app, pointing at docker-temp for now; the
    temporary rule `docker02` → docker-temp, those ports only; Authentik's base URL → `auth.phoenixstack.net`; the
    forward → `docker02`, Cloudflare only; the `8443` forward deleted. Test every public name from a phone on mobile
-   data.
+   data.~~ Done 2026-11-24 (below).
+   - 2026-11-24: rule in place; routes `abs` (83), `immich-p` (2283), `meal` (9925), `tools` (8081), `bibliotheca`
+     (5054) on `docker02`, applied. Through Cloudflare on `8443`: all five answer, Audiobookshelf's `/ping` and
+     socket, Immich's ping; other docker-temp ports stay closed to `docker02`. Not published after the switch
+     (agreed): Calibre (its basic auth lived in docker-temp's Traefik) and `absdev`; admins reach them, and the
+     admin tools, at `10.101.0.166:<port>`. Names kept as today (`immich-p`, `meal`, `tools`); each is renamed
+     when its app moves.
+   - 2026-11-24, the switch: Cloudflare's **Always Use HTTPS** turned on (it was off: plain `http://` reached the
+     origin and failed with `522`) and SSL mode **Full (strict)**. UniFi forward "Cloudflare - 443" →
+     `10.101.2.102:443`, port `443` only (`80`, `81`, `444` gone), Cloudflare's addresses only; the `8443` forward
+     deleted. Authentik's base URL → `https://auth.phoenixstack.net` (applied, healthy).
+   - [x] Through Cloudflare on `443` (from the LAN, IPv4): `abs` `/ping` and socket, `immich-p` ping, `meal`,
+         `tools` → `200`; `bibliotheca` → its login page; `auth` → the login flow, `/if/admin/` → `403` (so it's
+         `docker02` answering); `http://` → `301` to `https://`; `:8443` → `522`.
+   - [x] Admin forward-auth on `docker01` (Traefik dashboard) still sends to `auth.int.phoenixstack.net`, where the
+         YubiKeys are registered.
+   - [x] From a phone on mobile data (Aaron, 2026-11-24): the names in a browser, and the Audiobookshelf app.
 3. **Move Audiobookshelf** (the pilot, below).
 4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12).
 5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.

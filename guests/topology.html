@@ -323,7 +323,7 @@
 
   <section class="matrix-sec">
     <h2>UDM firewall today</h2>
-    <p>From the read-only export of 2026-11-23, 10:58 (UniFi Network 11.0.104), updated for that day's later changes (below): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
+    <p>From the read-only export of 2026-11-23, 10:58 (UniFi Network 11.0.104), updated for the changes since (below): five zones of our own plus the internet and the UDM itself. Rows are where traffic starts, columns where it goes. Cells outlined in orange are still open; see the list below the grid.</p>
     <div class="scroll">
       <table class="mx">
         <thead>
@@ -380,7 +380,7 @@
           </tr>
           <tr><th>DMZ</th>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
-            <td class="c-part"><b>1 rule</b><span>docker02 → NAS 445; its NAS user may only read Media</span></td>
+            <td class="c-part"><b>2 rules</b><span>docker02 → NAS 445; its NAS user may only read Media · docker02 → docker-temp 83, 2283, 5054, 8081, 9925 (temporary, until those apps move)</span></td>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
             <td class="c-part"><b>1 rule</b><span>docker02 → authentik01 9443</span></td>
             <td class="c-self">same network</td>
@@ -400,10 +400,10 @@
           </tr>
           <tr><th>Internet</th>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-fwd c-flag"><b>2 forwards</b><span>Plex 32400 → .111; 80, 81, 443, 444 → docker-temp .166 (Cloudflare IPs only) (1)</span></td>
+            <td class="c-fwd c-flag"><b>1 forward</b><span>Plex 32400 → PLEX-TEMP .111 (1)</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-fwd"><b>1 forward</b><span>8443 → docker02 443 (Cloudflare IPs only), for testing until 443 moves</span></td>
+            <td class="c-fwd"><b>1 forward</b><span>443 → docker02 (Cloudflare IPs only); docker02 passes the apps not yet moved on to docker-temp</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">—</td>
             <td class="c-part"><b>VPN ports</b><span>IPsec, WireGuard 20000–20001</span></td>
@@ -421,12 +421,13 @@
 
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
-      <li><b>Internet-facing hosts on the management network.</b> The two forwards reach docker-temp and PLEX-TEMP on mgmt, with extra ports for docker-temp's current setup. Accepted until those apps move to the DMZ.</li>
+      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 passes the public apps not yet moved on to docker-temp (temporary rule, their ports only). Accepted until those apps move to the DMZ.</li>
       <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
     </ol>
     <p style="margin-top:14px">Fixed on 2026-11-20: stale port forwards removed; Services DHCP limited to <code>.150</code>–<code>.199</code>; mgmt and IOT each moved to a zone of their own; every zone's access to the UDM limited to DNS, DHCP and ICMP; SSH is off on the UDM and the iDRAC; the Temp site-to-site VPN and unused port lists deleted; pve01's own admin allowlist narrowed to the same sources as the UDM (Young and Porter admin workstations, Teleport).</p>
     <p style="margin-top:8px">Fixed on 2026-11-21: Services and the DMZ open to the admin sources only (Young and Porter admin workstations and laptops, Teleport), with <code>Internal -&gt; DMZ (Block)</code> and <code>VPN -&gt; DMZ (Block)</code> for everyone else; the admin laptops added to the Management rules and to pve01's allowlist; the admin workstations and laptops on the IPS "Detection Exclusions" list, so repeated SSH isn't taken for a scan. Checked with two test guests (one per zone), since destroyed.</p>
     <p style="margin-top:8px">Changed on 2026-11-22: household DNS through the UDM, which forwards <code>int.phoenixstack.net</code> to Pi-hole (Young LAN first); the Gateway block rules of Services, Management and IOT match new and invalid connections only, so replies to the UDM's own queries get back.</p>
     <p style="margin-top:8px">Changed on 2026-11-23: <code>8080</code> (docker-temp's Traefik API, no login) taken out of the internet forward; a test forward <code>8443</code> → <code>docker02</code> (Cloudflare only) and the rule <code>docker02 -&gt; authentik01</code> (9443) for the public Traefik; <code>docker02 -&gt; NAS (SMB)</code> (445 only; its NAS user may only read <code>Media</code>); <code>Porter Gateway -&gt; Pi-hole (DNS)</code> for the Porter household's internal names; Ben's admin workstation and laptop on the IPS exclusions.</p>
+    <p style="margin-top:8px">Changed on 2026-11-24: the internet's <code>443</code> forward moved from docker-temp to <code>docker02</code> (Cloudflare only, port 443 only; 80, 81 and 444 gone) and the <code>8443</code> test forward deleted; <code>docker02 -&gt; Docker-Temp (temporary)</code> (83, 2283, 5054, 8081, 9925) until those apps move; Cloudflare redirects plain HTTP to HTTPS and checks the origin's certificate (Full, strict).</p>
   </section>
 </div>

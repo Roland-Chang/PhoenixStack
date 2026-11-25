@@ -194,3 +194,11 @@ all:
           routes:
             # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}
+            # Step B, temporary: the public apps still on docker-temp (10.101.0.166, mgmt), straight to their
+            # ports (UDM rule "docker02 -> Docker-Temp (temporary)"). Today's names, so phones and bookmarks
+            # keep working. Each line goes when its app moves to this host.
+            - {name: abs, url: "http://10.101.0.166:83"}            # Audiobookshelf
+            - {name: immich-p, url: "http://10.101.0.166:2283"}     # Immich (Porter)
+            - {name: meal, url: "http://10.101.0.166:9925"}         # Mealie
+            - {name: tools, url: "http://10.101.0.166:8081"}        # IT-Tools
+            - {name: bibliotheca, url: "http://10.101.0.166:5054"}  # MyBibliotheca
