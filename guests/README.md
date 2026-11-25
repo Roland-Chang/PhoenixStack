@@ -88,7 +88,7 @@ same when it arrives.
 
 | | Standard | Why |
 | --- | --- | --- |
-| When | Nightly at **06:30 UTC** (was 00:30 local until the guests moved to UTC, 2026-11-24): 23:30 Denver in winter, 00:30 in summer. systemd timer `db-dump.timer` (`Persistent=true`: a run missed while the guest was off happens at boot). | Before `nightly-pbs` (01:00 Denver, pve01's clock) and `nightly-nas` (03:30), so both carry that night's dumps. |
+| When | Nightly at **06:30 UTC** (was 00:30 local until the guests moved to UTC, 2026-11-24): 23:30 Denver in winter, 00:30 in summer. systemd timer `db-dump.timer` (`Persistent=true`: a run missed while the guest was off happens at boot). | Before `nightly-pbs` (08:00 UTC) and `nightly-nas` (10:30 UTC), so both carry that night's dumps. |
 | What | Each database separately (PostgreSQL: `pg_dump --format=custom`), plus the roles (`pg_dumpall --globals-only`). | One database or one table can be restored alone; without the roles a restore has no owners. |
 | Check | Each dump is read back (`pg_restore --list`). The day's folder appears only when every dump succeeded. | A bad night never leaves a half set that looks complete. |
 | Where | `/var/backups/db-dump/<YYYY-MM-DD>/` on the guest, owner `postgres`, mode `0700`. Script `/usr/local/sbin/db-dump`. | No NAS mount in the guest (Services can't reach mgmt); the guest backups copy the folder off. |
@@ -788,7 +788,7 @@ Steps (each dry-run first):
      without a hard dependency on UTC. Guests' clocks (`timezone: Etc/UTC`, role `base`; all six moved the same
      night), PostgreSQL (`timezone`, `log_timezone`), Traefik and Authentik run on UTC; app containers (role `apps`)
      on `app_timezone`. The move to UTC ran one extra database dump at 04:16 UTC (the timer saw 00:30 as missed;
-     it succeeded). pve01's own clock is still Denver: a later step, with its backup jobs rescheduled.
+     it succeeded). pve01 followed the same night (`pve-bootstrap.sh`, stages `system`, `pbs`, `backups`): clock UTC, `nightly-pbs` 08:00, `nightly-nas` 10:30, PBS prune 11:00, GC 11:30, verify Saturdays 12:00, all UTC: the same Denver night as before (an hour later in summer). The script now also updates existing PBS jobs' schedules, and moves Debian's monthly ZFS trim and scrub to Sundays 13:24 UTC (they'd have run Saturday evenings in Denver).
    - **Rollback:** `docker start audiobookshelf` on docker-temp and the route `abs` back to `http://10.101.0.166:83`;
      anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
    - `83` out of the temporary UDM rule (with `5054`; Aaron, 2026-11-24, checked closed). `absdev` stays on

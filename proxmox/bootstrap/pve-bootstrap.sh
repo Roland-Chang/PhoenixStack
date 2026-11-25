@@ -413,6 +413,28 @@ SystemMaxUse=1G
 EOF
   if [[ $FILE_CHANGED == yes ]] && is_apply; then systemctl restart systemd-journald; fi
 
+  # ZFS trim and scrub. Debian's cron runs them at 00:24 host time on the first and second Sunday,
+  # which on a UTC clock is Saturday evening in Denver. Its file is set aside with dpkg-divert (a
+  # name with a dot, which cron ignores; package upgrades update that copy, never the original), and
+  # ours runs the same scripts on the same Sundays at ZFS_MAINTENANCE_TIME.
+  local zfs_cron=/etc/cron.d/zfsutils-linux zfs_aside=/etc/cron.d/zfsutils-linux.phoenix-diverted
+  local zfs_h=${ZFS_MAINTENANCE_TIME%%:*} zfs_m=${ZFS_MAINTENANCE_TIME##*:}
+  [[ $zfs_h =~ ^[0-9]{1,2}$ && $zfs_m =~ ^[0-9]{2}$ ]] || die "ZFS_MAINTENANCE_TIME must be HH:MM (got ${ZFS_MAINTENANCE_TIME})"
+  if [[ $(dpkg-divert --truename "$zfs_cron") == "$zfs_aside" ]]; then ok "Debian's ZFS cron set aside (${zfs_aside})"
+  else
+    change "set Debian's ZFS cron aside: ${zfs_cron} -> ${zfs_aside}"
+    run dpkg-divert --local --rename --divert "$zfs_aside" --add "$zfs_cron"
+  fi
+  ensure_file /etc/cron.d/phoenix-zfs-maintenance 0644 <<EOF
+# Managed by PhoenixStack pve-bootstrap.sh: Debian's ZFS trim and scrub (its cron file is diverted
+# to ${zfs_aside}), at ${ZFS_MAINTENANCE_TIME} host time (UTC) instead of 00:24.
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+# TRIM the first Sunday of every month.
+$((10#$zfs_m)) $((10#$zfs_h)) 1-7 * * root if [ \$(date +\%w) -eq 0 ] && [ -x /usr/lib/zfs-linux/trim ]; then /usr/lib/zfs-linux/trim; fi
+# Scrub the second Sunday of every month.
+$((10#$zfs_m)) $((10#$zfs_h)) 8-14 * * root if [ \$(date +\%w) -eq 0 ] && [ -x /usr/lib/zfs-linux/scrub ]; then /usr/lib/zfs-linux/scrub; fi
+EOF
+
   # SSH: make sure our keys are present BEFORE turning off password auth.
   local ak=/root/.ssh/authorized_keys key present=0
   for key in "${ROOT_SSH_KEYS[@]}"; do
@@ -1291,8 +1313,15 @@ stage_pbs() {
     return 0
   fi
 
-  # Datastore
-  if pbs_has name "$ds" datastore list; then ok "datastore ${ds}"
+  # Datastore (its GC schedule is kept in step with the config)
+  local cur_sched
+  if pbs_has name "$ds" datastore list; then
+    cur_sched=$(pbs_get gc-schedule datastore show "$ds")
+    if [[ $cur_sched == "$PBS_GC_SCHEDULE" ]]; then ok "datastore ${ds} (GC ${PBS_GC_SCHEDULE})"
+    else
+      change "datastore ${ds}: GC schedule ${cur_sched:-none} -> ${PBS_GC_SCHEDULE}"
+      run proxmox-backup-manager datastore update "$ds" --gc-schedule "$PBS_GC_SCHEDULE"
+    fi
   else
     [[ -d $PBS_DATASTORE_PATH ]] || die "datastore path ${PBS_DATASTORE_PATH} missing (run the storage stage)"
     [[ -z $(ls -A "$PBS_DATASTORE_PATH") ]] || die "datastore path ${PBS_DATASTORE_PATH} is not empty — refusing"
@@ -1301,15 +1330,28 @@ stage_pbs() {
       --gc-schedule "$PBS_GC_SCHEDULE" --comment "pve01 local backups (managed by pve-bootstrap)"
   fi
 
-  # Prune and verify jobs (server-side; the backup token can't delete)
-  if pbs_has id "${ds}-prune" prune-job list; then ok "prune job ${ds}-prune"
+  # Prune and verify jobs (server-side; the backup token can't delete). Existing jobs get the
+  # config's schedule; their other settings are left as created.
+  if pbs_has id "${ds}-prune" prune-job list; then
+    cur_sched=$(pbs_json prune-job list | json_find schedule "id=${ds}-prune" || true)
+    if [[ $cur_sched == "$PBS_PRUNE_SCHEDULE" ]]; then ok "prune job ${ds}-prune (${PBS_PRUNE_SCHEDULE})"
+    else
+      change "prune job ${ds}-prune: schedule ${cur_sched} -> ${PBS_PRUNE_SCHEDULE}"
+      run proxmox-backup-manager prune-job update "${ds}-prune" --schedule "$PBS_PRUNE_SCHEDULE"
+    fi
   else
     local -a keep=() kv
     for kv in ${PBS_KEEP//,/ }; do keep+=("--${kv%%=*}" "${kv#*=}"); done
     change "add prune job ${ds}-prune (${PBS_PRUNE_SCHEDULE}: ${PBS_KEEP})"
     run proxmox-backup-manager prune-job create "${ds}-prune" --store "$ds" --schedule "$PBS_PRUNE_SCHEDULE" "${keep[@]}"
   fi
-  if pbs_has id "${ds}-verify" verify-job list; then ok "verify job ${ds}-verify"
+  if pbs_has id "${ds}-verify" verify-job list; then
+    cur_sched=$(pbs_json verify-job list | json_find schedule "id=${ds}-verify" || true)
+    if [[ $cur_sched == "$PBS_VERIFY_SCHEDULE" ]]; then ok "verify job ${ds}-verify (${PBS_VERIFY_SCHEDULE})"
+    else
+      change "verify job ${ds}-verify: schedule ${cur_sched} -> ${PBS_VERIFY_SCHEDULE}"
+      run proxmox-backup-manager verify-job update "${ds}-verify" --schedule "$PBS_VERIFY_SCHEDULE"
+    fi
   else
     change "add verify job ${ds}-verify (${PBS_VERIFY_SCHEDULE}, re-verify after ${PBS_VERIFY_OUTDATED_DAYS} days)"
     run proxmox-backup-manager verify-job create "${ds}-verify" --store "$ds" --schedule "$PBS_VERIFY_SCHEDULE" \

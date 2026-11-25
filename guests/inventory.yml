@@ -65,7 +65,7 @@ all:
     #   timezone      guests' clocks (role base) and infrastructure containers (Traefik); Authentik's
     #                 containers have no TZ at all (UTC, as its documentation requires)
     #   app_timezone  user-facing app containers (role apps), so their schedules and logs read in local time
-    # pve01's own clock is still America/Denver (its backup jobs are scheduled in local time; later).
+    # pve01's clock is UTC too (proxmox/config/pve01.conf, TIMEZONE), its backup jobs scheduled in UTC.
     timezone: Etc/UTC
     app_timezone: America/Denver
     # Ansible connects to the guest's static IP as the admin user. A brand-new container only
