@@ -537,7 +537,7 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first):
 6. Route `auth` on `docker01`: `apb docker.yml -l docker01`.
 7. `apb dns.yml -l dns02`, then `-l dns01` (names `authentik01`, `auth`, `postgres`).
 8. UniFi alias; docs.
-9. First login as `akadmin` (password from 1Password): two YubiKeys and TOTP in Microsoft Authenticator; then `aaron` with the YubiKeys and 1Password TOTP.
+9. First login as `akadmin` (password from 1Password): two YubiKeys and TOTP in Microsoft Authenticator; then `aaron` (now `aaron.young`) with the YubiKeys and 1Password TOTP.
 
 Done when:
 
@@ -549,7 +549,7 @@ Done when:
 - [ ] UniFi alias for `authentik01`.
 - [x] MFA required: blueprint `PhoenixStack - MFA required` applied (`successful`); the MFA stage is `configure` with WebAuthn and TOTP only.
 - [x] A test account without a device (`mfatest`) was made to enrol one at its first login, offered WebAuthn and TOTP; deleted afterwards (2026-11-22).
-- [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
+- [x] `akadmin`: two YubiKeys and "TOTP Authenticator (MS Auth)"; `aaron` (now `aaron.young`; authentik Admins): two YubiKeys and "TOTP Authenticator (1Password)" (checked in the database 2026-11-22).
 - [x] `authentik.dump` in each night's folder on `pgsql01` (4.1 MB, checked 2026-11-24).
 - [x] [Restore rehearsal](#restore-rehearsal) passed 2026-11-22 (before the first app depends on Authentik).
 
@@ -594,7 +594,8 @@ Since 2026-11-24 (decision 12; first app: Audiobookshelf). Users sign in with Go
 | Admins and Google | flow `phoenix-source-authentication`, in "all" mode | A Google login must come from Google **and** not be in `authentik Admins`. (Authentik's default source flow runs in "any" mode, where an extra policy blocks nobody.) |
 | Google's client | `.env.google` on `authentik01` (root, `0600`), written once from 1Password `(Google Cloud) - Authentik sign-in` | Client ID and secret for the Google source. Google Cloud project `PhoenixStack`, redirect URI `https://auth.phoenixstack.net/source/oauth/callback/google/`. |
 
-Each person: an Authentik user created by hand, with a clean username (Authentik allows no spaces), the email they
+Each person: an Authentik user created by hand, with the username **`first.last`** (the standard since 2026-11-25,
+for admins too: `aaron` became `aaron.young`; Authentik allows no spaces), the email they
 sign in to Google with, **no password**, and their group (`Young` or `Porter`); without a group, Google lets them
 in but no app does. Users can't change their own email. Removing a route doesn't delete its client: delete it in
 the UI. Checked 2026-11-24 on a staging copy, then in production: an admin by password and TOTP, a user by Google,
@@ -634,7 +635,7 @@ Pick the smallest repair that fits (each command dry-run first where it has one)
 4. **Can't log in** (both of `akadmin`'s factors gone, flows broken by a change): `ak create_recovery_key` (see Admin,
    above). Infrastructure logins (Proxmox, UniFi, iDRAC, NAS, 1Password) never depend on Authentik.
 
-After any restore: log in as `aaron` with a YubiKey; check **Customization → Blueprints** shows `PhoenixStack - MFA required`
+After any restore: log in as `aaron.young` with a YubiKey; check **Customization → Blueprints** shows `PhoenixStack - MFA required`
 as successful; `apb authentik.yml --check` and `apb database.yml --check` show `changed=0`.
 
 ### Restore rehearsal
@@ -655,7 +656,7 @@ Before the first app depends on Authentik, and after each major Authentik upgrad
    `UPDATE authentik_tenants_tenant SET base_url='https://localhost:9444' WHERE schema_name='public';`,
    then restart the scratch server. Otherwise its links point at the live Authentik.
 3. **Log in** through an SSH tunnel (`ssh -L 9444:127.0.0.1:9444 aaron@10.101.1.41`, then `https://localhost:9444`,
-   accept the self-signed certificate): `aaron` with password and **TOTP** (YubiKeys can't work on `localhost`, see
+   accept the self-signed certificate): `aaron.young` with password and **TOTP** (YubiKeys can't work on `localhost`, see
    above). Check: both admin accounts and their devices are listed, **Customization → Blueprints** shows the MFA
    blueprint as successful, the brand settings match the live ones.
 4. **Tear down:** `docker compose down` and remove the scratch folder; `dropdb authentik_restoretest`;
