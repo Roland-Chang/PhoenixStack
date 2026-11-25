@@ -177,7 +177,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user: read-only on `Media`, read-write on an app's own share (`Podcasts`) ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081`, `9925` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; checked closed from `docker02`) |
+| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283`, `8081` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; `9925` removed 2026-11-25: Mealie moved; each checked closed from `docker02`) |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -704,7 +704,7 @@ Checked (2026-11-23 and 24):
 
 Step B (designed 2026-11-23): the `443` forward moved to `docker02` first; the public apps follow one at a time.
 Until the last one has moved, the public Traefik reaches docker-temp through the temporary rule, now only for
-Immich (`2283`), IT-Tools (`8081`) and Mealie (`9925`); the rule goes with the last.
+Immich (`2283`) and IT-Tools (`8081`); the rule goes with the last.
 
 | Area | Decision | Why |
 | --- | --- | --- |
@@ -775,9 +775,10 @@ At the switch, both copies were stopped, the data copied again (951 files, `meal
 `apb docker.yml -l docker02`. Checked through Cloudflare: `200`, `http://` → `301`, a wrong login `401` and logged
 with the client's real address; 5 users and 414 recipes; the data folder writable.
 
-Still open: Aaron removes `9925` from the temporary rule, then a check from `docker02` that it's closed (step 6);
-logins through Authentik (step 7). **Rollback** until about 2026-12-02: docker-temp's stopped copy
-(`docker start mealie`, the route back to `http://10.101.0.166:9925`, and `9925` back in the temporary rule).
+Port `9925` removed from the temporary rule by Aaron the same day; checked from `docker02`: `9925` times out
+(dropped), `2283` and `8081` connect. Mealie was then removed from docker-temp's stack by Aaron, so the rollback is
+the copy of its data folder, still on docker-temp's disk (`~/docker/appdata/mealie`), until about 2026-12-02.
+Still open: logins through Authentik (step 7).
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
