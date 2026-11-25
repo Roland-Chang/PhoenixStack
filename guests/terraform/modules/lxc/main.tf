@@ -100,14 +100,3 @@ module "firewall" {
   admin_sources = join(",", local.c.admin_sources)
   rules         = local.g.firewall_in
 }
-
-# The firewall resources lived in this module until 2026-11-22.
-moved {
-  from = proxmox_virtual_environment_firewall_options.this
-  to   = module.firewall.proxmox_virtual_environment_firewall_options.this
-}
-
-moved {
-  from = proxmox_virtual_environment_firewall_rules.this
-  to   = module.firewall.proxmox_virtual_environment_firewall_rules.this
-}

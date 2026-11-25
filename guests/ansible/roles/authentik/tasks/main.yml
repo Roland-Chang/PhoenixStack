@@ -5,6 +5,20 @@
 # Secrets go into .env (root only), written once from 1Password. To rotate one: change it in
 # 1Password (and in PostgreSQL for the database password), delete .env on the guest, run again.
 
+# An application with no group binding admits every Authentik user, so every OIDC app names its
+# groups (and its title and redirect paths) before any blueprint is written.
+- name: OIDC apps are complete (title, redirects, groups)
+  ansible.builtin.assert:
+    that:
+      - item.oidc.title | default('') | length > 0
+      - item.oidc.redirects | default([]) | length > 0
+      - item.oidc.groups | default([]) | length > 0
+    fail_msg: "Route {{ item.name }}: oidc needs title, redirects and groups (without groups, every user gets in)"
+    quiet: true
+  loop: "{{ authentik_oidc_apps }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Stack folder
   ansible.builtin.file:
     path: "{{ authentik_dir }}"

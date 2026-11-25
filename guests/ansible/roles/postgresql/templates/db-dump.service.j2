@@ -8,8 +8,8 @@ Requires=postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}.service
 Type=oneshot
 User=postgres
 Group=postgres
-Environment=DB_DUMP_DIR={{ db_dump_dir }}
-Environment=KEEP_DAYS={{ db_dump_keep_days }}
+Environment=DB_DUMP_DIR={{ postgresql_dump_dir }}
+Environment=KEEP_DAYS={{ postgresql_dump_keep_days }}
 ExecStart=/usr/local/sbin/db-dump
 Nice=10
 IOSchedulingClass=best-effort

@@ -1,0 +1,8 @@
+# ansible-lint settings for PhoenixStack's playbooks and roles. From guests/ansible:
+#   ansible-lint
+# It needs the collections in requirements.yml (set ANSIBLE_COLLECTIONS_PATH if they aren't found).
+profile: production
+offline: true
+skip_list:
+  # Roles use a short prefix (docker_ in docker_host, nas_ in nas_mount), not their full name.
+  - var-naming[no-role-prefix]

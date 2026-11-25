@@ -166,7 +166,7 @@
 
 - name: Dump folder, readable by postgres only
   ansible.builtin.file:
-    path: "{{ db_dump_dir }}"
+    path: "{{ postgresql_dump_dir }}"
     state: directory
     owner: postgres
     group: postgres
@@ -207,11 +207,11 @@
 # freshness check in patch.yml has something to check before the first night.
 - name: Has a dump ever succeeded?
   ansible.builtin.stat:
-    path: "{{ db_dump_dir }}/last-ok"
-  register: db_dump_last_ok
+    path: "{{ postgresql_dump_dir }}/last-ok"
+  register: postgresql_dump_last_ok
 
 - name: First dump (new guests only)
   ansible.builtin.systemd_service:
     name: db-dump.service
     state: started
-  when: not db_dump_last_ok.stat.exists and not postgresql_dry_new
+  when: not postgresql_dump_last_ok.stat.exists and not postgresql_dry_new

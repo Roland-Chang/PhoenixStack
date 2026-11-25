@@ -1,0 +1,14 @@
+# yamllint settings for PhoenixStack. From the repo root: yamllint .
+# Comments and text wrap at about 110 columns; a few task lines run longer. No "---" at the top.
+extends: default
+ignore: |
+  archive/
+  guests/terraform/.terraform/
+rules:
+  line-length:
+    max: 160
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    check-keys: false

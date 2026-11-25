@@ -188,6 +188,14 @@ pve_get()    { { pve_json "$1" || true; } | json_get "$2"; }                    
 pbs_json()   { proxmox-backup-manager "$@" --output-format json 2>/dev/null; }
 pbs_get()    { { pbs_json "${@:2}" || true; } | json_get "$1"; }                  # pbs_get <key> <subcommand...>
 pbs_has()    { pbs_json "${@:3}" | json_find "$1" "$1=$2" >/dev/null; }           # pbs_has <key> <value> <list-subcommand...>
+# key_label <public key>: its fingerprint and comment, for messages. Never the key itself: a key
+# without a comment would otherwise be printed whole.
+key_label() {
+  local fp comment
+  fp=$(ssh-keygen -lf /dev/stdin <<<"$1" 2>/dev/null | awk '{print $2}')
+  read -r _ _ comment <<<"$1"
+  echo "${fp:-unreadable key}${comment:+ ($comment)}"
+}
 
 readonly PVE_CERT_DIR="/etc/pve/nodes" PBS_CERT="/etc/proxmox-backup/proxy.pem"
 cert_from_le()    { openssl x509 -in "$1" -noout -issuer 2>/dev/null | grep -qi "let's encrypt"; }   # cert_from_le <pem>
@@ -440,9 +448,9 @@ EOF
   for key in "${ROOT_SSH_KEYS[@]}"; do
     [[ -n $key ]] || continue
     if grep -qF "$key" "$ak" 2>/dev/null; then
-      ok "root SSH key present: ${key##* }"; present=$((present + 1))
+      ok "root SSH key present: $(key_label "$key")"; present=$((present + 1))
     else
-      change "add root SSH key: ${key##* }"
+      change "add root SSH key: $(key_label "$key")"
       if is_apply; then printf '%s\n' "$key" >>"$ak"; present=$((present + 1)); fi
     fi
   done

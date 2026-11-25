@@ -11,18 +11,20 @@ apps_dir: /opt/stacks
 # read-only stand-ins for its folders, staging_folders below) until docker01 has NAS access.
 apps_staging: []
 
-# Per app: the uid its container runs as (no account on the host; its data folders belong to it), its
-# data folders inside the stack folder, and a staging copy's stand-ins for its NAS folders.
+# Per app, everything its template needs:
+#   uid              the uid its container runs as (no account on the host; its data folders belong to
+#                    it, and a writable NAS share's `owner` in the inventory refers to it)
+#   folders          its data folders inside the stack folder
+#   staging_folders  a staging copy's empty stand-ins for its NAS folders
+#   version          the pinned image version; a new one goes through staging first (decision 11)
 apps_catalog:
+  # Audiobookshelf. Same paths inside the container as on docker-temp (its database stores them).
+  # Audiobooks read-only from the NAS (Media); podcasts read-write on the NAS share Podcasts (they're
+  # downloaded; for Audiobookshelf's uid only); its own backups in /metadata/backups.
   audiobookshelf:
     uid: 2001
     folders: [config, metadata]
     staging_folders: [audiobooks, podcasts]
-
-# Audiobookshelf. Version pinned; a new version goes through staging first (decision 11).
-# Same paths inside the container as on docker-temp (its database stores them). Audiobooks read-only
-# from the NAS (Media); podcasts read-write on the NAS share Podcasts (they're downloaded; a share of their
-# own since 2026-11-24, for Audiobookshelf's uid only); its own backups in /metadata/backups.
-audiobookshelf_version: "2.37.2"
-audiobookshelf_audiobooks: /mnt/nas/media/Books/Audiobooks
-audiobookshelf_podcasts: /mnt/nas/podcasts
+    version: "2.37.2"
+    audiobooks: /mnt/nas/media/Books/Audiobooks
+    podcasts: /mnt/nas/podcasts

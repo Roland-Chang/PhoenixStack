@@ -2,7 +2,6 @@
 # Routes come from the host's `routes` in the inventory.
 # Image versions are pinned here; updating one is a change in git, deployed in the weekly window.
 traefik_version: v3.7.19
-whoami_version: v1.12.0
 
 traefik_dir: "{{ docker_stacks_dir }}/traefik"
 
@@ -26,9 +25,6 @@ traefik_acme_ca: https://acme-v02.api.letsencrypt.org/directory
 # The challenge check asks public resolvers: Pi-hole answers NXDOMAIN for anything under the
 # internal domain, including _acme-challenge records.
 traefik_acme_resolvers: ["1.1.1.1:53", "9.9.9.9:53"]
-
-# The smoke-test container runs only while a route named "whoami" is in the inventory.
-traefik_whoami: "{{ routes | default([]) | selectattr('name', 'equalto', 'whoami') | list | length > 0 }}"
 
 # Authentik, for routes with `authentik: true` (forward auth to its embedded outpost).
 traefik_authentik_host: authentik01

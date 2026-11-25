@@ -10,7 +10,7 @@ name: {{ stack.name }}
 
 services:
   audiobookshelf:
-    image: ghcr.io/advplyr/audiobookshelf:{{ stack.version or audiobookshelf_version }}
+    image: ghcr.io/advplyr/audiobookshelf:{{ stack.version or apps_catalog.audiobookshelf.version }}
     container_name: {{ stack.name }}
     restart: unless-stopped
     user: "{{ apps_catalog.audiobookshelf.uid }}:{{ apps_catalog.audiobookshelf.uid }}"
@@ -26,8 +26,8 @@ services:
       - ./audiobooks:/audiobooks:ro
       - ./podcasts:/podcasts:ro
 {% else %}
-      - {{ audiobookshelf_audiobooks }}:/audiobooks:ro
-      - {{ audiobookshelf_podcasts }}:/podcasts
+      - {{ apps_catalog.audiobookshelf.audiobooks }}:/audiobooks:ro
+      - {{ apps_catalog.audiobookshelf.podcasts }}:/podcasts
 {% endif %}
     security_opt:
       - no-new-privileges:true

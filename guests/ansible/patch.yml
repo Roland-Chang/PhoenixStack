@@ -60,23 +60,25 @@
       failed_when: false
       when: "'Everything is up to date' not in pihole_check.stdout"
 
-    - name: Pi-hole is up to date afterwards
-      ansible.builtin.command: pihole -up --check-only
-      register: pihole_after
-      changed_when: false
-      failed_when: "'Everything is up to date' not in pihole_after.stdout"
-      when: pihole_update is changed
+    # Only after an update, in this order: checks, not reactions, so not handlers (which would run
+    # at the end of the play).
+    - name: After the update
+      when: pihole_update is changed  # noqa: no-handler
+      block:
+        - name: Pi-hole is up to date afterwards
+          ansible.builtin.command: pihole -up --check-only
+          register: pihole_after
+          changed_when: false
+          failed_when: "'Everything is up to date' not in pihole_after.stdout"
 
-    - name: Pi-hole versions after the update
-      ansible.builtin.command: pihole version
-      register: pihole_version_after
-      changed_when: false
-      when: pihole_update is changed
+        - name: Pi-hole versions after the update
+          ansible.builtin.command: pihole version
+          register: pihole_version_after
+          changed_when: false
 
-    - name: Show Pi-hole versions after the update
-      ansible.builtin.debug:
-        var: pihole_version_after.stdout_lines
-      when: pihole_update is changed
+        - name: Show Pi-hole versions after the update
+          ansible.builtin.debug:
+            var: pihole_version_after.stdout_lines
 
     # The installer re-creates the default blocklist file on every update. Pi-hole doesn't read it
     # once its database exists; removing it keeps "no blocklists" unambiguous.
