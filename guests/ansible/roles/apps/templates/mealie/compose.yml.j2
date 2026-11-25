@@ -1,0 +1,47 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+# Mealie, staging copy (role apps, decision 11). LAN and VPN only, admins only: route
+# {{ apps_catalog.mealie.route }}-staging → http://{{ stack.name }}:9000. Data restored from production's backup.
+{% set mealie_route = apps_catalog.mealie.route ~ '-staging' -%}
+{% else %}
+# Mealie (role apps). Reached through Traefik only: route {{ apps_catalog.mealie.route }} → http://mealie:9000.
+{% set mealie_route = apps_catalog.mealie.route -%}
+{% endif %}
+name: {{ stack.name }}
+
+services:
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:{{ stack.version or apps_catalog.mealie.version }}
+    container_name: {{ stack.name }}
+    restart: unless-stopped
+    # Started as its own uid, with PUID equal to it, the image's run.sh skips its root-only steps
+    # (usermod, chown -R /app, gosu), so no capabilities are needed.
+    user: "{{ apps_catalog.mealie.uid }}:{{ apps_catalog.mealie.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+      PUID: "{{ apps_catalog.mealie.uid }}"
+      PGID: "{{ apps_catalog.mealie.uid }}"
+      ALLOW_SIGNUP: "false"
+      BASE_URL: https://{{ mealie_route }}.{{ routes_domain }}
+      # Mealie's daily jobs, in TZ's time (docker-temp misspelled the name, so they ran at 23:45 UTC).
+      DAILY_SCHEDULE_TIME: "03:00"
+      LOG_LEVEL: INFO
+    volumes:
+      - ./data:/app/data
+    mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/api/app/about"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true

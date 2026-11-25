@@ -726,7 +726,8 @@ Steps (each dry-run first):
 3. ~~Move Audiobookshelf~~ Done 2026-11-24, about 2 minutes offline ([Audiobookshelf](#audiobookshelf)).
 4. ~~Its logins through Authentik~~ Done 2026-11-24, rehearsed first on a staging copy ([Staging](#staging));
    14 seconds offline.
-5. **Next:** Immich, Mealie, IT-Tools, one at a time, with the checklist below.
+5. **Next:** Mealie (under way, [below](#mealie)), then Immich and IT-Tools, one at a time, with the checklist
+   below.
 
 #### Moving an app
 
@@ -765,6 +766,24 @@ On `docker02` since 2026-11-24.
 | Logins | "Sign in with PhoenixStack": Authentik client `abs` (`authentik Admins`, `Family`), matching existing accounts by **email**, no auto-register. Local logins stay, for e-readers, the API accounts and people without a Google Account. Microsoft 365's links and settings were removed. |
 | Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on Aaron's laptop, not in this repo. |
 | Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), and docker-temp's stopped copy (`docker start audiobookshelf`, the route back to `http://10.101.0.166:83`). `absdev` stays on docker-temp, offline from the internet. |
+
+#### Mealie
+
+Moving to `docker02` (started 2026-11-25). Steps 1–3 of [Moving an app](#moving-an-app) done, except the dry run.
+
+| Area | On docker-temp (read 2026-11-25) | On `docker02` |
+| --- | --- | --- |
+| Image | `ghcr.io/mealie-recipes/mealie:latest` = `v3.30.0`, digest `sha256:90f83da6…d784` (built 2026-11-01) | `v3.30.0`, the same digest (checked with `docker buildx imagetools inspect` on `docker02`) |
+| User | uid 1000 (`svc_docker`), through the image's `PUID`/`PGID`: `run.sh` starts as root, `chown -R /app`, then `gosu` | uid `2002`, started as that uid with `PUID` equal to it, so `run.sh` skips its root steps; no capabilities |
+| Data | `~/docker/appdata/mealie` → `/app/data`, 247 MB: SQLite `mealie.db` (1.7 MB), recipe images (85 MB), two manual backup zips (156 MB, 2025-12 and 2026-05), logs. Nothing on the NAS. | `/opt/stacks/mealie/data` → `/app/data`, owner `2002` |
+| Content | 5 users (1 admin), 1 household, 414 recipes; last change 2026-11-21 | |
+| Logins | Mealie's own passwords (all 5), sign-up off; no OIDC, no SMTP | The same; Authentik later (step 7) |
+| Settings | `BASE_URL` was `http://localhost:9925` (links Mealie sends pointed nowhere); the daily-jobs time misspelled (`DAILY_SCHEUDULE_TIME`), so the default 23:45 ran; `TZ` UTC; memory 1000M | `BASE_URL` `https://meal.phoenixstack.net`; `DAILY_SCHEDULE_TIME` 03:00 Denver; `TZ` from `app_timezone`; memory 1 GiB; healthcheck `/api/app/about` |
+| Its own backups | None scheduled (Mealie has no backup schedule) | The nightly guest backups carry `/opt/stacks/mealie` off; the old zips come along |
+| Route | `meal` → `http://10.101.0.166:9925` (temporary rule) | `meal` → `http://mealie:9000`; renamed after the app later |
+
+Open: anything saved in Mealie on the temporary migration host between 2026-11-12 and 2026-11-20 is only on its disk
+(REBUILD_STATE item 6).
 
 ### Staging
 

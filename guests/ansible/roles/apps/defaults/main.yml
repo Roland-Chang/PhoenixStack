@@ -28,3 +28,10 @@ apps_catalog:
     version: "2.37.2"
     audiobooks: /mnt/nas/media/Books/Audiobooks
     podcasts: /mnt/nas/podcasts
+  # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
+  # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
+  mealie:
+    uid: 2002
+    folders: [data]
+    version: "v3.30.0"
+    route: meal
