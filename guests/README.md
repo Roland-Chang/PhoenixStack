@@ -807,7 +807,7 @@ image, its Authentik client and its 1Password item, archived).
 | --- | --- |
 | Logins | Through Authentik only. Users with Google, admins with password and TOTP (security keys are bound to `auth.int`). |
 | Accounts | Tina, Camille and Spencer match their Authentik accounts by email (group `Young`). Roly has no Authentik account, so no way in until he gets one. |
-| Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: 1Password `(Docker) - Mealie` (vault `Phoenix Stack`). |
+| Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: probably 1Password `(Docker) - Mealie` (vault `Phoenix Stack`), to be confirmed; a fresh password and a non-work email are still to do. |
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
