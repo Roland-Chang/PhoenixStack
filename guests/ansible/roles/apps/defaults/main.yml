@@ -47,4 +47,7 @@ apps_catalog:
     oidc_admin_group: authentik Admins
     password_login: true
     env_op: {}
-    env_op_staging: {}
+    # 1Password "(Authentik) - Mealie OIDC (staging)"; production's is "(Authentik) - Mealie OIDC"
+    # (op://infrastructure/parb3agp5afn7bdwf4r7pf5sly/password), set once staging has passed.
+    env_op_staging:
+      OIDC_CLIENT_SECRET: "op://infrastructure/mlvowk64uvcaqbfthnysukbynq/password"
