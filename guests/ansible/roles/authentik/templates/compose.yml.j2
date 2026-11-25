@@ -7,6 +7,7 @@ x-authentik: &authentik
   restart: unless-stopped
   env_file:
     - .env
+    - .env.google
   environment:
     AUTHENTIK_WEB__BASE_URL: {{ authentik_base_url }}
     AUTHENTIK_POSTGRESQL__HOST: {{ authentik_db_host }}

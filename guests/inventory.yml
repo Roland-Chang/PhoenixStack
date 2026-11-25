@@ -145,11 +145,8 @@ all:
             # authentik01's address typed out: other guests' roles read these routes (the authentik
             # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}
-            # Staging copies (decision 11), admins only; their stacks in apps_staging below.
-            - {name: abs-staging, url: "http://audiobookshelf-staging:80", admin_only: true}   # Audiobookshelf
-          # Staging copies of public apps (role apps): the version to try; data from production's backup.
-          apps_staging:
-            - {app: audiobookshelf, version: "2.37.2"}
+            # Staging copies (decision 11) go here when needed: a route <app>-staging (admin_only), and
+            # apps_staging: [{app, version}] (role apps; guests/README.md, "Staging"). None now.
         # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
         # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.
         authentik01:
@@ -204,7 +201,13 @@ all:
           routes:
             # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}
-            - {name: abs, url: "http://audiobookshelf:80"}            # Audiobookshelf (moved 2026-11-24)
+            # oidc: an OIDC client in Authentik for the app's own login (role authentik).
+            - name: abs                # Audiobookshelf (moved 2026-11-24)
+              url: "http://audiobookshelf:80"
+              oidc:
+                title: Audiobookshelf
+                redirects: [/auth/openid/callback, /auth/openid/mobile-redirect]
+                groups: [authentik Admins, Family]
             # Step B, temporary: the public apps still on docker-temp (10.101.0.166, mgmt), straight to their
             # ports (UDM rule "docker02 -> Docker-Temp (temporary)"). Today's names, so phones and bookmarks
             # keep working. Each line goes when its app moves to this host.

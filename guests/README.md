@@ -789,14 +789,27 @@ Steps (each dry-run first):
      anything since the switch is lost. docker-temp's copy stays until Audiobookshelf is checked on `docker02`.
    - `83` out of the temporary UDM rule (with `5054`; Aaron, 2026-11-24, checked closed). `absdev` stays on
      docker-temp, offline from the internet (agreed).
-4. **Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12). Rehearsed first on
-   its staging copy (below).
+4. ~~**Its logins to Authentik**, separately, once it runs well on `docker02` (open decision 12). Rehearsed first on
+   its staging copy (below).~~ Done 2026-11-24 (Denver evening; 03:48 UTC on the 25th, 14 s offline):
+   - Authentik: OIDC client `abs` from the route's `oidc` entry on `docker02` (`authentik Admins`, `Family`).
+   - Audiobookshelf (stopped, database copied first to `/opt/stacks/audiobookshelf/rollback/`, root only):
+     Microsoft 365's 4 links and its settings removed; `Aaron Young`'s email → his Authentik address
+     (his work address); OpenID → Authentik as on staging (client `abs`, match by email, no auto-register, button
+     "Sign in with PhoenixStack"); local login kept. Healthy; the button leads to Authentik's login page.
+   - Still to do (Aaron): each person's Authentik user (clean username, email = their Google address, group
+     `Young` or `Porter`), checking their Audiobookshelf email matches (the list of accounts is on Aaron's laptop,
+     not in this repo); Microsoft 365's app registration for Audiobookshelf deleted in Entra.
+   - Staging deleted the same night (it had done its job): inventory entries, its route and DNS name, the
+     `abs-staging` client and app in Authentik (a blueprint doesn't delete what it created), the stack, its data
+     and image on `docker01`.
+   - **Rollback:** stop Audiobookshelf, put the copy back as `config/absdatabase.sqlite` (owner `2001`), start.
 5. The other public apps, one at a time. The temporary rule loses each app's port; it goes with the last.
 
 ### Staging
 
 Decision 11's app staging, built with Audiobookshelf on 2026-11-24 (Denver evening): **`abs-staging.int.phoenixstack.net`**
 on `docker01`, admin sources only, version `2.37.2` (production's, for now: the first use is rehearsing step 4).
+Deleted the same night after the rehearsal; the design and steps below are for the next one.
 
 | Area | Design (2026-11-24) | Why |
 | --- | --- | --- |
@@ -824,6 +837,26 @@ Restore (Audiobookshelf; dry runs first):
 - [x] 2026-11-24: backup `2026-11-25T0130` (made on docker-temp, `2.37.2`) restored: database 32 MB, metadata
       189 MB. Started healthy, quiet log (no downloads, backups or scans); both resolvers answer; `/ping`, `/status`
       over HTTPS from the laptop.
+
+Step 4 rehearsal on staging (2026-11-24, Denver evening):
+
+- Authentik, as code (role `authentik`): blueprint `PhoenixStack - People and Google sign-in` (groups `Family`,
+  `Young`, `Porter`; Google source, `email_link`, no enrollment flow; its own login flow
+  `phoenix-source-authentication` in "all" mode: from Google **and** not in `authentik Admins`; the Google button
+  on the login page) and `PhoenixStack - OIDC apps` (an OIDC client per route with `oidc` in the inventory;
+  Authentik generates the secret; a scope mapping that sends `email_verified: true`, which Authentik's own doesn't).
+  Google's client in `.env.google` (root only), from 1Password `(Google Cloud) - Authentik sign-in`.
+- Lessons: Authentik's default source flow runs in "any" mode, so a policy added there doesn't block anyone (hence
+  the own flow); a blueprint's OAuth2 provider needs `grant_types` listed (empty otherwise: "Invalid grant_type",
+  shown by Audiobookshelf as "Error in callback"); Audiobookshelf accepts return URLs only under
+  `/audiobookshelf/`.
+- Staging Audiobookshelf: Microsoft 365's settings and its 4 links removed; OpenID → Authentik (issuer
+  `https://auth.phoenixstack.net/application/o/abs-staging/`, client `abs-staging`, secret piped from Authentik,
+  never shown), button "Sign in with PhoenixStack", match existing users by **email**, no auto-register; local
+  login kept.
+- [x] Admin path: `aaron` (password + TOTP; YubiKeys are registered on `auth.int`) → his Audiobookshelf account,
+      once its email matched (it was a different address: "User not found", then "Unauthorized").
+- [x] Google path (a non-admin user), the admin block on Google, the phone app over VPN (Aaron, 2026-11-24: successful).
 
 The NAS mount (role `nas_mount` in `docker.yml`, for hosts with `nas_mounts`; **applied 2026-11-23**):
 
@@ -1006,13 +1039,17 @@ Done when:
       OIDC client in Authentik (with step 4's rehearsal).
 12. **Users log in with their Google account, through Authentik** (decided 2026-11-23). Authentik is the one place
     that says who a person is (username, email, groups); the Google account is only the key they prove it with,
-    and the apps only ever see Authentik. Each person is created by hand (username = their existing app username,
-    email = the address they sign in with, group); their first Google login links to that user by email. No open
-    sign-up: an unknown account gets nothing. Each app keeps one local admin (break-glass), and local logins for
-    clients that can't do OIDC (e-readers, scripts). Audiobookshelf matches by username (6 of its users have no
-    email, and nobody else can set an Authentik username); its 4 Microsoft 365 links are removed first, since it
-    refuses a second link. The list of people stays out of this repo. Needs the public base URL, so it comes after
-    the `443` move.
+    and the apps only ever see Authentik. Each person is created by hand (a clean username such as `aaron.young`,
+    email = the address they sign in to Google with, group); their first Google login links to that user by email.
+    No open sign-up: an unknown account gets nothing. Each app keeps one local admin (break-glass), and local logins
+    for clients that can't do OIDC (e-readers, scripts) and for people without a Google Account (they keep their
+    app username and password). **Audiobookshelf matches by email** (changed 2026-11-24 from "by username": its
+    usernames are display names with spaces, which Authentik doesn't allow in usernames): each person's
+    Audiobookshelf email must equal their Authentik email, and for Google users that's their Google Account's
+    address (any address; a Google Account doesn't need Gmail). Admins' Authentik emails stay as they are (Aaron's:
+    his work address; his Audiobookshelf email changes to it at the switch). Its 4 Microsoft 365 links
+    are removed first, since it refuses a second link. Users can't change their own email in Authentik (off by
+    default), so nobody can take over an unlinked account. The list of people stays out of this repo.
     - **Providers: Google only** (decided 2026-11-23): free, and the simplest to set up. Not now: Apple (needs a
       paid Apple Developer account, and can hide the email), Facebook (a Meta app in Live mode), Plex (can admit
       only accounts our Plex server is shared with).

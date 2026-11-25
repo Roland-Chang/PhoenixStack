@@ -66,6 +66,28 @@
   no_log: true
   when: not authentik_env_file.stat.exists
 
+- name: Is the .env.google file there?
+  ansible.builtin.stat:
+    path: "{{ authentik_dir }}/.env.google"
+  register: authentik_env_google_file
+
+# Google sign-in's client (decision 12), from 1Password the first time; same rules as .env above.
+- name: Google client (.env.google, root only), from 1Password the first time
+  ansible.builtin.copy:
+    content: |
+      {% if ansible_check_mode %}
+      (dry run: secrets not read)
+      {% else %}
+      PHX_GOOGLE_CLIENT_ID={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_google_client_id | quote)) }}
+      PHX_GOOGLE_CLIENT_SECRET={{ lookup('ansible.builtin.pipe', 'op read ' ~ (authentik_op_google_client_secret | quote)) }}
+      {% endif %}
+    dest: "{{ authentik_dir }}/.env.google"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: not authentik_env_google_file.stat.exists
+
 - name: Compose file
   ansible.builtin.template:
     src: compose.yml.j2
