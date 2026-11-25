@@ -328,6 +328,14 @@ Start each guest and check it works. MAC addresses are kept, so DHCP leases don'
      - `pve-sync`: copies this folder to the host (`/root/phoenix`). The script copies `proxmox/.`; without the `/.`, a second run puts a nested copy in `/root/phoenix/proxmox` and the old scripts keep running. The first line of every bootstrap run shows the script's version, which should match `VERSION` in the repo. Raise `VERSION` whenever the script changes.
   2. SSH uses the 1Password agent for the host under every name you type. SSH matches `Host` rules against the name typed, not the address, so list them all in `~/.ssh/config`:
      `Host 10.101.0.* pve01 pve01.int.phoenixstack.net` with `IdentityAgent ~/.1password/agent.sock` and `User root`.
+  On **Windows** (the Young admin workstation, set up 2026-11-25), all of this runs in **WSL** (Debian 13): Ansible from
+  `pipx install ansible-core` plus `ansible-galaxy collection install -r requirements.yml`, using the Windows clone through
+  `/mnt/c`. Two things differ from Linux and macOS. The 1Password agent is a Windows named pipe, bridged to
+  `~/.1password/agent.sock` with `socat` and `npiperelay` (winget `albertony.npiperelay`), started from `~/.bashrc`.
+  `op` is a small wrapper around the Windows `op.exe` that passes `OP_ACCOUNT` on as `--account`, because `op.exe`
+  doesn't see Linux environment variables. `/etc/wsl.conf` mounts Windows drives with
+  `options = "metadata,umask=22,fmask=11"`, because Ansible ignores `ansible.cfg` in a world-writable folder.
+  Commits are made from Windows git.
   3. Over the VPN, a hosts entry `10.101.0.11 pve01.int.phoenixstack.net` (and `pve01`, if you use the short name). The UniFi WiFiman client sends all lookups to public DNS, where the zone's wildcard record answers instead of Pi-hole. On the home LAN the UDM forwards the name to Pi-hole; keep the entry anyway, for when pve01 (and with it Pi-hole) is down.
 - **Weekly patch window.** In `tmux` on the host:
   1. `apt update && apt dist-upgrade`. Always `dist-upgrade` (or `full-upgrade`), never plain `apt upgrade`: Proxmox updates often add or replace packages, and `upgrade` would hold them back. This updates PVE and PBS together.

@@ -769,7 +769,12 @@ On `docker02` since 2026-11-24.
 
 #### Mealie
 
-Moving to `docker02` (started 2026-11-25). Steps 1–3 of [Moving an app](#moving-an-app) done, except the dry run.
+Moving to `docker02` (started 2026-11-25). Steps 1–4 of [Moving an app](#moving-an-app) done: data copied
+(951 files, `mealie.db` checksum equal), then the stack started on `docker02` with
+`-e '{"apps": ["audiobookshelf", "mealie"]}'` as a test (healthy as uid `2002`, no capabilities, 5 users and 414
+recipes, no errors in its log, Traefik reaches `http://mealie:9000`). It isn't in the inventory's `apps` yet and the
+route still goes to docker-temp. **Next:** the switch (step 5): stop docker-temp's copy, copy again, the inventory
+change, `apb`.
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
