@@ -173,16 +173,8 @@ all:
             # authentik01's address typed out: other guests' roles read these routes (the authentik
             # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}
-            # Staging copies (decision 11), admins only; their stacks in apps_staging below.
-            - name: meal-staging         # Mealie: rehearsing logins through Authentik (2026-11-25)
-              url: "http://mealie-staging:9000"
-              admin_only: true
-              oidc:
-                title: Mealie (staging)
-                redirects: [/login]
-                groups: [authentik Admins, Family]
-          apps_staging:
-            - {app: mealie}
+            # Staging copies (decision 11) go here when needed: a route <app>-staging (admin_only), and
+            # apps_staging: [{app, version}] (role apps; guests/README.md, "Staging"). None now.
         # Identity provider (L5e): Authentik, behind docker01's Traefik as auth.int.phoenixstack.net.
         # Its database is on pgsql01 (pg_databases there); 9443 only from docker01.
         authentik01:

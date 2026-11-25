@@ -799,8 +799,15 @@ Rehearsed 2026-11-25 on a staging copy (`meal-staging` on `docker01`, production
 
 In production since 2026-11-25 (`apb docker.yml -l docker02`, a few seconds offline). Authentik accounts for
 Camille and Spencer were added the same day (group `Young`, no password, like Tina's); Roly has none yet.
-Still to do: Aaron's and Tina's first logins in production, then `password_login: false`; delete the staging
-copy ([Staging](#staging), Lifetime).
+Aaron logged in through Authentik the same day (a new admin account, `aaron.young`). Then `password_login: false`:
+no Mealie login screen, Mealie's own passwords refused. The staging copy was deleted (route, Pi-hole name, stack,
+image, its Authentik client and its 1Password item, archived).
+
+| Area | State |
+| --- | --- |
+| Logins | Through Authentik only. Users with Google, admins with password and TOTP (security keys are bound to `auth.int`). |
+| Accounts | Tina, Camille and Spencer match their Authentik accounts by email (group `Young`). Roly has no Authentik account, so no way in until he gets one. |
+| Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: 1Password `(Docker) - Mealie` (vault `Phoenix Stack`). |
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
 | --- | --- | --- |
@@ -818,8 +825,9 @@ Open: anything saved in Mealie on the temporary migration host between 2026-11-1
 
 ### Staging
 
-Decision 11's app staging: a copy on `docker01`, built for one test and deleted after it. Used once, on
-2026-11-24, to rehearse Audiobookshelf's switch to Authentik.
+Decision 11's app staging: a copy on `docker01`, built for one test and deleted after it. Used for Audiobookshelf's
+switch to Authentik (2026-11-24) and Mealie's (2026-11-25). For an app with OIDC, the copy gets a client of its own
+(route `<app>-staging` with `oidc`) and that client's secret in `env_op_staging`; delete both afterwards.
 
 | Area | Design (2026-11-24) | Why |
 | --- | --- | --- |

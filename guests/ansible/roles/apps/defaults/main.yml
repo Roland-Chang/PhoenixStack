@@ -45,13 +45,13 @@ apps_catalog:
     version: "v3.30.0"
     route: meal
     oidc_admin_group: authentik Admins
-    password_login: true
+    password_login: false
     # Where new accounts go: this instance's group and household (by name). Mealie's defaults are
     # "Home" and "Family"; with no group "Home", logins through Authentik failed to create the account.
     default_group: Young Family
     default_household: Family
-    # 1Password "(Authentik) - Mealie OIDC"; staging's "(Authentik) - Mealie OIDC (staging)".
+    # 1Password "(Authentik) - Mealie OIDC". A staging copy needs its own client (route <route>-staging)
+    # and its secret in env_op_staging; without one, staging runs with Mealie's own logins.
     env_op:
       OIDC_CLIENT_SECRET: "op://infrastructure/parb3agp5afn7bdwf4r7pf5sly/password"
-    env_op_staging:
-      OIDC_CLIENT_SECRET: "op://infrastructure/mlvowk64uvcaqbfthnysukbynq/password"
+    env_op_staging: {}
