@@ -99,7 +99,8 @@ services:
     # Immich's job queues (BullMQ): never evict keys (it warns otherwise, and evicted jobs are lost). Not
     # saved to disk: after a restart, queued jobs are gone; Immich's nightly jobs and library scans redo them.
     command: valkey-server --save "" --appendonly no --maxmemory-policy noeviction
-    mem_limit: 320m
+    # Room for a full re-run of every job over the whole library (1.6 MB used at rest, 2026-11-26).
+    mem_limit: 1g
     healthcheck:
       test: ["CMD-SHELL", "valkey-cli ping | grep -q PONG"]
       interval: 30s

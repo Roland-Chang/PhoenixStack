@@ -45,7 +45,8 @@ apps_catalog:
     folder_modes: {postgres: "0700"}   # PostgreSQL sets 0700 on its data folder at every start
     version: "v3.1.0"            # server and machine learning, always the same version
     postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0"
-    redis_image: "docker.io/valkey/valkey:8-alpine"
+    # Valkey pinned by digest (checked on Docker Hub 2026-11-26: the tag 8.1.12-alpine is this digest).
+    redis_image: "docker.io/valkey/valkey:8.1.12-alpine@sha256:9971099af41c36e887aabdfe22b80c0fe45df949163dfc9cb434febc57cfc3fc"
     media: /mnt/nas/immich
     external_library: /mnt/nas/porter/PhotoArchive
     # 1Password "(Immich) - PostgreSQL" (user immich_db_user).
