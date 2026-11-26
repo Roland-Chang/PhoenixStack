@@ -1026,7 +1026,10 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ### Migration (each step dry-run first)
 
-1. **Prepare** (the Young admin): NAS user `svc_plex01` with read access to `Media` and 1Password `(UNAS) - svc_plex01`; UDM rule `plex01 -> NAS (SMB)`; a temporary transfer folder on the NAS (below).
+1. ~~Prepare~~ Done 2026-11-26 (the Young admin): NAS user `svc_plex01` (1Password `(UNAS) - svc_plex01`), checked
+   with `smbclient`: reads `Media`, can't write to it, and `Porter`, `Backups`, `Immich`, `Podcasts` are refused. UDM
+   rule `plex01 -> NAS (SMB)` (`10.101.2.61` → `10.101.0.101:445`, TCP, IPv4; checked in the export). Transfer
+   folder `Media/transfer`.
 2. **Build** `plex01` (Terraform, `plex.yml`): Plex installed but **stopped and disabled** until its data is in; GPU and NAS checked.
 3. **Copy ahead** while PLEX-TEMP runs: `Metadata` and `Media` (about 27 GB). Mgmt and DMZ have no direct path, so through the NAS: PLEX-TEMP writes an archive to a transfer folder in `Media` (it can write there today), `plex01` reads it.
 4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.
