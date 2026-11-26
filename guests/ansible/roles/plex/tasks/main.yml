@@ -1,0 +1,266 @@
+# Plex Media Server, natively (L5g): its data disk, the transcoder's RAM folder, the NVIDIA driver,
+# and Plex from its own apt repository. Plex stays off until plex_enabled (see defaults/main.yml).
+
+# --- Data disk -------------------------------------------------------------------------------------
+- name: Plex data disk is there (Terraform data_disk_gb)
+  ansible.builtin.stat:
+    path: "{{ plex_data_disk }}"
+  register: plex_disk
+  failed_when: not plex_disk.stat.exists
+
+- name: Filesystem on the data disk (only if it has none)
+  community.general.filesystem:
+    dev: "{{ plex_data_disk }}"
+    fstype: ext4
+    opts: -L plexdata
+    resizefs: true
+
+- name: Data disk at Plex's data folder (before Plex installs into it)
+  ansible.posix.mount:
+    path: "{{ plex_data_dir }}"
+    src: LABEL=plexdata
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+
+# --- Kernel and NVIDIA driver --------------------------------------------------------------------------
+# The driver is in non-free; its helper packages (nvidia-support, nvidia-installer-cleanup,
+# glx-alternative-nvidia) in contrib.
+- name: Debian's contrib, non-free and non-free-firmware components (NVIDIA)
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/debian.sources
+    regexp: '^Components: main( non-free non-free-firmware)?$'
+    replace: 'Components: main contrib non-free non-free-firmware'
+  register: plex_components
+
+- name: Debian's standard kernel and its headers (the driver's module is built against them)
+  ansible.builtin.apt:
+    name: "{{ plex_kernel_packages }}"
+    state: present
+    update_cache: "{{ plex_components is changed }}"
+  register: plex_kernel
+
+- name: Not the cloud kernel's metapackage any more (its kernels stay until autoremove)
+  ansible.builtin.apt:
+    name: linux-image-cloud-amd64
+    state: absent
+  # A dry run hasn't installed the standard kernel, so it mustn't plan to remove the other.
+  when: not ansible_check_mode or plex_kernel is not changed
+
+- name: NVIDIA driver, headless (builds its module for each installed kernel with headers)
+  ansible.builtin.apt:
+    name: "{{ plex_nvidia_packages }}"
+    state: present
+    install_recommends: false
+  # A dry run before non-free is added can't find the packages.
+  when: not (ansible_check_mode and plex_components is changed)
+
+- name: Running the standard kernel?
+  ansible.builtin.command: uname -r
+  register: plex_running_kernel
+  changed_when: false
+  check_mode: false
+
+# With both kernels at the same version, the boot menu lists the cloud kernel first. So: boot the
+# standard kernel once (grub-reboot), then remove the cloud kernels, so only the standard one is left.
+# Only on the first build, while Plex is still off: nothing runs here yet.
+- name: Newest standard kernel installed
+  ansible.builtin.shell: set -o pipefail; ls /boot/vmlinuz-*-amd64 | grep -v cloud | sed 's|/boot/vmlinuz-||' | sort -V | tail -1
+  args:
+    executable: /bin/bash
+  register: plex_std_kernel
+  changed_when: false
+  check_mode: false
+
+- name: Boot the standard kernel once, and reboot (first build only)
+  when:
+    - not ansible_check_mode
+    - "'cloud' in plex_running_kernel.stdout"
+    - plex_std_kernel.stdout | length > 0
+    - not plex_enabled
+  block:
+    - name: Next boot into Linux {{ plex_std_kernel.stdout }}
+      ansible.builtin.command:
+        argv:
+          - grub-reboot
+          - "Advanced options for Debian GNU/Linux>Debian GNU/Linux, with Linux {{ plex_std_kernel.stdout }}"
+      changed_when: true
+
+    - name: Reboot
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+
+    - name: Running kernel after the reboot
+      ansible.builtin.command: uname -r
+      register: plex_kernel_after_reboot
+      changed_when: false
+      failed_when: "'cloud' in plex_kernel_after_reboot.stdout"
+
+# (A skipped step leaves its result without stdout, hence the separate name above.)
+- name: Kernel running now
+  ansible.builtin.set_fact:
+    plex_kernel_now: "{{ plex_kernel_after_reboot.stdout | default(plex_running_kernel.stdout) }}"
+
+- name: Cloud kernels installed
+  ansible.builtin.shell: dpkg-query -W -f '${Package}\n' 'linux-image-*-cloud-amd64' 2>/dev/null || true
+  register: plex_cloud_kernels
+  changed_when: false
+  check_mode: false
+
+- name: Remove the cloud kernels (none of them is running)
+  ansible.builtin.apt:
+    name: "{{ plex_cloud_kernels.stdout_lines }}"
+    state: absent
+    purge: true
+  when:
+    - plex_cloud_kernels.stdout_lines | length > 0
+    - "'cloud' not in plex_kernel_now"
+
+# --- Plex -------------------------------------------------------------------------------------------
+- name: Tools to check Plex's signing key and add its repository
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - gnupg
+      - python3-debian
+    state: present
+
+- name: Keyring folder
+  ansible.builtin.file:
+    path: "{{ plex_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Is Plex's signing key there?
+  ansible.builtin.stat:
+    path: "{{ plex_key_path }}"
+  register: plex_key_file
+
+# Downloaded once; its fingerprint is pinned and checked below (as Docker's, role docker_host).
+- name: Plex's signing key (downloaded once)
+  ansible.builtin.get_url:
+    url: "{{ plex_key_url }}"
+    dest: "{{ plex_key_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not plex_key_file.stat.exists
+
+- name: The key is Plex's (fingerprint {{ plex_key_fingerprint }})
+  ansible.builtin.command: gpg --show-keys --with-colons {{ plex_key_path }}
+  register: plex_key_check
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    plex_key_check.rc != 0 or
+    ('fpr:::::::::' ~ plex_key_fingerprint ~ ':') not in plex_key_check.stdout
+  when: plex_key_file.stat.exists or not ansible_check_mode
+
+- name: Plex's apt repository
+  ansible.builtin.deb822_repository:
+    name: plexmediaserver
+    types: deb
+    uris: "{{ plex_repo_url }}"
+    suites: public
+    components: main
+    architectures: amd64
+    signed_by: "{{ plex_key_path }}"
+  register: plex_repo
+
+# Plex starts only when its Preferences.xml exists (the migrated server identity), so its package's
+# post-install start, or any start with an empty data folder, can't create a new identity. (Plex's
+# installer accepts only this override file: a masked unit fails its pre-installation check.) A server
+# rebuilt from nothing would need this condition removed for its first start.
+- name: No mask (Plex's installer refuses one)
+  ansible.builtin.systemd_service:
+    name: plexmediaserver.service
+    masked: false
+
+- name: Override folder for Plex's service
+  ansible.builtin.file:
+    path: /etc/systemd/system/plexmediaserver.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Plex starts only with its migrated identity (override.conf)
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (role plex): no start without the server's Preferences.xml (its identity).
+      [Unit]
+      ConditionPathExists={{ plex_data_dir }}/Library/Application Support/Plex Media Server/Preferences.xml
+    dest: /etc/systemd/system/plexmediaserver.service.d/override.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: plex_override
+
+- name: Load the override
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: plex_override is changed
+
+- name: Plex Media Server {{ plex_version }} (pinned)
+  ansible.builtin.apt:
+    name: "plexmediaserver={{ plex_version }}"
+    state: present
+    update_cache: "{{ plex_repo is changed }}"
+  when: not (ansible_check_mode and plex_repo is changed)
+
+- name: Held at that version (patch.yml's upgrades leave it alone)
+  ansible.builtin.dpkg_selections:
+    name: plexmediaserver
+    selection: hold
+  when: not (ansible_check_mode and plex_repo is changed)
+
+- name: Plex's user (created by its package; a dry run before the install has none)
+  ansible.builtin.getent:
+    database: passwd
+    key: plex
+    fail_key: false
+
+- name: Transcoder folder in RAM ({{ plex_transcode_size }}, Plex's user only)
+  ansible.posix.mount:
+    path: "{{ plex_transcode_dir }}"
+    src: tmpfs
+    fstype: tmpfs
+    opts: "size={{ plex_transcode_size }},mode=0700,uid={{ ansible_facts.getent_passwd.plex[1] }},gid={{ ansible_facts.getent_passwd.plex[2] }},noexec,nosuid,nodev"
+    state: mounted
+  when: ansible_facts.getent_passwd.plex is not none
+
+- name: Plex runs (only once its data is in, plex_enabled)
+  ansible.builtin.systemd_service:
+    name: plexmediaserver.service
+    enabled: true
+    state: started
+  when: plex_enabled
+
+- name: Plex stays off until then (the package enables it)
+  ansible.builtin.systemd_service:
+    name: plexmediaserver.service
+    enabled: false
+    state: stopped
+  when: not plex_enabled and not (ansible_check_mode and plex_repo is changed)
+
+# --- GPU (from the switch on: a GPU belongs to one running VM) ----------------------------------------
+- name: Is a GPU passed through?
+  ansible.builtin.shell: set -o pipefail; lspci -nn | grep -i -c nvidia || true
+  args:
+    executable: /bin/bash
+  register: plex_gpu_present
+  changed_when: false
+  check_mode: false
+
+- name: The driver sees the GPU
+  ansible.builtin.command: nvidia-smi --query-gpu=name,driver_version --format=csv,noheader
+  register: plex_gpu
+  changed_when: false
+  check_mode: false
+  when: plex_gpu_present.stdout | int > 0 and not ansible_check_mode
+
+- name: GPU
+  ansible.builtin.debug:
+    msg: "{{ plex_gpu.stdout | default('no GPU passed through yet (it moves here at the switch)') }}"

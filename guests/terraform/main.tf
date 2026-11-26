@@ -32,6 +32,9 @@ locals {
         cores       = try(h.cores, 1)
         memory      = try(h.memory, 512)
         disk_gb     = try(h.disk_gb, 8)
+        # VMs only: a second disk (scsi1) for the app's data, and a PCI device by its pve01 mapping (GPU).
+        data_disk_gb = try(h.data_disk_gb, null)
+        gpu_mapping  = try(h.gpu_mapping, null)
         storage     = try(h.storage, "ssd")
         description = try(h.description, "")
         # Host, then group, then the gateway (see inventory.yml).

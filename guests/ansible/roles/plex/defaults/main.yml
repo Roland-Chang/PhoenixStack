@@ -1,0 +1,36 @@
+# Plex Media Server on plex01 (L5g), installed natively from Plex's apt repository.
+
+# Plex stays off (disabled, and it can't start without its Preferences.xml) until the data from
+# PLEX-TEMP is in place: a first start would write a new Preferences.xml, a new server identity, and
+# every client would have to find "a new server". true at the switch (guests/README.md, L5g step 4).
+plex_enabled: false
+
+# Pinned: PLEX-TEMP's version for the move (its database is moved as it is). Newer versions by hand.
+plex_version: "1.43.5.11079-b3b13e506"
+plex_repo_url: https://repo.plex.tv/deb
+plex_key_url: https://downloads.plex.tv/plex-keys/PlexSign.v2.key
+# Plex's signing key (ed25519, 2024). The downloaded key must match.
+plex_key_fingerprint: 6EFFEB478A6559D75C7C4FE706C521790B9CFFDE
+plex_key_path: /etc/apt/keyrings/plex.asc
+
+# Plex's data (database, metadata, thumbnails) on the VM's second disk (Terraform data_disk_gb).
+plex_data_disk: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+plex_data_dir: /var/lib/plexmediaserver
+
+# Transcoder scratch space in RAM: never fills a disk, never in a backup.
+plex_transcode_dir: /transcode
+plex_transcode_size: 4G
+
+# NVIDIA from Debian's non-free (550 series: supports the P2000, a Pascal card). Headless: the kernel
+# module and the libraries Plex's transcoder uses (CUDA, NVENC, NVDEC), no X.
+plex_nvidia_packages:
+  - nvidia-kernel-dkms
+  - nvidia-smi
+  - libcuda1
+  - libnvidia-encode1
+  - libnvcuvid1
+# Debian's standard kernel instead of the cloud image's: the NVIDIA module isn't built or tested against
+# the slimmed-down cloud kernel.
+plex_kernel_packages:
+  - linux-image-amd64
+  - linux-headers-amd64

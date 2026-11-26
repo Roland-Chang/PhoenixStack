@@ -993,7 +993,7 @@ it, and since 2026-11-26 neither does `docker02`.
 
 ## L5g: Media server (`plex01`)
 
-**Designed 2026-11-26, not built.** Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
+**Designed and built 2026-11-26 (step 2), not switched yet: Plex installed but off.** Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
 the same day: **Plex only** (Jellyfin, if it comes, is its own instance); **native** install; **read-only** media;
 downtime is acceptable. Goals: users never reconfigure a client, and the VM is only as big as it needs to be.
 
@@ -1030,7 +1030,22 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
    with `smbclient`: reads `Media`, can't write to it, and `Porter`, `Backups`, `Immich`, `Podcasts` are refused. UDM
    rule `plex01 -> NAS (SMB)` (`10.101.2.61` → `10.101.0.101:445`, TCP, IPv4; checked in the export). Transfer
    folder `Media/transfer`.
-2. **Build** `plex01` (Terraform, `plex.yml`): Plex installed but **stopped and disabled** until its data is in; GPU and NAS checked.
+2. ~~Build~~ Done 2026-11-26: Terraform (`data_disk_gb`, and `gpu_mapping` for the switch, in the VM module), then
+   `site.yml` and `plex.yml` (roles `nas_mount`, `plex`); repeat runs `changed=0`. Checked: static `10.101.2.61`; the
+   NAS reachable on `445` only (not pve01's GUI, not PostgreSQL); `/content` reads the NAS and refuses writes; data
+   disk at `/var/lib/plexmediaserver`, `/transcode` 4 GiB in RAM, both after a reboot; Plex 1.43.5 installed, held,
+   disabled, not running. Found on the way:
+   - Debian's **standard kernel** replaces the cloud image's (the NVIDIA module isn't built against the cloud kernel;
+     with both at one version the boot menu picked the cloud one, so `grub-reboot` once, then the cloud kernels
+     removed). NVIDIA 550.163.01 is built for it (`dkms`); it needs `contrib` as well as `non-free`.
+   - Plex's installer refuses a masked service, and its post-install step starts Plex. Instead, an `override.conf`
+     (the only one Plex accepts): **Plex starts only if its `Preferences.xml` exists**. Its post-install start was
+     skipped by that condition, so no new identity was created; a Plex rebuilt from nothing needs the condition
+     removed for its first start.
+   - The template boots with SeaBIOS (PLEX-TEMP uses OVMF): before the switch, a **GPU test** of about 10 minutes
+     with Plex offline: PLEX-TEMP off, the GPU to `plex01` (`gpu_mapping: GPU01`, the token's `Mapping.Use`), driver
+     and hardware encoding checked, then back. If SeaBIOS doesn't work with the card: OVMF without Secure Boot.
+   - Plex's user is uid `999` here, `998` on PLEX-TEMP: copied files are given to `plex` afterwards.
 3. **Copy ahead** while PLEX-TEMP runs: `Metadata` and `Media` (about 27 GB). Mgmt and DMZ have no direct path, so through the NAS: PLEX-TEMP writes an archive to a transfer folder in `Media` (it can write there today), `plex01` reads it.
 4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.
 5. **Rollback** for a week: stop `plex01`, start Plex on PLEX-TEMP, forward back to `.111`. Then PLEX-TEMP and the transfer folder go; `svc_plex` loses its access.

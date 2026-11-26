@@ -1,0 +1,15 @@
+# Media server (L5g): plex01. The NAS share (Media read-only at /content, role nas_mount), then Plex
+# natively (role plex). Run after site.yml has set up the guest. Always with --check --diff first.
+#
+#   apb plex.yml --check --diff
+#   apb plex.yml
+#
+# The first real run reads the NAS user's password from 1Password (op read, on this computer), installs
+# Debian's standard kernel and the NVIDIA driver, and reboots once. Plex stays off until
+# plex_enabled is true (guests/README.md, L5g step 4).
+
+- name: Media server
+  hosts: plex01
+  roles:
+    - nas_mount
+    - plex

@@ -67,6 +67,32 @@ resource "proxmox_virtual_environment_vm" "this" {
     ssd          = true
   }
 
+  # The app's data on its own disk (inventory data_disk_gb): it grows online, and to shrink it, its data is
+  # copied to a smaller disk. Thin, with discard, like the system disk.
+  dynamic "disk" {
+    for_each = local.g.data_disk_gb == null ? [] : [local.g.data_disk_gb]
+    content {
+      datastore_id = local.g.storage
+      interface    = "scsi1"
+      size         = disk.value
+      discard      = "on"
+      ssd          = true
+      iothread     = true
+    }
+  }
+
+  # A GPU passed through by its resource mapping on pve01 (inventory gpu_mapping, e.g. GPU01). The token
+  # needs Mapping.Use on /mapping/pci/<name>. Adding it to a running VM takes effect at its next start.
+  dynamic "hostpci" {
+    for_each = local.g.gpu_mapping == null ? [] : [local.g.gpu_mapping]
+    content {
+      device  = "hostpci0"
+      mapping = hostpci.value
+      pcie    = true
+      rombar  = true
+    }
+  }
+
   network_device {
     bridge      = "vmbr0"
     vlan_id     = local.g.vlan
