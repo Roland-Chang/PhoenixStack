@@ -100,3 +100,42 @@
     label: "{{ item.item.path }}"
   # A dry run can't start a unit it hasn't written yet.
   when: not (ansible_check_mode and item is changed)
+
+# A share taken out of nas_mounts: its units are stopped (unmounted) and deleted. Nothing on the NAS
+# changes, and the empty mount folder stays. Stop the apps using it first (guests/README.md, "Removing
+# an app").
+- name: Mount units on the guest
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "mnt-nas-*.automount"
+  register: nas_units_found
+
+- name: Units of shares no longer in nas_mounts
+  ansible.builtin.set_fact:
+    nas_units_removed: >-
+      {{ nas_units_found.files | map(attribute='path') | map('basename') | map('regex_replace', '\.automount$', '')
+         | difference(nas_mounts | map(attribute='path') | map('regex_replace', '^/', '') | map('replace', '/', '-')) }}
+
+- name: Stop removed shares (automount, then the mount)
+  ansible.builtin.systemd_service:
+    name: "{{ item.0 }}.{{ item.1 }}"
+    state: stopped
+    enabled: false
+  loop: "{{ nas_units_removed | product(['automount', 'mount']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}.{{ item.1 }}"
+  failed_when: false
+
+- name: Delete removed shares' units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.0 }}.{{ item.1 }}"
+    state: absent
+  loop: "{{ nas_units_removed | product(['automount', 'mount']) | list }}"
+  loop_control:
+    label: "{{ item.0 }}.{{ item.1 }}"
+  register: nas_units_deleted
+
+- name: Load the remaining units
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: nas_units_deleted is changed

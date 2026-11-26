@@ -94,6 +94,31 @@
   notify: Restart pihole-FTL
   when: not ansible_check_mode
 
+# A dry run can't write settings, so it reads each one (pihole-FTL --config <key> only reads) and
+# reports every setting that differs from the inventory, e.g. one changed by hand in the web interface.
+# FTL prints lists as "[ a, b ]" (no quotes), booleans as true/false and strings as they are.
+- name: Pi-hole settings (dry run, read only)
+  ansible.builtin.command: pihole-FTL --config {{ item.key | quote }}
+  check_mode: false
+  loop: "{{ pihole_config | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: pihole_setting_now
+  vars:
+    pihole_wanted: >-
+      {{ ('[ ' ~ (item.value | join(', ')) ~ ' ]') if (item.value is iterable and item.value is not string)
+         else ((item.value | string | lower) if item.value is boolean else (item.value | string)) }}
+  changed_when: (pihole_setting_now.stdout | trim) != (pihole_wanted | trim)
+  when: ansible_check_mode and pihole_install is not changed
+
+- name: Pi-hole settings that a real run would change (dry run)
+  ansible.builtin.debug:
+    msg: "{{ item.item.key }}: now {{ item.stdout | trim }}"
+  loop: "{{ pihole_setting_now.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: ansible_check_mode
+
 - name: Is the web password set?
   ansible.builtin.command: pihole-FTL --config webserver.api.pwhash
   register: pihole_pwhash

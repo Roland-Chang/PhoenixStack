@@ -760,6 +760,25 @@ From the Audiobookshelf move. Each step dry-run first; the switch in the quietes
 8. **Rollback** until it's settled: start it on docker-temp and point the route back. A week later, delete the
    rollback copies.
 
+#### Removing an app
+
+The roles don't delete what an app leaves behind (review item O5, 2026-11-26): its folder holds its data, and
+Authentik's blueprints never delete. What they do: role `apps` **reports** every stack folder in `/opt/stacks` that
+is no longer in `apps`/`apps_staging` (running or stopped); role `nas_mount` **removes** the units of a share taken
+out of `nas_mounts` (unmounts it; nothing on the NAS changes). The steps, each dry-run first:
+
+1. Take its backup if anything in it matters (its own backup, or `/opt/stacks/<app>` from the guest backups).
+2. Remove it from the inventory: its `apps` (or `apps_staging`) entry and its route; for a share only it used, its
+   `nas_mounts` entry. Then `apb docker.yml -l <host>`: the route file goes, the report names the stack, and the
+   share's units go.
+3. Stop it: `cd /opt/stacks/<app> && sudo docker compose down` (containers and networks; the folder stays).
+4. Its OIDC client: delete the application and its provider in Authentik's admin interface (blueprints don't).
+5. An `int.` route: `apb dns.yml -l dns01`, then `-l dns02`, so Pi-hole drops the name.
+6. After the rollback period: `sudo rm -r /opt/stacks/<app>`, its images (`sudo docker image prune -a`), and its
+   NAS share if it had one (the NAS user's access first, then the share).
+7. Outside the repo: its 1Password items, UDM rules or port forwards that named it, and the Cloudflare record if it
+   had its own.
+
 #### Audiobookshelf
 
 On `docker02` since 2026-11-24.

@@ -109,3 +109,33 @@
   loop_control:
     label: "{{ item.stack.name }}"
   when: not docker_dry_new and not (ansible_check_mode and item.changed)
+
+# An app taken out of `apps` (or `apps_staging`) is not stopped or deleted here: its folder holds its data.
+# This only reports it; the steps are in guests/README.md, "Removing an app". (traefik: role traefik.)
+- name: Stack folders on the host
+  ansible.builtin.find:
+    paths: "{{ apps_dir }}"
+    file_type: directory
+    recurse: false
+  register: apps_folders_found
+
+- name: Stacks no longer in the inventory
+  ansible.builtin.command:
+    argv: [docker, compose, --project-directory, "{{ item }}", ps, --quiet]
+  loop: >-
+    {{ apps_folders_found.files | map(attribute='path') | map('basename')
+       | difference(apps_stacks | map(attribute='name')) | difference(['traefik'])
+       | map('regex_replace', '^', apps_dir ~ '/') | list }}
+  register: apps_leftovers
+  check_mode: false
+  changed_when: false
+  failed_when: false
+
+- name: Report stacks no longer in the inventory
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.item }} is not in apps/apps_staging and {{ 'is still RUNNING' if (item.stdout | trim) else 'is stopped' }}.
+      To remove it: guests/README.md, "Removing an app".
+  loop: "{{ apps_leftovers.results }}"
+  loop_control:
+    label: "{{ item.item | basename }}"
