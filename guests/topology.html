@@ -106,7 +106,7 @@
 <div class="wrap">
   <header>
     <h1>PhoenixStack Topology</h1>
-    <p class="sub">L5 design, updated 2026-11-23. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
+    <p class="sub">L5 design, updated 2026-11-26. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
   </header>
 
   <figure>
@@ -185,7 +185,7 @@
         <text class="t-name" x="548" y="134">docker02</text><text class="t-badge" x="722" y="134" text-anchor="end">VM</text>
         <text class="t-muted" x="548" y="153">.102 · Docker host</text>
         <rect class="pill" x="546" y="168" width="176" height="30" rx="5"/><text x="556" y="188">Traefik · public routes</text>
-        <rect class="pill" x="546" y="206" width="176" height="30" rx="5"/><text x="556" y="226">Audiobookshelf; more to come</text>
+        <rect class="pill" x="546" y="206" width="176" height="30" rx="5"/><text x="556" y="226">ABS, Immich, Mealie, Tools</text>
 
         <rect class="node later" x="752" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="764" y="134">amp01</text><text class="t-badge" x="938" y="134" text-anchor="end">VM</text>
@@ -274,13 +274,13 @@
         <polyline class="ln" points="1164,190 1200,190 1200,800 900,800 900,773" marker-end="url(#ah)"/>
         <polyline class="ln" points="725,255 725,266 1200,266"/>
         <circle class="dot" cx="1200" cy="266" r="3.5"/>
-        <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media read-only · plex01, docker02 · podcasts read-write · docker02</text>
+        <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media, Porter read-only · plex01, docker02 · Podcasts, Immich read-write · docker02</text>
 
         <rect class="node later" x="536" y="818" width="628" height="44" rx="8"/>
         <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests stay here until moved: docker-temp .166 · PLEX-TEMP .111 (Plex 32400 from the internet)</text>
       </svg>
     </div>
-    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to PLEX-TEMP on mgmt until <code>plex01</code> exists. The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media, read-write for the one <code>Podcasts</code> share (<code>docker02</code>).</figcaption>
+    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to PLEX-TEMP on mgmt until <code>plex01</code> exists. The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media and the Porter photo archive, read-write for the <code>Podcasts</code> and <code>Immich</code> shares (<code>docker02</code>), one share per app that writes.</figcaption>
     <div class="legend">
       <span><i class="sw"></i>decided</span>
       <span><i class="sw dash"></i>later or optional</span>
@@ -300,7 +300,7 @@
         <li>Authentik lives in Services. The public Traefik asks it to log people in (forward-auth); its database never leaves Services.</li>
         <li>Public apps log in with their own OIDC against Authentik (<code>auth.phoenixstack.net</code>). Users sign in there with their Google account (each person created by hand, no open sign-up); admins with a password and a YubiKey. Groups: <code>Family</code>, with <code>Young</code> and <code>Porter</code> below it.</li>
         <li>One Docker host per zone, as VMs: <code>docker01</code> (Services) and <code>docker02</code> (DMZ), like docker-temp today.</li>
-        <li>Every public app runs on <code>docker02</code> with its own database (no database guest in the DMZ). It reads the NAS's <code>Media</code> share read-only, as its own NAS user, and writes only to the <code>Podcasts</code> share (Audiobookshelf's downloads).</li>
+        <li>Every public app runs on <code>docker02</code> with its own database (no database guest in the DMZ). It reads the NAS's <code>Media</code> and <code>Porter</code> shares read-only, as its own NAS user, and writes only to shares of its own: <code>Podcasts</code> (Audiobookshelf) and <code>Immich</code>.</li>
         <li>Simple native services run as containers: Pi-hole, PostgreSQL, MariaDB.</li>
         <li>Testing before production: app upgrades on a staging copy (<code>&lt;app&gt;-staging.int</code>, copied data); role and host changes on throwaway test guests. Pilot: Audiobookshelf.</li>
         <li>Every guest may only send from its own address (Proxmox IP filter), so the rules between guests can trust the source address.</li>
@@ -380,7 +380,7 @@
           </tr>
           <tr><th>DMZ</th>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
-            <td class="c-part"><b>2 rules</b><span>docker02 → NAS 445; its NAS user may only read Media, and read and write Podcasts · docker02 → docker-temp 2283, 8081, 9925 (temporary, until those apps move)</span></td>
+            <td class="c-part"><b>2 rules</b><span>docker02 → NAS 445; its NAS user may only read Media and Porter, and read and write Podcasts and Immich · docker02 → docker-temp 2283 (temporary; Immich moved 2026-11-26, the rule goes next)</span></td>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
             <td class="c-part"><b>1 rule</b><span>docker02 → authentik01 9443</span></td>
             <td class="c-self">same network</td>
@@ -403,7 +403,7 @@
             <td class="c-fwd c-flag"><b>1 forward</b><span>Plex 32400 → PLEX-TEMP .111 (1)</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-fwd"><b>1 forward</b><span>443 → docker02 (Cloudflare IPs only); docker02 passes the apps not yet moved on to docker-temp</span></td>
+            <td class="c-fwd"><b>1 forward</b><span>443 → docker02 (Cloudflare IPs only); every public app now runs on docker02</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">—</td>
             <td class="c-part"><b>VPN ports</b><span>IPsec, WireGuard 20000–20001</span></td>
@@ -421,10 +421,10 @@
 
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
-      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 passes the public apps not yet moved on to docker-temp (temporary rule, their ports only). Accepted until those apps move to the DMZ.</li>
+      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 can still reach docker-temp on 2283 (temporary rule, now unused; it goes next). Accepted until then.</li>
       <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
       <li><b>Teleport clients count as admins.</b> The whole Teleport range (192.168.2.0/24) is an admin source, with all ports into Management. Fine while only admins use Teleport; before anyone else does, give admins fixed Teleport addresses and list only those.</li>
     </ol>
-    <p style="margin-top:14px">Last updated 2026-11-24. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
+    <p style="margin-top:14px">Last updated 2026-11-26. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
   </section>
 </div>

@@ -34,8 +34,8 @@ apps_catalog:
   # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
   # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
   # Immich: one instance for everyone (guests/README.md, "Immich"). Four containers, all as `uid`, no
-  # capabilities: the server (Traefik reaches it), machine learning, PostgreSQL and Redis (Valkey; a cache,
-  # nothing kept). PostgreSQL and Redis sit on the stack's internal network only. Media on the NAS share
+  # capabilities: the server (Traefik reaches it), machine learning, PostgreSQL and Redis (Valkey: its job
+  # queues, not saved). PostgreSQL and Redis sit on the stack's internal network only. Media on the NAS share
   # Immich, mounted read-write for `uid` (nas_mounts); the same path inside the container as on docker-temp,
   # since the database stores every file's full path. The external library: Porter/PhotoArchive, read-only.
   # The database on docker02's disk (folder postgres); the model cache in ml-cache. No staging copy yet:

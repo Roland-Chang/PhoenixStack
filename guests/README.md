@@ -729,8 +729,8 @@ Steps (each dry-run first):
    14 seconds offline.
 5. ~~Move Mealie~~ Done 2026-11-25, about 90 seconds offline ([Mealie](#mealie)).
 6. ~~Move IT-Tools~~ Done 2026-11-25, no downtime ([IT-Tools](#it-tools)).
-7. **In progress:** Immich (NAS mounts done, bulk copy running 2026-11-25; see [Immich](#immich) for where to pick
-   up); the temporary rule goes with it.
+7. ~~Immich~~ Done 2026-11-26, about 16 minutes offline ([Immich](#immich)). Left: Aaron removes `2283`, the
+   temporary rule's last port, so the rule goes.
 
 #### Moving an app
 
@@ -839,7 +839,7 @@ Open: anything saved in Mealie on the temporary migration host between 2026-11-1
 
 #### Immich
 
-Moving to `docker02` (started 2026-11-25). **One instance for everyone** (decided by Aaron 2026-11-25): Immich keeps
+On `docker02` since 2026-11-26 (moving started 2026-11-25). **One instance for everyone** (decided by Aaron 2026-11-25): Immich keeps
 each user's library private (admins manage accounts but can't browse others' photos); root on the hosts and the NAS
 can read everything. NAS share **`Immich`**, read-write for `svc_docker02` only; `svc_docker02` may read `Porter`
 (the external library). Created by Aaron 2026-11-25. The name `immich-p` stays until it's changed with the Porter
@@ -860,10 +860,10 @@ On `docker02` (coded 2026-11-25, dry run clean; the stack not started yet):
 
 | Area | Design |
 | --- | --- |
-| Stack | `/opt/stacks/immich` (role `apps`), four containers, all as uid `2003` with no capabilities: `immich-server` and `immich-machine-learning` `v3.1.0` (server: the digest docker-temp runs), `immich-postgres` (the same image and digest as docker-temp), `immich-redis` (Valkey 8, a cache only). PostgreSQL and Redis only on the stack's internal network; machine learning also has the default network, for its models. |
+| Stack | `/opt/stacks/immich` (role `apps`), four containers, all as uid `2003` with no capabilities: `immich-server` and `immich-machine-learning` `v3.1.0` (server: the digest docker-temp runs), `immich-postgres` (the same image and digest as docker-temp), `immich-redis` (Valkey 8: the job queues, `noeviction`, not saved to disk). PostgreSQL and Redis only on the stack's internal network; machine learning also has the default network, for its models. |
 | Media | NAS share `Immich` → `/mnt/nas/immich` (read-write for uid `2003` only) → `/usr/src/app/upload`, as on docker-temp; `IMMICH_MEDIA_LOCATION` set to it, so the image's `/data` isn't used. `Porter` → `/mnt/nas/porter` (read-only), `PhotoArchive` → `/porter:ro`. |
 | Database | `/opt/stacks/immich/postgres` on `docker02`'s disk; password in 1Password `(Immich) - PostgreSQL` (`.env`, root only, role `apps` `env_op`). Moved with a dump at the switch. |
-| Route | `immich-p` → `http://immich-server:2283` at the switch. |
+| Route | `immich-p` → `http://immich-server:2283` (since the switch, 2026-11-26). |
 
 Progress (where to pick up):
 
@@ -888,13 +888,20 @@ Progress (where to pick up):
    `2003` (PostgreSQL and machine learning too); server healthy, no migrations needed; uploads, thumbnails, encoded
    video and `/porter` readable; about 2 GB of 16 GiB used. Browser check through `ssh -L 2283:<immich-server's
    proxy-network address>:2283 aaron@10.101.2.102` (look only: the switch replaces this database).
-4. **The switch**, in the quiet hours: stop Immich on docker-temp; dump and restore the database as in step 3;
-   the delta copy (`cp -ru --preserve=timestamps --no-preserve=mode`; no `rsync` on `docker02`), then the same
-   `chmod u+w` check; `immich` into `docker02`'s `apps` in the inventory (without `immich_api_only`); route
-   `immich-p` → `http://immich-server:2283`. Then Aaron removes `2283`, which is the last port of the temporary
-   rule, so the rule goes.
-5. Rollback for about a week (docker-temp's copy and `Media/Immich/Porter` left as they are), then delete the old
-   copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
+4. ~~The switch~~ Done 2026-11-26, 17:49–18:05 UTC (daytime, Aaron's go-ahead; no uploads since 2026-10-25):
+   Immich stopped on docker-temp (`docker update --restart=no` on its four containers, so a reboot doesn't start
+   them); database dumped and restored as in step 3 (same counts; newest asset 2026-10-25); delta copy with
+   `cp -ruvT --preserve=timestamps --no-preserve=mode` (11 min, one file: that night's database dump, writable,
+   same checksum); `immich` into the inventory's `apps`, route `immich-p` → `http://immich-server:2283`. Checked
+   through Cloudflare: `ping`, version `3.1.0`, the web page; API and job workers running, no errors. Found after
+   the switch: Redis was set to evict keys (`allkeys-lru`), but it holds Immich's **job queues**; now
+   `noeviction` (Immich's job library warned). Left: Aaron removes `2283` from the temporary rule (the rule goes),
+   then check from `docker02` that it's closed; a phone check (app upload and browsing). Small: the role sets
+   `postgres/` to `0750`, PostgreSQL sets it back to `0700` at each start, so a run can show that change.
+5. Rollback until about 2026-12-03: docker-temp's stopped stack and `Media/Immich/Porter` are left as they are
+   (anything uploaded since the switch exists only on `docker02`). To roll back: `docker update
+   --restart=unless-stopped` and `docker start` on docker-temp's four Immich containers, the route back to
+   `http://10.101.0.166:2283`, and `2283` back in the temporary rule. Then delete the old copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
    Cloudflare's 100 MB upload limit (checked with a phone after the move).
 
 ### Staging

@@ -229,7 +229,7 @@ all:
             - {share: Immich, path: /mnt/nas/immich, rw: true, owner: "{{ apps_catalog.immich.uid }}"}
             - {share: Porter, path: /mnt/nas/porter}
           # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
-          apps: [audiobookshelf, mealie, it-tools]
+          apps: [audiobookshelf, mealie, it-tools, immich]
           routes:
             # Authentik's public name; its admin pages stay LAN and VPN only (auth.int).
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true, blocked_paths: ["/if/admin"]}
@@ -247,7 +247,5 @@ all:
                 redirects: [/login]
                 groups: [authentik Admins, Family]
             - {name: tools, url: "http://it-tools:80"}              # IT-Tools (moved 2026-11-25), public
-            # Step B, temporary: the public apps still on docker-temp (10.101.0.166, mgmt), straight to their
-            # ports (UDM rule "docker02 -> Docker-Temp (temporary)"). Today's names, so phones and bookmarks
-            # keep working. Each line goes when its app moves to this host.
-            - {name: immich-p, url: "http://10.101.0.166:2283"}     # Immich (Porter)
+            # Immich (moved 2026-11-26). Its docker-temp name until it's renamed with the Porter users.
+            - {name: immich-p, url: "http://immich-server:2283"}
