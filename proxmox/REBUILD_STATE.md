@@ -39,8 +39,10 @@ How things got here is in the git history (`git log -- proxmox/`).
    the mgmt subnet, next to the host, iDRAC and NAS, until Plex moves to `plex01` in the DMZ. No game-port forward
    is left (confirmed in UniFi 2026-11-26, review item O11).
 8. **Mgmt network** `10.101.0.0/24` (since 2026-11-20; DHCP `10.101.0.100`–`.249`, fixed addresses below `.100`).
-   Still to do: reservations for docker-temp (`.166`) and PLEX-TEMP (`.111`), both plain leases inside the range
-   (UniFi export 2026-11-22); the NAS (`.101`) is reserved.
+   PLEX-TEMP has a fixed IP `.111` in UniFi since 2026-11-26: after that day's patch reboot it came back at
+   `.25` (a fixed IP of unknown origin), so the `32400` forward and the Plex rules, which name `.111`, missed it
+   for about 1¾ hours until the Young admin set `.111` and it was rebooted. docker-temp (`.166`) is still a plain
+   lease (review item O6, skipped). The NAS (`.101`) is reserved.
 9. **UniFi zones** (checked with `tools/unifi-export.sh`, 2026-11-23): Management, IOT, Services and DMZ each have a
    zone of their own. Into Management: the admin sources get everything; the Young LAN and the site-to-site VPNs
    only the NAS (SMB) and PLEX-TEMP (Plex); the Young LAN also docker-temp's app ports. Every zone's access to the
