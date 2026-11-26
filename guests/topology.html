@@ -380,7 +380,7 @@
           </tr>
           <tr><th>DMZ</th>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
-            <td class="c-part"><b>2 rules</b><span>docker02 → NAS 445; its NAS user may only read Media and Porter, and read and write Podcasts and Immich · docker02 → docker-temp 2283 (temporary; Immich moved 2026-11-26, the rule goes next)</span></td>
+            <td class="c-part"><b>1 rule</b><span>docker02 → NAS 445; its NAS user may only read Media and Porter, and read and write Podcasts and Immich</span></td>
             <td class="c-block"><b>Block</b><span>replies only</span></td>
             <td class="c-part"><b>1 rule</b><span>docker02 → authentik01 9443</span></td>
             <td class="c-self">same network</td>
@@ -421,7 +421,7 @@
 
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
-      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt, and docker02 can still reach docker-temp on 2283 (temporary rule, now unused; it goes next). Accepted until then.</li>
+      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt. Accepted until Plex moves to plex01 in the DMZ.</li>
       <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
       <li><b>Teleport clients count as admins.</b> The whole Teleport range (192.168.2.0/24) is an admin source, with all ports into Management. Fine while only admins use Teleport; before anyone else does, give admins fixed Teleport addresses and list only those.</li>
     </ol>

@@ -17,6 +17,7 @@ apps_staging: []
 #   folders          its data folders inside the stack folder
 #   staging_folders  a staging copy's empty stand-ins for its NAS folders
 #   version          the pinned image version; a new one goes through staging first (decision 11)
+#   folder_modes     a data folder's mode when it isn't 0750: {folder: "0700"}
 #   env_op           secrets for the stack's .env (root only): {VARIABLE: "op://..."}, read from 1Password
 #                    the first time only (dry runs never read them); env_op_staging for a staging copy.
 #                    To rotate: change it in 1Password, delete the .env on the guest, run again.
@@ -31,8 +32,6 @@ apps_catalog:
     version: "2.37.2"
     audiobooks: /mnt/nas/media/Books/Audiobooks
     podcasts: /mnt/nas/podcasts
-  # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
-  # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
   # Immich: one instance for everyone (guests/README.md, "Immich"). Four containers, all as `uid`, no
   # capabilities: the server (Traefik reaches it), machine learning, PostgreSQL and Redis (Valkey: its job
   # queues, not saved). PostgreSQL and Redis sit on the stack's internal network only. Media on the NAS share
@@ -43,6 +42,7 @@ apps_catalog:
   immich:
     uid: 2003
     folders: [postgres, ml-cache]
+    folder_modes: {postgres: "0700"}   # PostgreSQL sets 0700 on its data folder at every start
     version: "v3.1.0"            # server and machine learning, always the same version
     postgres_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0"
     redis_image: "docker.io/valkey/valkey:8-alpine"
@@ -59,7 +59,9 @@ apps_catalog:
     folders: []
     version: "2024.10.22-7ca5933"
 
-  # Mealie. Logins through Authentik (OIDC), on when the stack's env_op has OIDC_CLIENT_SECRET: client ID = the
+  # Mealie. Everything in /app/data (SQLite, recipe images, its own backups); nothing on the NAS.
+  # route: its route name, for BASE_URL (the links Mealie sends: shares, invitations, password resets).
+  # Logins through Authentik (OIDC), on when the stack's env_op has OIDC_CLIENT_SECRET: client ID = the
   # route name (staging: <route>-staging); Authentik generates the secret, copied by hand into 1Password.
   # Visitors go straight to Authentik (no Mealie login screen); new people get an account on first
   # login; existing accounts are matched by email; oidc_admin_group are Mealie admins.

@@ -38,8 +38,7 @@ How things got here is in the git history (`git log -- proxmox/`).
    of 2026-11-12 exists only on that machine's disk (its NAS mount folders were empty local directories). Keep its
    disks until the pve01 guests are verified and anything newer has been copied over, then wipe it.
 7. **Port forwards** (2026-11-24): `443` → `docker02` (`10.101.2.102`), Cloudflare's addresses only, port `443`
-   only; `docker02` passes the public apps not yet moved on to docker-temp through the temporary rule
-   `docker02 -> Docker-Temp (temporary)`. `32400` (Plex) → PLEX-TEMP (`10.101.0.111`): an internet-facing guest on
+   only; every public app runs there since 2026-11-26 (the temporary rule to docker-temp is deleted). `32400` (Plex) → PLEX-TEMP (`10.101.0.111`): an internet-facing guest on
    the mgmt subnet, next to the host, iDRAC and NAS, until Plex moves to `plex01` in the DMZ. No game-port forward
    is expected (AMP-TEMP was deleted 2026-11-23); to be confirmed in UniFi.
 8. **Mgmt network** `10.101.0.0/24` (since 2026-11-20; DHCP `10.101.0.100`–`.249`, fixed addresses below `.100`).

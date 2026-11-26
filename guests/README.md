@@ -177,7 +177,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user: read-only on `Media`, read-write on an app's own share (`Podcasts`) ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management), **temporary** | The ports of docker-temp's public apps while they move one by one; goes with the last (Step B) | `docker02 -> Docker-Temp (temporary)` (2026-11-24): TCP `2283` (`83` and `5054` removed 2026-11-24: Audiobookshelf moved, MyBibliotheca deleted; `9925` and `8081` removed 2026-11-25: Mealie and IT-Tools moved; each checked closed from `docker02`) |
+| DMZ `docker02` | docker-temp (Management) | **None since 2026-11-26.** The temporary rule `docker02 -> Docker-Temp (temporary)` (2026-11-24) carried the public apps' ports while they moved one by one (Step B) | Rule deleted by Aaron 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -672,9 +672,9 @@ What it doesn't prove: WebAuthn after a restore (only on the real name, so only 
 
 ## L5f: DMZ Docker host and public Traefik (`docker02`)
 
-**State (2026-11-24):** `docker02` takes the internet's `443`, through Cloudflare's proxy, and runs
-Audiobookshelf. The other public apps still run on docker-temp; `docker02` reaches them through a temporary rule
-until each one moves ([Moving the public apps](#moving-the-public-apps)). Built 2026-11-23 (Step A); the forward
+**State (2026-11-26):** `docker02` takes the internet's `443`, through Cloudflare's proxy, and runs every public
+app: Audiobookshelf, Mealie, IT-Tools and Immich ([Moving the public apps](#moving-the-public-apps)); the temporary
+rule to docker-temp is gone. Built 2026-11-23 (Step A); the forward
 and Audiobookshelf moved 2026-11-24 (Step B).
 
 | Area | Decision | Why |
@@ -687,7 +687,7 @@ and Audiobookshelf moved 2026-11-24 (Step B).
 | Client addresses | Traefik trusts `X-Forwarded-For` from Cloudflare's addresses only (`forwardedHeaders.trustedIPs`). | Apps and logs see the real client, not Cloudflare. |
 | Route names | Each Docker host has a `routes_domain`: `int.phoenixstack.net` on `docker01`, `phoenixstack.net` on `docker02`. Pi-hole adds names only for the `int.` routes. | Public names come from Cloudflare's wildcard record; Pi-hole must not answer them. |
 | Authentik | Route `auth` on `docker02` → `https://10.101.1.41:9443`, so **`https://auth.phoenixstack.net`** works from anywhere, and it's Authentik's base URL (`auth.int` stays as a LAN and VPN entry). The admin pages (`/if/admin/`) are refused on the public name; the admin API isn't (review item S3). | Users outside need the login pages, and OIDC issuers must be the same at home and away. |
-| UDM rules | Forward "Cloudflare - 443" → `10.101.2.102:443`, from the "Cloudflare IPv4 Ranges" group, port `443` only. Rules `docker02 -> authentik01` (TCP `9443`), `docker02 -> NAS (SMB)` (TCP `445`) and the temporary `docker02 -> Docker-Temp (temporary)` ([UDM rules](#udm-rules)). `authentik01`'s own firewall also accepts `9443` from `docker02`. | `docker02` reaches only what its apps need. |
+| UDM rules | Forward "Cloudflare - 443" → `10.101.2.102:443`, from the "Cloudflare IPv4 Ranges" group, port `443` only. Rules `docker02 -> authentik01` (TCP `9443`), `docker02 -> NAS (SMB)` (TCP `445`) ([UDM rules](#udm-rules); the temporary rule to docker-temp was deleted 2026-11-26). `authentik01`'s own firewall also accepts `9443` from `docker02`. | `docker02` reaches only what its apps need. |
 | DNS | Nothing new: the zone's proxied wildcard record sends every name to the home address. DMZ guests ask the UDM. | |
 
 Checked (2026-11-23 and 24):
@@ -704,8 +704,7 @@ Checked (2026-11-23 and 24):
 ### Moving the public apps
 
 Step B (designed 2026-11-23): the `443` forward moved to `docker02` first; the public apps follow one at a time.
-Until the last one has moved, the public Traefik reaches docker-temp through the temporary rule, now only for
-Immich (`2283`); the rule goes with it.
+All of them have moved (Immich last, 2026-11-26), and the temporary rule to docker-temp is deleted.
 
 | Area | Decision | Why |
 | --- | --- | --- |
@@ -729,8 +728,8 @@ Steps (each dry-run first):
    14 seconds offline.
 5. ~~Move Mealie~~ Done 2026-11-25, about 90 seconds offline ([Mealie](#mealie)).
 6. ~~Move IT-Tools~~ Done 2026-11-25, no downtime ([IT-Tools](#it-tools)).
-7. ~~Immich~~ Done 2026-11-26, about 16 minutes offline ([Immich](#immich)). Left: Aaron removes `2283`, the
-   temporary rule's last port, so the rule goes.
+7. ~~Immich~~ Done 2026-11-26, about 16 minutes offline ([Immich](#immich)). The temporary rule was then
+   deleted (checked closed). **Step B is complete.**
 
 #### Moving an app
 
@@ -895,13 +894,13 @@ Progress (where to pick up):
    same checksum); `immich` into the inventory's `apps`, route `immich-p` → `http://immich-server:2283`. Checked
    through Cloudflare: `ping`, version `3.1.0`, the web page; API and job workers running, no errors. Found after
    the switch: Redis was set to evict keys (`allkeys-lru`), but it holds Immich's **job queues**; now
-   `noeviction` (Immich's job library warned). Left: Aaron removes `2283` from the temporary rule (the rule goes),
-   then check from `docker02` that it's closed; a phone check (app upload and browsing). Small: the role sets
-   `postgres/` to `0750`, PostgreSQL sets it back to `0700` at each start, so a run can show that change.
+   `noeviction` (Immich's job library warned). The temporary rule: deleted by Aaron 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers. Left: a phone check (app upload and browsing). Fixed the same day: the role set
+   `postgres/` to `0750` and PostgreSQL set it back to `0700` at each start; now the catalog's `folder_modes`
+   gives it `0700` (repeat run `changed=0`).
 5. Rollback until about 2026-12-03: docker-temp's stopped stack and `Media/Immich/Porter` are left as they are
    (anything uploaded since the switch exists only on `docker02`). To roll back: `docker update
    --restart=unless-stopped` and `docker start` on docker-temp's four Immich containers, the route back to
-   `http://10.101.0.166:2283`, and `2283` back in the temporary rule. Then delete the old copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
+   `http://10.101.0.166:2283`, and a UDM rule `docker02` → docker-temp `2283` again. Then delete the old copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
    Cloudflare's 100 MB upload limit (checked with a phone after the move).
 
 ### Staging
@@ -962,7 +961,7 @@ Role `nas_mount` in `docker.yml`, for hosts with `nas_mounts` (since 2026-11-23)
 Read 2026-11-23: a Deployrr layout in `~/docker` (one compose file including one file per app, `appdata/`,
 Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools). Its user
 `svc_docker` has no passwordless `sudo`, but is in the `docker` group. Since 2026-11-24 the internet doesn't reach
-it; `docker02` reaches only the temporary rule's ports.
+it, and since 2026-11-26 neither does `docker02`.
 
 - Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
   video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
