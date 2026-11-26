@@ -59,9 +59,10 @@ How things got here is in the git history (`git log -- proxmox/`).
     `pve01.conf`, `tools/unifi-export.sh` and the docs). The item-by-item list is kept outside this public repo.
 11. **UDM IPS and SSH**: the IPS takes repeated SSH for an outbound scan and blocks it for a few minutes, per
     destination. The admin workstations and laptops (`10.1.1.69`, `10.1.1.169`, `10.2.1.69`, `10.2.1.169`) are on
-    its "Detection Exclusions" list. **Teleport clients aren't**, and one (`192.168.2.8`) was cut off on 2026-11-24:
-    exclude the admins' Teleport addresses once they're fixed. An excluded address isn't inspected at all, so keep
-    that list to admin machines. Not the IPS: Ansible reporting guests unreachable with "Timeout waiting for
+    its "Detection Exclusions" list. So is the **whole Teleport range** `192.168.2.0/24`
+    (2026-11-26, after `192.168.2.8` was cut off on 2026-11-24). An excluded address isn't inspected at all, so keep
+    that list to admin machines: before anyone but the admins uses Teleport, narrow it to the admins' fixed Teleport
+    addresses, together with the admin sources (review item S2). Not the IPS: Ansible reporting guests unreachable with "Timeout waiting for
     privilege escalation prompt" is the 1Password SSH agent waiting for approval
     ([../guests/README.md](../guests/README.md#ansible), SSH agent).
 12. **Offsite backup copy**: both backup copies (PBS and the NAS) are in the same building. An open decision

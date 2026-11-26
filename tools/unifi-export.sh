@@ -101,9 +101,10 @@ fetch firewall-rules-legacy "/api/s/${SITE}/rest/firewallrule"
 fetch traffic-rules      "/v2/api/site/${SITE}/trafficrules"
 fetch port-forwards      "/api/s/${SITE}/rest/portforward"
 fetch port-profiles      "/api/s/${SITE}/rest/portconf"
+# Local DNS records and DNS policies. UniFi 11 keeps a "Forward Domain" policy here as an NS
+# record (key = the domain, value = the server), e.g. int.phoenixstack.net → dns01, dns02
+# (checked on 11.0.104, 2026-11-26; there is no separate dns-policies endpoint).
 fetch local-dns          "/v2/api/site/${SITE}/static-dns"
-# Newer UniFi versions keep local DNS records with the DNS policies; try both.
-fetch dns-policies       "/v2/api/site/${SITE}/dns-policies"
 # Remote-access VPNs (Teleport, WireGuard/OpenVPN servers): only the site settings whose key
 # names a VPN, so unrelated settings never leave the UDM. x_* secrets are stripped as everywhere.
 fetch vpn-settings       "/api/s/${SITE}/rest/setting" \
