@@ -870,31 +870,29 @@ Progress (where to pick up):
 1. ~~NAS mounts on `docker02`~~ Done 2026-11-25 (`apb docker.yml -l docker02`, dry run first): `/mnt/nas/immich`
    (read-write, uid `2003` only: uid `1000` can't list it) and `/mnt/nas/porter` (read-only, even for root), checked.
    The new share came with a quota of about 5 GB; Aaron raised it to **5 TB** (it shows as 4.6T in `df`).
-2. **Bulk copy, running since 2026-11-25 21:54 UTC** on `docker02`, as the transient systemd unit `immich-copy`
-   (survives SSH disconnects; gone after a reboot, then start it again with `cp -ru`, which skips files already
-   there). Copies `/mnt/nas/media/Immich/Porter` → `/mnt/nas/immich`, timestamps kept; owner and modes come from
-   the mount. Started with:
-
-   ```bash
-   sudo systemd-run --unit=immich-copy --property=Nice=10 --property=IOSchedulingClass=idle \
-     bash -c "date -Is > /root/immich-copy.log; cp -rT --preserve=timestamps /mnt/nas/media/Immich/Porter \
-       /mnt/nas/immich 2>>/root/immich-copy.log; echo exit=\$? >> /root/immich-copy.log; date -Is >> /root/immich-copy.log"
-   ```
-
-   Check it: `ssh aaron@10.101.2.102 'sudo systemctl is-active immich-copy; sudo cat /root/immich-copy.log;
-   sudo du -sh /mnt/nas/immich'` (the NAS's used figure in `df` lags; `du` over 150,000 files takes a while). Done
-   when the log ends with `exit=0` and a second timestamp. Then compare with the source: `find <dir> -type f | wc -l`
-   and `du -s --apparent-size` for each top folder (`upload`, `thumbs`, `encoded-video`, `backups`, `profile`,
-   `library`, `Test`). docker-temp keeps serving Immich meanwhile; nothing has changed for users.
-3. **Next, test start** (after Aaron's go-ahead): add `immich` to `docker02`'s `apps` only for a test run (the
-   vars file `-e '{"apps": ["audiobookshelf","mealie","it-tools","immich"]}'` instead of the inventory), restore a
-   copy of docker-temp's database (`pg_dump` there, `pg_restore` here) before the first server start, background
-   jobs paused, route still on docker-temp. Check it starts as uid `2003` (PostgreSQL and machine learning not
-   verified yet: if they fail, give those two the image's own user) and `docker02`'s memory (16 GiB).
-4. **The switch**, in the quiet hours: stop Immich on docker-temp, dump and restore the database, the delta copy
-   (`cp -ru --preserve=timestamps`; no `rsync` on `docker02`), `immich` into `docker02`'s `apps` in the inventory,
-   route `immich-p` → `http://immich-server:2283`. Then Aaron removes `2283`, which is the last port of the
-   temporary rule, so the rule goes.
+2. ~~Bulk copy~~ Done 2026-11-26 01:20 UTC (`cp -rT --preserve=timestamps`, 3 h 27 min, `exit=0`). Checked: every
+   top folder has the same file count and size as the source (`upload` 32,298 files, 157 GB; `thumbs` 155,134;
+   `encoded-video` 10,183), except `backups`, which only lacks the next nightly dump. **Lesson:** on the read-only
+   `Media` mount every file shows as `0440`, `cp` creates its copy with that mode, and on SMB without Unix
+   extensions a file without write bits gets the NAS's **read-only** flag (not even root can write it). Immich
+   refused to start (`EACCES` on `encoded-video/.immich`). Cleared on every file 2026-11-26 with
+   `setpriv --reuid=2003 --regid=2003 --clear-groups find /mnt/nas/immich -type f ! -perm -u=w -exec chmod u+w {} +`
+   (systemd unit `immich-chmod`); contents unchanged. Later copies onto a writable share: add
+   `--no-preserve=mode`.
+3. ~~Test start~~ Done 2026-11-26, route still on docker-temp: `apb docker.yml -l docker02 -e '{"apps":
+   ["audiobookshelf","mealie","it-tools","immich"], "immich_api_only": true}'` (`immich_api_only`: the API worker
+   only, `IMMICH_WORKERS_INCLUDE=api`, so no job touches the files). Database restored from docker-temp's
+   `pg_dumpall --clean --if-exists` as Immich documents (into `postgres`, `search_path` fix), **without the
+   `immich_db_user` role lines**: the dump would set docker-temp's password, and `docker02` has its own (1Password).
+   No errors; 88,026 assets, 7 users, 222 albums, 91,352 faces, as on docker-temp. All four containers run as uid
+   `2003` (PostgreSQL and machine learning too); server healthy, no migrations needed; uploads, thumbnails, encoded
+   video and `/porter` readable; about 2 GB of 16 GiB used. Browser check through `ssh -L 2283:<immich-server's
+   proxy-network address>:2283 aaron@10.101.2.102` (look only: the switch replaces this database).
+4. **The switch**, in the quiet hours: stop Immich on docker-temp; dump and restore the database as in step 3;
+   the delta copy (`cp -ru --preserve=timestamps --no-preserve=mode`; no `rsync` on `docker02`), then the same
+   `chmod u+w` check; `immich` into `docker02`'s `apps` in the inventory (without `immich_api_only`); route
+   `immich-p` → `http://immich-server:2283`. Then Aaron removes `2283`, which is the last port of the temporary
+   rule, so the rule goes.
 5. Rollback for about a week (docker-temp's copy and `Media/Immich/Porter` left as they are), then delete the old
    copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
    Cloudflare's 100 MB upload limit (checked with a phone after the move).

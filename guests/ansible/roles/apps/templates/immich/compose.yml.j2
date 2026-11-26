@@ -33,6 +33,10 @@ services:
       DB_DATABASE_NAME: immich
       DB_PASSWORD: ${DB_PASSWORD:?no .env}
       REDIS_HOSTNAME: immich-redis
+{% if immich_api_only | default(false) %}
+      # Test start only (-e immich_api_only=true): the API, no job worker, so nothing processes files.
+      IMMICH_WORKERS_INCLUDE: api
+{% endif %}
     volumes:
       - {{ immich.media }}:/usr/src/app/upload
       - {{ immich.external_library }}:/porter:ro
