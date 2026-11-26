@@ -729,7 +729,8 @@ Steps (each dry-run first):
    14 seconds offline.
 5. ~~Move Mealie~~ Done 2026-11-25, about 90 seconds offline ([Mealie](#mealie)).
 6. ~~Move IT-Tools~~ Done 2026-11-25, no downtime ([IT-Tools](#it-tools)).
-7. **Next:** Immich, with the checklist below; the temporary rule goes with it.
+7. **In progress:** Immich (NAS mounts done, bulk copy running 2026-11-25; see [Immich](#immich) for where to pick
+   up); the temporary rule goes with it.
 
 #### Moving an app
 
@@ -855,7 +856,7 @@ Read on docker-temp 2026-11-25:
 | Content | 7 users (3 Immich admins), about 32,400 uploads and 55,700 external assets. Uploads: 7,400 in August, 22,600 in September, 2,400 in October, **none since 2026-10-25**. 187 uploaded videos are over 100 MB (largest 1.1 GB): **Cloudflare's free plan refuses uploads over 100 MB**. |
 | Machine learning | Model cache in `appdata/immich-machine-learning` (downloaded again if missing). |
 
-On `docker02` (coded 2026-11-25, dry run clean; not started yet):
+On `docker02` (coded 2026-11-25, dry run clean; the stack not started yet):
 
 | Area | Design |
 | --- | --- |
@@ -863,6 +864,40 @@ On `docker02` (coded 2026-11-25, dry run clean; not started yet):
 | Media | NAS share `Immich` → `/mnt/nas/immich` (read-write for uid `2003` only) → `/usr/src/app/upload`, as on docker-temp; `IMMICH_MEDIA_LOCATION` set to it, so the image's `/data` isn't used. `Porter` → `/mnt/nas/porter` (read-only), `PhotoArchive` → `/porter:ro`. |
 | Database | `/opt/stacks/immich/postgres` on `docker02`'s disk; password in 1Password `(Immich) - PostgreSQL` (`.env`, root only, role `apps` `env_op`). Moved with a dump at the switch. |
 | Route | `immich-p` → `http://immich-server:2283` at the switch. |
+
+Progress (where to pick up):
+
+1. ~~NAS mounts on `docker02`~~ Done 2026-11-25 (`apb docker.yml -l docker02`, dry run first): `/mnt/nas/immich`
+   (read-write, uid `2003` only: uid `1000` can't list it) and `/mnt/nas/porter` (read-only, even for root), checked.
+   The new share came with a quota of about 5 GB; Aaron raised it to **5 TB** (it shows as 4.6T in `df`).
+2. **Bulk copy, running since 2026-11-25 21:54 UTC** on `docker02`, as the transient systemd unit `immich-copy`
+   (survives SSH disconnects; gone after a reboot, then start it again with `cp -ru`, which skips files already
+   there). Copies `/mnt/nas/media/Immich/Porter` → `/mnt/nas/immich`, timestamps kept; owner and modes come from
+   the mount. Started with:
+
+   ```bash
+   sudo systemd-run --unit=immich-copy --property=Nice=10 --property=IOSchedulingClass=idle \
+     bash -c "date -Is > /root/immich-copy.log; cp -rT --preserve=timestamps /mnt/nas/media/Immich/Porter \
+       /mnt/nas/immich 2>>/root/immich-copy.log; echo exit=\$? >> /root/immich-copy.log; date -Is >> /root/immich-copy.log"
+   ```
+
+   Check it: `ssh aaron@10.101.2.102 'sudo systemctl is-active immich-copy; sudo cat /root/immich-copy.log;
+   sudo du -sh /mnt/nas/immich'` (the NAS's used figure in `df` lags; `du` over 150,000 files takes a while). Done
+   when the log ends with `exit=0` and a second timestamp. Then compare with the source: `find <dir> -type f | wc -l`
+   and `du -s --apparent-size` for each top folder (`upload`, `thumbs`, `encoded-video`, `backups`, `profile`,
+   `library`, `Test`). docker-temp keeps serving Immich meanwhile; nothing has changed for users.
+3. **Next, test start** (after Aaron's go-ahead): add `immich` to `docker02`'s `apps` only for a test run (the
+   vars file `-e '{"apps": ["audiobookshelf","mealie","it-tools","immich"]}'` instead of the inventory), restore a
+   copy of docker-temp's database (`pg_dump` there, `pg_restore` here) before the first server start, background
+   jobs paused, route still on docker-temp. Check it starts as uid `2003` (PostgreSQL and machine learning not
+   verified yet: if they fail, give those two the image's own user) and `docker02`'s memory (16 GiB).
+4. **The switch**, in the quiet hours: stop Immich on docker-temp, dump and restore the database, the delta copy
+   (`cp -ru --preserve=timestamps`; no `rsync` on `docker02`), `immich` into `docker02`'s `apps` in the inventory,
+   route `immich-p` → `http://immich-server:2283`. Then Aaron removes `2283`, which is the last port of the
+   temporary rule, so the rule goes.
+5. Rollback for about a week (docker-temp's copy and `Media/Immich/Porter` left as they are), then delete the old
+   copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
+   Cloudflare's 100 MB upload limit (checked with a phone after the move).
 
 ### Staging
 
@@ -1010,6 +1045,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
 - **4.** AI tier code (proposed 12, `.121`).
 - **6.** Monitoring (uptime and service alerts): which zone and when.
 - **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
+- Small items (2026-11-25): Ben's SSH access to the guests (Aaron sets it up with Ben and passes on the details);
+  a non-work email for Mealie's `svc_mealie`; an Authentik account for Roly, if wanted.
 
 ### Roadmap (decided: later)
 
