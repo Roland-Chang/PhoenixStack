@@ -991,6 +991,47 @@ it, and since 2026-11-26 neither does `docker02`.
   from the `Porter` share (`PhotoArchive`) as an external library. Server `v3.1.0` but machine learning `v2.5.3`:
   pin both to one version when it moves.
 
+## L5g: Media server (`plex01`)
+
+**Designed 2026-11-26, not built.** Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
+the same day: **Plex only** (Jellyfin, if it comes, is its own instance); **native** install; **read-only** media;
+downtime is acceptable. Goals: users never reconfigure a client, and the VM is only as big as it needs to be.
+
+### PLEX-TEMP today (read 2026-11-26)
+
+| Area | State |
+| --- | --- |
+| VM | Ubuntu 26.04, 4 cores (2 sockets × 2), 16 GiB, one 256 GB disk on `nvme` **without `discard`**: 95 GB used inside, 225 GB taken on the pool. P2000 (`GPU01`), NVIDIA 580 (550 and 570 packages left over). |
+| Plex | `plexmediaserver` 1.43.5 (`.deb`), name `PLEX01`, claimed; data in `/var/lib/plexmediaserver/…/Plex Media Server`, **82 GB**: databases folder 54 GB, `Metadata` 20 GB, `Media` (preview thumbnails) 6.6 GB, the rest under 1 GB. |
+| Databases | `library.db` 0.55 GB and `library.blobs.db` 1.1 GB, **integrity check `ok`** on copies made with Plex's SQLite. The other **52 GB are 69 `-tmp` files**: the scheduled backup's target, `/content/Plex Database`, doesn't exist, so each backup (every 3 days, July 2025 – April 2026) was left behind. |
+| Libraries | 15 (71,505 items), all under **`/content`**: the NAS share `Media` as `svc_plex`, mounted **read-write**. |
+| Network | No `customConnections`, no manual port mapping: clients find the server through plex.tv. `LanNetworksBandwidth` still lists the old networks (`192.168.1.0/23`, `10.0.1.0/24`), so home clients count as remote. |
+| Subtitles | 1,032 sidecar files next to the media (read only); 46 downloaded on demand, stored **inside `library.blobs.db`**. |
+| Address | DHCP. After the patch reboot of 2026-11-26 it came back at `.25` and the forward missed it for about 1¾ hours; fixed IP `.111` in UniFi since. |
+
+### Design
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Identity | **Carry over `Preferences.xml` and the databases**; never run both servers at once. | Clients, shares, managed users and watch history follow the server's machine identifier and its library IDs. A fresh install gets a new identifier: that's why users had to reconfigure before. |
+| Guest | `plex01`: VM `10601`, MAC `02:aa:bb:cc:06:01`, **static** `10.101.2.61`, DMZ, Debian 13 (clone of `10001`). 4 cores, 12 GiB (Plex uses about 5 GiB today; the rest for the transcode folder). `GPU01` (P2000) passed through. | Tier 06. Static, as every new guest, so the forward can't miss it. |
+| Disks | **Two, both `discard=on`, thin:** 32 GB system disk; **64 GB Plex data disk** at `/var/lib/plexmediaserver` (about 28 GB used at the move). | Grow online in a minute when needed. A ZFS volume can't shrink, but with Plex alone on its disk, shrinking is a copy to a smaller disk. `discard` returns freed space to the pool. |
+| Transcoding | GPU (NVENC/NVDEC); temporary files in RAM (`tmpfs` at `/transcode`, 4 GiB). | Never fills a disk, never in a backup. |
+| Install | Plex's apt repository (key fingerprint pinned), **version pinned to PLEX-TEMP's 1.43.5** for the move; NVIDIA driver from Debian 13's `non-free` (550 series, supports Pascal; checked at build). New role `plex`, playbook `plex.yml`. | Native, as decided: one app on a dedicated VM with a GPU; the data layout stays as it is. |
+| Media | NAS `Media` **read-only** at **`/content`** (same path, so all 15 libraries stay valid), own NAS user **`svc_plex01`** (role `nas_mount`). | The DMZ standard. Users can't delete media from Plex apps; Plex can't write next to the media. |
+| Subtitles | Sidecar files and on-demand downloads keep working (read-only and inside the database). Automatic downloads later: **Bazarr** with the *arr apps on `docker01`, writing sidecars. | No write access to the NAS from the internet-facing host. |
+| Settings changed after the move | `LanNetworksBandwidth` → the current home and VPN networks; database backups to a local folder on the data disk (Plex's own, every 3 days, kept 3); transcoder folder `/transcode`; hardware encoding on. | Today's backup target doesn't exist; home clients should count as local. |
+| Firewall | `32400/tcp` from anywhere (UDM forward and Proxmox firewall); SSH and ping from admin sources. UDM rule `plex01 -> NAS (SMB)` (TCP `445`). | As `docker02`: two locks. |
+| Backups | Both disks in the nightly guest backups. | |
+
+### Migration (each step dry-run first)
+
+1. **Prepare** (the Young admin): NAS user `svc_plex01` with read access to `Media` and 1Password `(UNAS) - svc_plex01`; UDM rule `plex01 -> NAS (SMB)`; a temporary transfer folder on the NAS (below).
+2. **Build** `plex01` (Terraform, `plex.yml`): Plex installed but **stopped and disabled** until its data is in; GPU and NAS checked.
+3. **Copy ahead** while PLEX-TEMP runs: `Metadata` and `Media` (about 27 GB). Mgmt and DMZ have no direct path, so through the NAS: PLEX-TEMP writes an archive to a transfer folder in `Media` (it can write there today), `plex01` reads it.
+4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.
+5. **Rollback** for a week: stop `plex01`, start Plex on PLEX-TEMP, forward back to `.111`. Then PLEX-TEMP and the transfer folder go; `svc_plex` loses its access.
+
 ## Household DNS
 
 **Started 2026-11-22** on the Young LAN; watching it for a day before the other networks.
@@ -1058,7 +1099,6 @@ Each keeps its number: code comments and the other docs refer to them ("decision
 
 ### Open
 
-- **2.** Plex, Jellyfin, or both?
 - **3.** Which docker-temp apps are public (on `docker02`) and which LAN and VPN only (on `docker01`)? Started
   2026-11-23, not exhaustive:
   - Public, for every user: Audiobookshelf (moved 2026-11-24), Plex, Immich, Mealie, IT-Tools, Calibre (later,
@@ -1093,6 +1133,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
 - **1. Cloudflare's proxy** in front of the public web apps (settled 2026-11-23): the `443` forward accepts
   Cloudflare's addresses only, and the public Traefik uses a **Cloudflare Origin CA** certificate, so no Cloudflare
   API token sits on the internet-facing host (a stolen zone token could redirect any name, mail included).
+- **2. Plex only** (settled 2026-11-26): `plex01` runs Plex, natively; Jellyfin, if it ever comes, is its own
+  instance (L5g).
 - **5. DNS on pve01** (settled 2026-11-21): `dns02` on pve01 covers guest maintenance; off-host DNS will be a
   Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin
   machines first, no ad blocking yet, recursive Unbound upstream (see L5b).
