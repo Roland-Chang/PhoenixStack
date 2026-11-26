@@ -46,6 +46,7 @@ authentik_blueprints:
   - phoenix-proxy-apps.yaml
   - phoenix-people.yaml
   - phoenix-oidc-apps.yaml
+  - phoenix-admin-sources.yaml
 
 # Apps behind Traefik's forward-auth: every Docker host route with `authentik: true`.
 authentik_proxy_apps: >-

@@ -1,0 +1,64 @@
+# {{ ansible_managed }}
+# PhoenixStack: admin accounts log in only from the admin sources (role authentik; review item S3,
+# decided 2026-11-26). Authentik applies this at start and every hour, so a change made by hand is put back.
+#
+# A deny stage in the default login flow, right after the username (before the password): it runs only for
+# an admin (superuser or `authentik Admins`) whose address isn't one of the inventory's admin_sources, so the
+# login ends there. Authentik sees the real address: Traefik on docker01 (auth.int) and docker02 (public name,
+# behind Cloudflare) are its trusted proxies. Everyone else logs in as before. Not covered: sessions already
+# open (they last until they expire) and API tokens. Admins can't use Google at all (phoenix-people.yaml).
+version: 1
+metadata:
+  name: PhoenixStack - Admin logins from admin sources only
+  labels:
+    blueprints.goauthentik.io/description: Refuses admin logins from outside the admin networks (LAN admin machines, Teleport)
+entries:
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Default - Authentication flow
+      required: true
+  # True means: refuse this login (the deny stage below runs only when it's true).
+  - model: authentik_policies_expression.expressionpolicy
+    id: admin-outside
+    identifiers:
+      name: PhoenixStack - Admin login outside the admin sources
+    state: present
+    attrs:
+      expression: |
+        from ipaddress import ip_network
+        admin_sources = {{ admin_sources | to_json }}
+        user = request.context.get("pending_user")
+        if user is None or not user.is_authenticated:
+            return False
+        if not (user.is_superuser or ak_is_group_member(user, name="authentik Admins")):
+            return False
+        if any(ak_client_ip in ip_network(net) for net in admin_sources):
+            return False
+        ak_logger.info("admin login refused outside the admin sources", user=user.username, client_ip=str(ak_client_ip))
+        return True
+  - model: authentik_stages_deny.denystage
+    id: deny-admin-outside
+    identifiers:
+      name: phoenix-deny-admin-outside
+    state: present
+    attrs:
+      deny_message: Admin accounts can only log in from the admin networks (at home or over Teleport).
+  - model: authentik_flows.flowstagebinding
+    id: deny-admin-outside-binding
+    identifiers:
+      target: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      stage: !KeyOf deny-admin-outside
+    state: present
+    attrs:
+      order: 15
+      # Evaluated when the stage is reached, once the username (pending_user) is known.
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf deny-admin-outside-binding
+      policy: !KeyOf admin-outside
+    state: present
+    attrs:
+      order: 0
