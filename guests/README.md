@@ -177,7 +177,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | Services, DMZ | Internet | Allowed (updates, Plex, game server lists) | Allowed |
 | DMZ `docker02` | Services | Authentik's port on `authentik01` (its login pages, forward-auth) | `9443` to `authentik01` (`docker02 -> authentik01`, 2026-11-23) |
 | DMZ `docker02` | Management | NAS file sharing (`445`) to `10.101.0.101`, as its own NAS user: read-only on `Media`, read-write on an app's own share (`Podcasts`) ([Moving the public apps](#moving-the-public-apps)) | `docker02 -> NAS (SMB)` (2026-11-23); only `445` answers (checked) |
-| DMZ `docker02` | docker-temp (Management) | **None since 2026-11-26.** The temporary rule `docker02 -> Docker-Temp (temporary)` (2026-11-24) carried the public apps' ports while they moved one by one (Step B) | Rule deleted by Aaron 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers |
+| DMZ `docker02` | docker-temp (Management) | **None since 2026-11-26.** The temporary rule `docker02 -> Docker-Temp (temporary)` (2026-11-24) carried the public apps' ports while they moved one by one (Step B) | Rule deleted by the Young admin 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | Not yet (no `plex01`) |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
@@ -238,7 +238,7 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
 | Layout | `guests/ansible/`: `ansible.cfg`, playbooks per service, roles `base`, `docker_host` and one per service. Compose stacks live in git, one folder per stack. Inventory: `../inventory.yml`. | Same inventory as Terraform. Docker hosts are rebuilt from git, not hand-edited like docker-temp. |
 | Control node | An admin workstation (Young LAN, Porter LAN or VPN). | Those are the networks the UDM lets reach guests' SSH. |
 | SSH agent | Keys in the 1Password agent (`~/.ssh/config`: `IdentityAgent` for `10.101.*`), which asks before it signs. [ansible.cfg](ansible/ansible.cfg): `timeout = 60`, and each guest's connection reused for 15 minutes (`ControlPersist`), so one approval per guest covers a session. | With several guests at once, the default 10 s ran out before the approval and the run reported them unreachable ("Timeout waiting for privilege escalation prompt"; the guest's log: "Connection closed by authenticating user ... [preauth]"), 2026-11-22. |
-| First login | Terraform puts Aaron's SSH public key in the guest (container root, or the cloud-init user on VMs). The first `base` run creates user `aaron` (sudo, key only) and sets `PermitRootLogin no`. Later runs connect as `aaron`. | Named admin account; root only during the first run. |
+| First login | Terraform puts the Young admin's SSH public key in the guest (container root, or the cloud-init user on VMs). The first `base` run creates user `aaron` (sudo, key only) and sets `PermitRootLogin no`. Later runs connect as `aaron`. | Named admin account; root only during the first run. |
 | Host keys | Checking stays on, with `StrictHostKeyChecking=accept-new`. A rebuilt guest's old key is removed by hand. | The archive turned host key checking off. |
 | Secrets | 1Password, read on the admin machine with `op read` (Ansible's `pipe` lookup), only when a guest needs a secret it doesn't have yet: a new resolver's web password, a new database role, Traefik's Cloudflare token, Authentik's `.env`. Dry runs never read secrets. **No Ansible Vault files.** | The archive committed Vault files to a public repo. |
 | `base` role | A first full upgrade (new guests only), admin user `aaron` (key only, sudo without a password), root SSH login off, time zone (**UTC**, the inventory's `timezone`; see below), journal cap 200 MB, automatic Debian security updates without reboots (see [Guest patching](#guest-patching)); on VMs also the QEMU guest agent, time sync (`systemd-timesyncd`), no LLMNR or mDNS (systemd-resolved; names come from Pi-hole only), and SSH host keys kept through cloud-init changes (`ssh_deletekeys: false`, set after the first boot made the VM's own keys). | The same baseline on every guest. |
@@ -387,7 +387,7 @@ guests and, through the UDM, household devices ([Household DNS](#household-dns))
 | Web interface | `https://dns01.int.phoenixstack.net/admin` and `https://dns02.int.phoenixstack.net/admin`, port 443 only, each with Pi-hole's self-signed certificate for its name. Password from 1Password item `(Pi-hole) - DNS Admin` (vault `infrastructure`, item ID `6rgmkyk7enemcundji75k7omeu`; one password for both resolvers), read by the playbook on a resolver's first run only. | An unattended install sets no password, and without one the web interface is open. |
 | Install | The installer is pinned to a Pi-hole release tag (`v6.6`) and checked by SHA-256 before it runs. It installs the current release, and FTL is checked against Pi-hole's own checksum. Updates are `pihole -up` in the weekly window. | Pi-hole has no Debian package. |
 | Rollout | Admin machines first (2026-11-21, by hand), then the Services guests (2026-11-22, `dns_servers`), then household devices through the UDM (2026-11-22, [Household DNS](#household-dns)). | |
-| Redundancy | **Accepted risk** (2026-11-21, Aaron): both resolvers are on pve01, so a pve01 reboot or failure takes DNS down. Off-host DNS will be a Pi-hole on the Porter network, later. | Covers guest maintenance now; host outages wait for the Porter instance. |
+| Redundancy | **Accepted risk** (2026-11-21, the Young admin): both resolvers are on pve01, so a pve01 reboot or failure takes DNS down. Off-host DNS will be a Pi-hole on the Porter network, later. | Covers guest maintenance now; host outages wait for the Porter instance. |
 | Own resolver | `dns01` itself resolves through its gateway (`.254`), not through Pi-hole. | It still has working DNS for updates if Pi-hole is down. |
 
 Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first); specific to DNS:
@@ -397,7 +397,7 @@ Steps (the [new guest checklist](#new-guest-checklist), each one dry-run first);
 2. One resolver at a time: `tf plan` and `apply`, `apb site.yml -l dns01 -e ansible_user=root`, `apb dns.yml -l dns01`;
    then the same for `dns02`, and `dns.yml` once more on `dns01` so each knows the other's name.
 3. Admin machines: DNS `10.101.1.21` and `10.101.1.22` on the home network's profile only (away from home they're out
-   of reach). Done 2026-11-21 on Aaron's laptop (NetworkManager profile `Auto YOUNG`: `ipv4.dns`,
+   of reach). Done 2026-11-21 on the Young admin's laptop (NetworkManager profile `Auto YOUNG`: `ipv4.dns`,
    `ipv4.ignore-auto-dns yes`, `ipv6.ignore-auto-dns yes`, search domain `int.phoenixstack.net`); the Young admin
    workstation is still to do.
 4. The UDM's manual `pve01` record: removed 2026-11-22 (Pi-hole holds it). Admin machines keep their hosts entry for
@@ -740,7 +740,7 @@ From the Audiobookshelf move. Each step dry-run first; the switch in the quietes
    its own backups and schedules, its login settings. Note which folders change (database, uploads, downloads),
    and which live on the NAS: Audiobookshelf's podcasts did, not on docker-temp's disk.
 2. **Decide where its data goes:** app data on `docker02`'s disk in `/opt/stacks/<app>`; files it only reads, from
-   `Media`; files it writes on the NAS, on a share of its own (Aaron creates it, read-write for `svc_docker02`).
+   `Media`; files it writes on the NAS, on a share of its own (the Young admin creates it, read-write for `svc_docker02`).
 3. **Code it:** an `apps_catalog` entry (its own uid, with no account on the host: uid 1000 is `aaron`; its
    folders; the version whose **digest matches** docker-temp's) and `templates/<app>/compose.yml.j2` with **the
    same paths inside the container**, `TZ: {{ app_timezone }}`, no capabilities and a healthcheck. Dry-run with
@@ -750,7 +750,7 @@ From the Audiobookshelf move. Each step dry-run first; the switch in the quietes
 5. **Switch:** stop it on docker-temp (`docker stop`, so it stays stopped after a reboot); copy what changed; add it
    to the inventory's `apps` and point its route at `http://<app>:<port>`; `apb docker.yml -l docker02`. Check its
    health, log, mounts (read-only where expected, writable where needed), then the app on a phone.
-6. **Close the door:** Aaron removes its port from the temporary rule; check from `docker02` that it's closed.
+6. **Close the door:** the Young admin removes its port from the temporary rule; check from `docker02` that it's closed.
 7. **Logins:** through Authentik where the app does OIDC (an `oidc` entry on its route,
    [above](#apps-with-their-own-login-oidc-and-google-sign-in)), rehearsed on a staging copy first.
 8. **Rollback** until it's settled: start it on docker-temp and point the route back. A week later, delete the
@@ -766,12 +766,12 @@ On `docker02` since 2026-11-24.
 | Files | `config` and `metadata` on `docker02`'s disk; `/audiobooks` read-only from `Media/Books/Audiobooks`; `/podcasts` read-write on the share `Podcasts`. |
 | Schedules | Library scan of Audiobooks nightly at midnight, Denver time (the folder watcher can't see what Libation writes over SMB); its own backup nightly at 01:30 into `/metadata/backups`. |
 | Logins | "Sign in with PhoenixStack": Authentik client `abs` (`authentik Admins`, `Family`), matching existing accounts by **email**, no auto-register. Local logins stay, for e-readers, the API accounts and people without a Google Account. Microsoft 365's links and settings were removed. |
-| Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on Aaron's laptop, not in this repo. |
+| Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on the Young admin's laptop, not in this repo. |
 | Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), and docker-temp's stopped copy (`docker start audiobookshelf`, the route back to `http://10.101.0.166:83`). `absdev` stays on docker-temp, offline from the internet. |
 
 #### IT-Tools
 
-On `docker02` since 2026-11-25, public with no login (decided by Aaron the same day: it holds no data; its tools
+On `docker02` since 2026-11-25, public with no login (decided by the Young admin the same day: it holds no data; its tools
 run in the visitor's browser).
 
 | Area | State |
@@ -779,7 +779,7 @@ run in the visitor's browser).
 | Stack | `/opt/stacks/it-tools` (role `apps`); image `2024.10.22-7ca5933`, the digest docker-temp ran as `latest` (still the newest release); route `tools` → `http://it-tools:80`. |
 | Hardening | nginx's master starts as root, so it keeps `CHOWN`, `SETUID`, `SETGID` and `NET_BIND_SERVICE` (every other capability dropped); workers run as `nginx`; read-only filesystem with temporary `/var/cache/nginx`, `/var/run`, `/tmp`; memory 128 MiB; healthcheck `/`. |
 | Switch | No data, so no downtime: the route moved first, then docker-temp's copy was stopped and commented out of its compose file. Checked through Cloudflare: `200`, `http://` → `301`, served by `docker02` (its access log). |
-| Closed | `8081` removed from the temporary rule by Aaron the same day; checked from `docker02`: times out (dropped), while `2283` connects. |
+| Closed | `8081` removed from the temporary rule by the Young admin the same day; checked from `docker02`: times out (dropped), while `2283` connects. |
 
 #### Mealie
 
@@ -789,8 +789,8 @@ At the switch, both copies were stopped, the data copied again (951 files, `meal
 `apb docker.yml -l docker02`. Checked through Cloudflare: `200`, `http://` → `301`, a wrong login `401` and logged
 with the client's real address; 5 users and 414 recipes; the data folder writable.
 
-Port `9925` removed from the temporary rule by Aaron the same day; checked from `docker02`: `9925` times out
-(dropped), `2283` and `8081` connect. Mealie was then removed from docker-temp's stack by Aaron, so the rollback is
+Port `9925` removed from the temporary rule by the Young admin the same day; checked from `docker02`: `9925` times out
+(dropped), `2283` and `8081` connect. Mealie was then removed from docker-temp's stack by the Young admin, so the rollback is
 the copy of its data folder, still on docker-temp's disk (`~/docker/appdata/mealie`), until about 2026-12-02.
 Logins through Authentik (step 7), designed 2026-11-25: visitors go straight to Authentik (no Mealie login
 screen); anyone in `authentik Admins` or `Family` gets in; new people get an account on first login, in group
@@ -811,15 +811,15 @@ Rehearsed 2026-11-25 on a staging copy (`meal-staging` on `docker01`, production
 - [x] An admin refused on Google (by design).
 
 In production since 2026-11-25 (`apb docker.yml -l docker02`, a few seconds offline). Authentik accounts for
-Camille and Spencer were added the same day (group `Young`, no password, like Tina's); Roly has none yet.
-Aaron logged in through Authentik the same day (a new admin account, `aaron.young`). Then `password_login: false`:
+Two more family members were added the same day (group `Young`, no password, like the first one's); one more has none yet.
+The Young admin logged in through Authentik the same day (a new admin account, `aaron.young`). Then `password_login: false`:
 no Mealie login screen, Mealie's own passwords refused. The staging copy was deleted (route, Pi-hole name, stack,
 image, its Authentik client and its 1Password item, archived).
 
 | Area | State |
 | --- | --- |
 | Logins | Through Authentik only. Users with Google, admins with password and TOTP (security keys are bound to `auth.int`). |
-| Accounts | Tina, Camille and Spencer match their Authentik accounts by email (group `Young`). Roly has no Authentik account, so no way in until he gets one. |
+| Accounts | Three family members match their Authentik accounts by email (group `Young`). One more has no Authentik account, so no way in until they get one. |
 | Break-glass | `svc_mealie`, admin, password account: set `password_login: true`, `apb docker.yml -l docker02`, log in at `/login?direct=1`. Its password: 1Password `(Docker) - Mealie` in `infrastructure` (`gqya622kl225ssha4w2quyku7a`). A non-work email is still to do. |
 
 | Area | On docker-temp (read 2026-11-25) | On `docker02` |
@@ -833,15 +833,14 @@ image, its Authentik client and its 1Password item, archived).
 | Its own backups | None scheduled (Mealie has no backup schedule) | The nightly guest backups carry `/opt/stacks/mealie` off; the old zips come along |
 | Route | `meal` → `http://10.101.0.166:9925` (temporary rule) | `meal` → `http://mealie:9000`; renamed after the app later |
 
-Open: anything saved in Mealie on the temporary migration host between 2026-11-12 and 2026-11-20 is only on its disk
-(REBUILD_STATE item 6).
+Closed 2026-11-26: the temporary migration host is wiped (REBUILD_STATE item 6), so nothing more comes from it.
 
 #### Immich
 
-On `docker02` since 2026-11-26 (moving started 2026-11-25). **One instance for everyone** (decided by Aaron 2026-11-25): Immich keeps
+On `docker02` since 2026-11-26 (moving started 2026-11-25). **One instance for everyone** (decided by the Young admin 2026-11-25): Immich keeps
 each user's library private (admins manage accounts but can't browse others' photos); root on the hosts and the NAS
 can read everything. NAS share **`Immich`**, read-write for `svc_docker02` only; `svc_docker02` may read `Porter`
-(the external library). Created by Aaron 2026-11-25. The name `immich-p` stays until it's changed with the Porter
+(the external library). Created by the Young admin 2026-11-25. The name `immich-p` stays until it's changed with the Porter
 users (every phone app's server address changes with it).
 
 Read on docker-temp 2026-11-25:
@@ -851,7 +850,7 @@ Read on docker-temp 2026-11-25:
 | Images | Server `v3.1.0` (`sha256:b434cb92…`), machine learning **`v2.5.3`** (`sha256:fa843f76…`): pin both to `v3.1.0` at the move. PostgreSQL `ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0` (14.19; extensions `vchord 0.4.3`, `vector 0.8.1`). Redis `redis:alpine` (no persistence, 256 MB). |
 | Database | 1.5 GB, on docker-temp's disk (`appdata/immich-postgresql`), user `immich_db_user`, checksums on. Immich's own dump nightly at 02:00 into `upload/backups` (on the NAS). |
 | Media | `Media/Immich/Porter` → `/usr/src/app/upload` (read-write): about **229 GB**: `upload` 148 GB (originals), `thumbs` 30 GB (about 150,000 files), `encoded-video` 44 GB, `backups` 6.6 GB, `profile` and `library` nearly empty (no storage template). Database paths start with `/usr/src/app/upload/`, so the path inside the container stays. An unnamed volume at `/data` (Immich's newer default) is empty. |
-| External library | "New External Library", owner Ben: `Porter/PhotoArchive` → `/porter`, mounted **read-write** (read-only on `docker02`: Immich doesn't write to external libraries). About 55,700 assets. Folder watching is on (it can't see changes over SMB; a scan schedule instead). |
+| External library | "New External Library", owner: the Porter admin, `Porter/PhotoArchive` → `/porter`, mounted **read-write** (read-only on `docker02`: Immich doesn't write to external libraries). About 55,700 assets. Folder watching is on (it can't see changes over SMB; a scan schedule instead). |
 | Content | 7 users (3 Immich admins), about 32,400 uploads and 55,700 external assets. Uploads: 7,400 in August, 22,600 in September, 2,400 in October, **none since 2026-10-25**. 187 uploaded videos are over 100 MB (largest 1.1 GB): **Cloudflare's free plan refuses uploads over 100 MB**. |
 | Machine learning | Model cache in `appdata/immich-machine-learning` (downloaded again if missing). |
 
@@ -868,7 +867,7 @@ Progress (where to pick up):
 
 1. ~~NAS mounts on `docker02`~~ Done 2026-11-25 (`apb docker.yml -l docker02`, dry run first): `/mnt/nas/immich`
    (read-write, uid `2003` only: uid `1000` can't list it) and `/mnt/nas/porter` (read-only, even for root), checked.
-   The new share came with a quota of about 5 GB; Aaron raised it to **5 TB** (it shows as 4.6T in `df`).
+   The new share came with a quota of about 5 GB; the Young admin raised it to **5 TB** (it shows as 4.6T in `df`).
 2. ~~Bulk copy~~ Done 2026-11-26 01:20 UTC (`cp -rT --preserve=timestamps`, 3 h 27 min, `exit=0`). Checked: every
    top folder has the same file count and size as the source (`upload` 32,298 files, 157 GB; `thumbs` 155,134;
    `encoded-video` 10,183), except `backups`, which only lacks the next nightly dump. **Lesson:** on the read-only
@@ -887,14 +886,14 @@ Progress (where to pick up):
    `2003` (PostgreSQL and machine learning too); server healthy, no migrations needed; uploads, thumbnails, encoded
    video and `/porter` readable; about 2 GB of 16 GiB used. Browser check through `ssh -L 2283:<immich-server's
    proxy-network address>:2283 aaron@10.101.2.102` (look only: the switch replaces this database).
-4. ~~The switch~~ Done 2026-11-26, 17:49–18:05 UTC (daytime, Aaron's go-ahead; no uploads since 2026-10-25):
+4. ~~The switch~~ Done 2026-11-26, 17:49–18:05 UTC (daytime, the Young admin's go-ahead; no uploads since 2026-10-25):
    Immich stopped on docker-temp (`docker update --restart=no` on its four containers, so a reboot doesn't start
    them); database dumped and restored as in step 3 (same counts; newest asset 2026-10-25); delta copy with
    `cp -ruvT --preserve=timestamps --no-preserve=mode` (11 min, one file: that night's database dump, writable,
    same checksum); `immich` into the inventory's `apps`, route `immich-p` → `http://immich-server:2283`. Checked
    through Cloudflare: `ping`, version `3.1.0`, the web page; API and job workers running, no errors. Found after
    the switch: Redis was set to evict keys (`allkeys-lru`), but it holds Immich's **job queues**; now
-   `noeviction` (Immich's job library warned). The temporary rule: deleted by Aaron 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers. Left: a phone check (app upload and browsing). Fixed the same day: the role set
+   `noeviction` (Immich's job library warned). The temporary rule: deleted by the Young admin 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers. Left: a phone check (app upload and browsing). Fixed the same day: the role set
    `postgres/` to `0750` and PostgreSQL set it back to `0700` at each start; now the catalog's `folder_modes`
    gives it `0700` (repeat run `changed=0`).
 5. Rollback until about 2026-12-03: docker-temp's stopped stack and `Media/Immich/Porter` are left as they are
@@ -914,7 +913,7 @@ switch to Authentik (2026-11-24) and Mealie's (2026-11-25). For an app with OIDC
 | Where | `docker01` (Services), LAN and VPN only, `admin_only` route `<app>-staging`. In the inventory: `apps_staging: [{app, version}]` on `docker01`; role `apps` deploys stack `<app>-staging` from the same template (`stack.staging`). | Never public; the same template as production, so staging tries what production will run. |
 | Data | Restored from production's **latest backup**, by hand, before the first start (so no empty instance is ever reachable). | Decision 11. Production's data is never touched. |
 | Getting the backup there | Through the laptop: `docker02` → laptop → `docker01` over SSH. | Services can't reach the DMZ; no new firewall rule. |
-| Media | **None yet** (Aaron, 2026-11-24): `docker01` has no NAS access. The NAS folders are empty, read-only stand-ins: items show, nothing plays. Media comes when `docker01` gets the NAS (the *arr apps need it), before the first version upgrade is tested there. | Enough for logins; no new NAS user or rule now. |
+| Media | **None yet** (the Young admin, 2026-11-24): `docker01` has no NAS access. The NAS folders are empty, read-only stand-ins: items show, nothing plays. Media comes when `docker01` gets the NAS (the *arr apps need it), before the first version upgrade is tested there. | Enough for logins; no new NAS user or rule now. |
 | Side effects | Switched off in the copy's database before it starts (for Audiobookshelf: podcast auto-download, the nightly backup, the folder watcher). | A copy must not download, write backups or act on its own. |
 | Scrubbing | None: the copy holds the accounts and their history, admins only. | It's deleted after use. |
 | Lifetime | **Temporary:** deleted once the change is in production: the `apps_staging` entry and the route, `dns.yml`, its client in Authentik (a blueprint doesn't delete it), then `/opt/stacks/<app>-staging` and its image. | Nothing to patch or keep in step in between. |
@@ -992,7 +991,7 @@ Done when (checked 2026-11-22 through the UDM, `dig @10.1.1.254`):
 
 ### Porter LAN
 
-Started 2026-11-23: steps 1, 2 and 4 done, the tests (step 3) pending. The Porter gateway (a UDM, Ben's) gets the same forward as the Young UDM. Its queries
+Started 2026-11-23: steps 1, 2 and 4 done, the tests (step 3) pending. The Porter gateway (a UDM, the Porter admin's) gets the same forward as the Young UDM. Its queries
 reach Pi-hole over the BPorter site-to-site tunnel, so this UDM needs one new rule. Only names under
 `int.phoenixstack.net` change; every other lookup at Porter goes where it goes today. If pve01 or the tunnel is
 down, only the `int.` names fail.
@@ -1003,21 +1002,21 @@ down, only the `int.` names fail.
 | Porter LAN DHCP | DNS server **automatic** (the gateway), domain name `int.phoenixstack.net`. Change only what differs: if DHCP already hands out the gateway, leave it. | Devices use the forward only if they ask the Porter UDM. Short names (`pve01`) need the domain. |
 | Young UDM rule | **`Porter Gateway -> Pi-hole (DNS)`**: zone VPN → Services, source the Porter gateway's address, destination `10.101.1.21` and `10.101.1.22`, port `53`, UDP and TCP, before the zone's block rule. | VPN → Services is admin-only, and the gateway isn't an admin source. Port 53 only, to the two resolvers only. |
 | Pi-hole firewall | Nothing new if the queries come from a `10.2.1.x` address: `dns01`/`dns02` already accept `53` from `lan` (includes `10.2.1.0/24`). If they come from the gateway's WAN or tunnel address, add that `/32` to their `firewall_in` (inventory) and run `tf plan`/`apply`. | Find out from Pi-hole's query log (step 3), not by guessing. |
-| Admin machines | Ben's workstation (Windows) and laptop (macOS) keep hosts entries for `pve01` and its iDRAC (`10.101.0.11 pve01.int.phoenixstack.net pve01`, `10.101.0.1 idrac-pve01.int.phoenixstack.net`), so both still open by name when pve01, and with it Pi-hole, is down. The iDRAC matters most then. | The same fallback as Aaron's machines. |
+| Admin machines | The Porter admin's workstation (Windows) and laptop (macOS) keep hosts entries for `pve01` and its iDRAC (`10.101.0.11 pve01.int.phoenixstack.net pve01`, `10.101.0.1 idrac-pve01.int.phoenixstack.net`), so both still open by name when pve01, and with it Pi-hole, is down. The iDRAC matters most then. | The same fallback as the Young admin's machines. |
 
 Steps:
 
 1. ~~**Young UDM:** add the rule `Porter Gateway -> Pi-hole (DNS)` (table above). Use the gateway's LAN address
    (`10.2.1.x`, from its Networks page) as the source first.~~ Done 2026-11-23.
 2. ~~**Porter UDM:** add the two Forward Domain policies.~~ Done 2026-11-23.
-3. **Test from the gateway's side before any device depends on it**, from Ben's workstation:
+3. **Test from the gateway's side before any device depends on it**, from the Porter admin's workstation:
    `nslookup pve01.int.phoenixstack.net <Porter gateway address>`. Expect `10.101.0.11`.
    - Cloudflare addresses or a timeout: open Pi-hole's query log on `dns01`. No query from Porter means the rule or
      the source address is wrong: note the address the query came from on the Young UDM's traffic log, fix the
      rule's source (and the Pi-hole `firewall_in`, table above), and test again.
 4. ~~**Porter LAN DHCP:** DNS automatic, domain `int.phoenixstack.net`, only if they differ today.~~ Done 2026-11-23.
    Devices switch as their leases renew (expect a mix until then).
-5. Check with Ben the next day, then tick the list below.
+5. Check with the Porter admin the next day, then tick the list below.
 
 Done when:
 
@@ -1025,7 +1024,7 @@ Done when:
       gets NXDOMAIN; public names resolve.
 - [ ] Pi-hole's query log shows the Porter gateway's queries (and the source address is recorded above).
 - [ ] Failover: with `dns01` stopped, names still answer through `dns02`.
-- [ ] Ben's workstation and laptop: `pve01.int.phoenixstack.net` and `auth.int.phoenixstack.net` resolve;
+- [ ] The Porter admin's workstation and laptop: `pve01.int.phoenixstack.net` and `auth.int.phoenixstack.net` resolve;
       `https://pve01.int.phoenixstack.net:8006` opens without a certificate warning.
 - [ ] A day later: nothing broke for the Porter household.
 
@@ -1040,7 +1039,7 @@ Each keeps its number: code comments and the other docs refer to them ("decision
   2026-11-23, not exhaustive:
   - Public, for every user: Audiobookshelf (moved 2026-11-24), Plex, Immich, Mealie, IT-Tools, Calibre (later,
     maybe a fresh design rather than a move). MyBibliotheca was deleted 2026-11-24.
-  - Admins only (Aaron and Ben, for now), **LAN and VPN only** (`<app>.int.phoenixstack.net` on `docker01`),
+  - Admins only (the Young and Porter admins, for now), **LAN and VPN only** (`<app>.int.phoenixstack.net` on `docker01`),
     reached from outside over Teleport, never published (decided 2026-11-23): the *arr apps, libraforge, libation,
     metube, glances.
   - Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). `absdev` doesn't move.
@@ -1049,8 +1048,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
 - **4.** AI tier code (proposed 12, `.121`).
 - **6.** Monitoring (uptime and service alerts): which zone and when.
 - **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
-- Small items (2026-11-25): Ben's SSH access to the guests (Aaron sets it up with Ben and passes on the details);
-  a non-work email for Mealie's `svc_mealie`; an Authentik account for Roly, if wanted.
+- Small items (2026-11-25): the Porter admin's SSH access to the guests (the Young admin sets it up with the Porter admin and passes on the details);
+  a non-work email for Mealie's `svc_mealie`; an Authentik account for the remaining family member, if wanted.
 
 ### Roadmap (decided: later)
 
