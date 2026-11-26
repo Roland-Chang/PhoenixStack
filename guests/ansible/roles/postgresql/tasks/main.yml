@@ -57,6 +57,40 @@
   notify: Reload postgresql
   when: not postgresql_dry_new
 
+# PostgreSQL listens on the guest's own address too (listen_addresses). At boot it must wait until that
+# address exists: after network.target alone it can start first, fail to bind, and quietly serve
+# localhost only (the pve01 reboot of 2026-11-26 left Authentik without its database that way).
+# Proxmox configures the container's eth0 with ifupdown (networking.service, a one-shot that ends once the
+# address is set); systemd-networkd doesn't manage it, so networkd's wait-online can only time out (2 min).
+- name: No networkd wait-online (it never sees eth0 here and times out)
+  ansible.builtin.systemd_service:
+    name: systemd-networkd-wait-online.service
+    enabled: false
+  when: not postgresql_dry_new
+
+- name: Drop-in folder for PostgreSQL's service
+  ansible.builtin.file:
+    path: /etc/systemd/system/postgresql@.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not postgresql_dry_new
+
+- name: PostgreSQL starts after ifupdown has set the address
+  ansible.builtin.copy:
+    content: |
+      # Managed by Ansible (role postgresql): bind listen_addresses only once the address exists
+      # (ifupdown's networking.service sets it).
+      [Unit]
+      After=networking.service
+    dest: /etc/systemd/system/postgresql@.service.d/phoenix-network-online.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+  when: not postgresql_dry_new
+
 - name: Run PostgreSQL
   ansible.builtin.service:
     name: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster }}"

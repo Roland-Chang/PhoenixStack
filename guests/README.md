@@ -415,7 +415,7 @@ web-interface checks were repeated at `.21`/`.22` on 2026-11-22):
 - [x] On `dns01`: `dig @127.0.0.1 -p 5335 . NS` answers (Unbound reaches the root servers, so no ISP interference); `ss -lntup` shows Pi-hole on 53 and 443 only, Unbound on `127.0.0.1:5335`, and nothing on 80 or 123. (Also present, both harmless: the template's Postfix on localhost:25, and Pi-hole on `[::]:53`
       with no IPv6 address on the guest.) Port 80 from the laptop times out (dropped).
 - [x] `https://10.101.1.21/admin` asks for the password; browser login works on both. A non-admin LAN address can't reach 53 or 443 (dropped by the UDM).
-- [ ] After a pve01 reboot (next patch window): `dns01` starts first (`pct config 10201` shows `startup: order=1`).
+- [x] After a pve01 reboot: `dns01` and `dns02` start first (checked 2026-11-26, patch reboot: order 1 with PLEX-TEMP, then `pgsql01`, then the rest).
 
 What L5b found, and fixed:
 
@@ -462,7 +462,11 @@ Done when:
 - [x] Restore test: scratch database `dumptest` (1,000 rows) dumped, dropped, restored with `pg_restore --create` (1,000 rows back), dropped again, dumps re-run.
 - [x] `apb patch.yml --check -l pgsql01` passes the dump check ("Last good dump: 2026-11-22 11:57").
 - [x] A dump folder every night (`sudo -u postgres ls /var/backups/db-dump`): one per night since 2026-11-22 (checked 2026-11-24).
-- [ ] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`).
+- [x] After a pve01 reboot: `pgsql01` starts after the DNS guests (`startup: order=2`), checked 2026-11-26. **Found:** PostgreSQL
+      started before ifupdown had set `10.101.1.71`, couldn't bind it and served localhost only, so Authentik had no database
+      for about 15 minutes. Fixed in the role: PostgreSQL starts after `networking.service` (a drop-in), and networkd's
+      wait-online stays off (it doesn't manage `eth0` in a container and only times out). Reboot-tested twice: listening
+      on `10.101.1.71` 12 seconds after boot, no failed units.
 
 ## L5d: Docker host and Services Traefik (`docker01`)
 
