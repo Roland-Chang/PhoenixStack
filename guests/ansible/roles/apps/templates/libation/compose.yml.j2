@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ libation_has_no_staging_copy_yet }}
+{% endif %}
+# Libation (role apps; guests/README.md, "Admin apps to docker01"). No web page and no route: it scans the
+# Audible library and downloads new books once a day (SLEEP_TIME). As apps_media_uid with no capabilities.
+# config-internal is a real folder here (its master key decrypts the Audible sign-ins in config).
+{% set app = apps_catalog['libation'] %}
+name: {{ stack.name }}
+
+services:
+  libation:
+    image: rmcrackan/libation:{{ stack.version or app.version }}
+    container_name: libation
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - default
+    environment:
+      TZ: {{ app_timezone }}
+      SLEEP_TIME: 1440m
+      LIBATION_CONFIG_DIR: /config
+      LIBATION_CONFIG_INTERNAL: /config-internal
+      LIBATION_BOOKS_DIR: /data
+    volumes:
+      - ./config:/config
+      - ./config-internal:/config-internal
+      - "{{ apps_media_downloads }}/libation:/data"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+networks:
+  default: {}

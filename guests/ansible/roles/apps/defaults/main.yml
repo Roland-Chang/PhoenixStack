@@ -102,6 +102,14 @@ apps_catalog:
     folders: [config]
     version: "latest@sha256:4be9eea46da06cc72e2f1fce6af995a4c02388aded91e49d64792345c3eece65"
     port: 5056
+  # Libation (downloads the Audible library, once a day): writes into Media's ###Downloads/libation. No web page,
+  # so no route. config holds its database and the Audible sign-ins; config-internal its master key, which
+  # decrypts those sign-ins (on docker-temp it lived inside the container only). Both credentials, only on
+  # docker01's disk. 14.2.5 = the image docker-temp ran (`latest` there; `latest` now is a release candidate).
+  libation:
+    uid: "{{ apps_media_uid }}"
+    folders: [config, config-internal]
+    version: "14.2.5"
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.

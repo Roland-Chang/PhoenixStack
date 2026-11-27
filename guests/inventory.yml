@@ -171,7 +171,7 @@ all:
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
           # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
-          apps: [sonarr, radarr, sabnzbd, autobrr, metube, libraforge]
+          apps: [sonarr, radarr, sabnzbd, autobrr, metube, libraforge, libation]
           # NAS as svc_docker01 (1Password "(UNAS) - svc_docker01"): Media read-write for the admin apps' shared
           # uid (apps_media_uid), nothing else (2026-11-27; guests/README.md, "Admin apps to docker01").
           nas_username: svc_docker01

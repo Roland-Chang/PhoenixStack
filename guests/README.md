@@ -990,10 +990,9 @@ The public apps have all moved (Immich last, 2026-11-26); what's left are the ad
 
 ### Admin apps to `docker01`
 
-**Designed 2026-11-27, decided by the Young admin the same day. All of them moved the same day** (below), Libation
-excepted. The admin apps leave docker-temp for `docker01` (Services: LAN and VPN only, decision 3); then
-docker-temp retires. **Libation stays out** (the Young admin, 2026-11-27: maybe not in use long-term); it goes with
-docker-temp unless decided otherwise.
+**Designed 2026-11-27, decided by the Young admin the same day. All of them moved the same day** (below); Glances
+dropped. The admin apps left docker-temp for `docker01` (Services: LAN and VPN only, decision 3); next, docker-temp
+retires. (Libation was first left out, then moved after all, the same day.)
 
 On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on its `develop` branch, v5 nightly).
 
@@ -1003,7 +1002,7 @@ On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on
 | Radarr | 3.1 GB | `Media` read-write (imports into `Movies`), `###Downloads` | `movies.` |
 | SABnzbd | 4 MB | `###Downloads` | `dl.` |
 | autobrr | 9 KB | none | `autobrr.` |
-| Libation | 88 MB | `###Downloads/libation`; its "backups" go to an unmounted folder, so onto docker-temp's own disk | (no web UI) |
+| Libation | 88 MB in `/config`, plus `/config-internal` **inside the container** (its master key) | `###Downloads/libation` (998 GB); its `/backups` mount was never used (empty) | (no web UI) |
 | libraforge | 11 MB | `###Prep/audiobook-dev` | `libraforge.` |
 | MeTube | 1 KB | `###Downloads/ytdl` | `ytdl.` |
 | Glances | config | docker-temp's Docker, through a socket proxy | `glances.` |
@@ -1018,7 +1017,7 @@ On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on
 | Glances | **Dropped.** | It needs the Docker socket; monitoring is decision 6. |
 | Versions | Pinned to the digest each runs today (Sonarr's nightly too; to its stable branch later, through staging). | As the public apps. |
 | Plex | **No rule `docker01 -> plex01`**: Sonarr and Radarr don't notify Plex (they didn't before either); Plex scans its libraries **every hour** instead (was daily; set 2026-11-27). Its "scan on change" can't see changes made over SMB by another machine. | A notification would need the server owner's full Plex token on `docker01`; an hour's delay is fine. |
-| Order | Sonarr, Radarr, SABnzbd and autobrr together (they work as one); then MeTube, libraforge, Libation one at a time. | |
+| Order | Sonarr, Radarr, SABnzbd and autobrr together (they work as one); then MeTube, libraforge and Libation one at a time. | |
 
 **First group moved 2026-11-27** (Sonarr, Radarr, SABnzbd, autobrr; stopped on docker-temp 03:15 UTC, healthy on
 `docker01` 03:23):
@@ -1062,8 +1061,19 @@ writes its input folder (`Media/###Prep/audiobook-dev/01_libraforge_input`) and 
 old one was shown in a session's output on 2026-11-27): delete "LibraForge" in Audiobookshelf's API keys, create a
 new one, put it into `abs.json`. Rollback: docker-temp's container, stopped with `restart=no`.
 
-Left on docker-temp: Libation (out of this rebuild), Glances (dropped), Deployrr's Traefik and socket proxy, and the
-stopped containers kept for rollback.
+**Libation moved 2026-11-27** (03:53–03:54 UTC): `14.2.5`, the image docker-temp ran as `latest` (on Docker Hub, `latest`
+now points to a release candidate, 14.3.0-rc.1); as uid `2010` with no capabilities; no route (no web page), its
+own network for its outgoing traffic to Audible. **Found:** part of its state lived only inside the container, in
+`/config-internal` (not mounted): `libation-master.key`, which decrypts the Audible sign-ins in `/config`, plus
+settings and a search index; recreating the container on docker-temp would have lost the key. On `docker01`,
+`config-internal` is a real folder; copied from the stopped container (`docker cp`). `/config` copied without the
+June–August logs (about 760 MB); the key and `AccountsSettings.json` owner-only (`0600`). Checked: the first scan
+decrypted the sign-ins and covered all 4 Audible accounts; the download pass ended as on docker-temp (208 titles
+no longer in the library skipped, 8 denied licenses to retry by itself). Rollback: docker-temp's container, stopped
+with `restart=no` (its `/config-internal` is still in it).
+
+Left on docker-temp: Glances (dropped), Deployrr's Traefik and socket proxy, and the stopped containers kept for
+rollback.
 
 ## L5g: Media server (`plex01`)
 
