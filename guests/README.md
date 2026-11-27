@@ -65,12 +65,12 @@ without passing any firewall the UDM controls. With its own zone, everything it 
 | --- | --- | --- |
 | **Unprivileged LXC** | Simple services that install natively: Pi-hole, PostgreSQL, MariaDB | Light, back up in seconds, no dependency on a Docker host. |
 | **Docker host VM**, one per zone | Most applications, as compose stacks in git deployed by Ansible: `docker01` (Services), `docker02` (DMZ) | Most of these apps ship as Docker images; this is how docker-temp works today. Proxmox recommends VMs for Docker, and docker-temp's mount and permission trouble came from Docker inside a container. |
-| **Dedicated VM** | A GPU, its own kernel, or isolation: `plex01` (P2000), `ai01` (RTX 3070), `amp01`, `authentik01` | A GPU passes through to one VM; the containers inside that VM share it. |
+| **Dedicated VM** | A GPU, its own kernel, or isolation: `plex01` (P2000), `ai01` (RTX 5060 Ti), `amp01`, `authentik01` | A GPU passes through to one VM; the containers inside that VM share it. |
 
 GPU sharing (2026-11-20): each GPU belongs to one VM and is shared by the containers in it (NVIDIA container
 toolkit). Sharing one GPU across several guests would need the NVIDIA driver on pve01 (reverses the host design:
 every kernel update rebuilds the driver, containers must match its version) or vGPU (needs licences and
-supported data-centre cards; neither the P2000 nor the 3070 qualifies).
+supported data-centre cards; neither the P2000 nor the 5060 Ti qualifies).
 
 ### Identity and break-glass
 
@@ -148,7 +148,7 @@ no rule (code 01 had `.21`, code 05 `.81`, code 09 `.111`).
 | 09 | Vault | 109YY | Services | `.91`, `.92` | |
 | 10 | Docker host | 110YY | 01 Services, 02 DMZ | `.101`, `.102` | |
 | 11 | Backup | 111YY | Services | `.111` | |
-| 12 | AI | 112YY | Services | `.121` | New, proposed. `ai01` gets the RTX 3070 (not fitted yet). |
+| 12 | AI | 112YY | Services | `.121` | `ai01` gets the RTX 5060 Ti (decision 4; not fitted yet). See L5h. |
 | 99 | Test (throwaway) | 199YY | both | `.248`, `.249` | The exception to the rule. `test01` = LXC in Services (`10.101.1.249`); `test02` = VM in the DMZ (`10.101.2.248`). |
 
 The archived Terraform files used other codes for some tiers (AMP 11, Monitor 09, Vault 05, Backup 08); the scheme
@@ -225,7 +225,7 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
   | `/sdn/zones/localnetwork/vmbr0/100`, `/vmbr0/200` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` on VLAN 100 (Services) or 200 (DMZ) only. Without a grant on `vmbr0` itself, Terraform can't create an untagged NIC, so it can't put a guest on mgmt. (bootstrap 2026.11.7; was all of `vmbr0`) |
   | `/nodes/pve01` | `PVEAuditor` (built-in, read-only) | Read node status. |
 
-- Later: `Mapping.Use` on `/mapping/pci/GPU01` only, when `plex01` is built (and the same for the 3070's mapping).
+- Later: `Mapping.Use` on `/mapping/pci/GPU01` only, when `plex01` is built (and the same on `GPU02`, the 5060 Ti's mapping, for `ai01`).
 - The `access` stage sets each service account's grants **exactly**: it adds the configured ones and removes
   any others. `verify` checks that each token's grants match the config.
 - The privilege list is a starting point. The test guests prove it: create, change, firewall rules, destroy.
@@ -1192,6 +1192,32 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
    transfer folder's two archives (29 GB), `Preferences.xml.pre-switch`, the UDM rules `Internal -> Plex-TEMP` and
    `Site VPNs -> Plex-TEMP` and their returns; `svc_plex` loses its access to `Media`.
 
+## L5h: Local AI (`ai01`)
+
+**Designed 2026-11-27, not built:** the RTX 5060 Ti isn't fitted yet. Background, models and use cases:
+[Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
+container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
+
+### Design
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Guest | `ai01`: VM `11201`, MAC `02:aa:bb:cc:12:01`, **static** `10.101.1.121`, Services, Debian 13 (clone of `10001`). **12 cores, 96 GiB**, kept on **one socket** (CPU 1, NUMA node 0), raised to 128 GiB if the big models need it. | Tier 12 (decision 4). Models that don't fit on the GPU run partly from system RAM, and RAM on the other socket is slower to reach. |
+| GPU | **RTX 5060 Ti 16 GB** (blower, rear exhaust) in **slot 1** (CPU 1), bound to `vfio-pci` by device ID like the P2000, mapping **`GPU02`**. | VRAM decides what fits: 16 GB against the 3070's 8. Same memory bandwidth (448 GB/s), newer tensor cores with FP8 and FP4, 180 W on one power lead. Its x8 link (PCIe 3.0 here: ~8 GB/s) slows prompt reading only for models partly in RAM. The P2000 stays on `plex01`; the 3070 leaves the server. |
+| Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. | Some RTX 50 cards stopped responding after a VM restart. |
+| Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on `nvme` until the `data` pool exists, then on `data/models`. Models disk **not backed up**. | Models are large and re-downloadable. `nvme` had ~578 GB free on 2026-11-27. |
+| Driver | NVIDIA's **open kernel modules**, from NVIDIA's own Debian 13 repository, version pinned (Blackwell needs 575 or later; Debian's `non-free` 550 series predates it); Debian's standard kernel, as on `plex01`. | Blackwell runs only with the open modules. |
+| Model servers | **Ollama** on `:11434` (small models, all on the GPU) and **llama.cpp's `llama-server`** on `:8080` (big MoE models, experts in RAM); native, systemd, versions pinned. New role `ai`, playbook `ai.yml`. | Both speak the OpenAI API, Ollama also Anthropic's, so every client changes only a base URL. |
+| Apps | **Open WebUI** and **n8n** on `docker01` (`<app>.int.phoenixstack.net`, LAN and VPN only), logins through Authentik (OIDC). Public on `docker02`: later, if at all. | Neither model server has logins: family members reach the models only through Open WebUI. |
+| Firewall | `11434` and `8080` from `docker01` and the admin sources only; SSH and ping from admin sources. | The model servers' APIs are open to anyone who can reach them. |
+| Backups | System disk in the nightly guest backups; the models disk excluded. | |
+
+### Later
+
+- **RAM:** 4 more **Samsung M393A4K40CB2-CTD** (32 GB, 2Rx4, registered DDR4-2666, the installed part) in **A3, A6,
+  B3, B6**: all 6 channels per CPU, about 1.5× the memory bandwidth for models partly in RAM. A full pve01 power-off;
+  no guest changes. Measure big-model speeds before, to see the gain.
+
 ## Household DNS
 
 **Started 2026-11-22** on the Young LAN; watching it for a day before the other networks.
@@ -1269,9 +1295,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
   - Plex keeps its own `32400` forward and plex.tv logins (no Traefik, no Authentik). `absdev` doesn't move.
   - Logins: each app's **built-in OIDC** with Authentik wherever it has one, forward-auth only for browser-only apps
     without it. Immich has password logins today (7 users, none linked to anything).
-- **4.** AI tier code (proposed 12, `.121`).
 - **6.** Monitoring (uptime and service alerts): which zone and when.
-- **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 3070 aren't installed.
+- **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 5060 Ti aren't installed.
 - Small items (2026-11-25): the Porter admin's SSH access to the guests (the Young admin sets it up with the Porter admin and passes on the details);
   a non-work email for Mealie's `svc_mealie`; an Authentik account for the remaining family member, if wanted.
 
@@ -1297,6 +1322,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
   API token sits on the internet-facing host (a stolen zone token could redirect any name, mail included).
 - **2. Plex only** (settled 2026-11-26): `plex01` runs Plex, natively; Jellyfin, if it ever comes, is its own
   instance (L5g).
+- **4. AI tier** (settled 2026-11-27): code 12, `ai01` = VM `11201`, `10.101.1.121`, in Services, with the RTX 5060
+  Ti; a VM, not a container (L5h).
 - **5. DNS on pve01** (settled 2026-11-21): `dns02` on pve01 covers guest maintenance; off-host DNS will be a
   Pi-hole on the Porter network, later; until then a pve01 outage takes DNS down (accepted). Also settled: admin
   machines first, no ad blocking yet, recursive Unbound upstream (see L5b).

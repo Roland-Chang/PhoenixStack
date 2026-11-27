@@ -2,6 +2,17 @@
 
 As of Nov 8, 2026
 
+> **Decided 2026-11-27** (the design is [L5h in guests/README.md](guests/README.md#l5h-local-ai-ai01); where this
+> plan differs, L5h wins):
+>
+> - `ai01` is a **VM** with the GPU passed through, not an LXC with the host's NVIDIA driver: the host stays
+>   driver-free (as for the P2000), so kernel updates can't break the GPU. Read the Proxmox setup guide below with
+>   that in mind.
+> - The GPU is the **RTX 5060 Ti 16 GB** (already owned), not the 3070: twice the VRAM at the same memory bandwidth.
+> - Open WebUI and n8n run on `docker01` behind Authentik; remote access is **Teleport**, not Tailscale.
+> - Open questions answered: the GPU power board, its cables and the fan kit are installed; RAM is 4 of 6 channels per
+>   CPU (8 × 32 GB); models go on `nvme` until the `data` pool exists, then `data/models`.
+
 ## The plan in one screen
 
 Run the Proxmox box as an always-on "utility" AI server for background agents, use the MacBook for the bigger interactive model, and keep Claude for hard multi-step coding and reasoning. Both machines run Ollama, so every tool talks to them the same way.
@@ -82,7 +93,7 @@ Everything points at an Ollama (or llama.cpp) endpoint. Ollama speaks both the O
 
 | Layer | Runs on | Components |
 | --- | --- | --- |
-| Model servers | Proxmox LXC (`ai-01`), MacBook | Ollama on each (`http://ai-01:11434`, `http://localhost:11434`); llama-server on `ai-01:8080` for big MoE models |
+| Model servers | Proxmox LXC (`ai01`), MacBook | Ollama on each (`http://ai01:11434`, `http://localhost:11434`); llama-server on `ai01:8080` for big MoE models |
 | Interfaces | Proxmox LXCs | Open WebUI (chat + document Q&A for the family/team), n8n (scheduled and triggered agents) |
 | Agents | Mac terminal / VS Code | Claude Code with a `claude-local` alias, OpenCode as a second agent |
 | Remote access | Both | Tailscale; never port-forward Ollama, its API has no login |
@@ -108,7 +119,7 @@ Use an LXC container with the GPU shared in, not a VM. An LXC adds almost no ove
 
 1. **Check the hardware.** On the host, run `lspci | grep -i nvidia` to confirm the card, and `dmidecode -t memory` to see how RAM is populated. The root disk has ~167 GB free and models take 5–60 GB each, so plan a separate disk or ZFS dataset for `/models`.
 2. **Install the NVIDIA driver on the host.** Install headers (`apt install proxmox-headers-$(uname -r)`), blacklist `nouveau`, then install NVIDIA's `.run` driver with `--dkms` so it survives kernel updates. Confirm with `nvidia-smi`.
-3. **Create the container.** Debian 12/13 or Ubuntu 24.04 template, unprivileged, hostname `ai-01`. Give it 16 GB RAM for Ollama alone, or 128 GB and all 48 threads if it will also run llama.cpp with big MoE models. Mount `/models` into it. Turn on `nesting=1` if you will run Docker inside it.
+3. **Create the container.** Debian 12/13 or Ubuntu 24.04 template, unprivileged, hostname `ai01`. Give it 16 GB RAM for Ollama alone, or 128 GB and all 48 threads if it will also run llama.cpp with big MoE models. Mount `/models` into it. Turn on `nesting=1` if you will run Docker inside it.
 4. **Pass the GPU in.** Container → Resources → Add → Device Passthrough, and add `/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-uvm` and `/dev/nvidia-uvm-tools`. Older guides do the same with `lxc.cgroup2.devices.allow: c 195:* rwm` plus mount entries in `/etc/pve/lxc/<id>.conf`.
 5. **Install the matching driver inside the container.** Run the exact same `.run` version with `--no-kernel-module`. Host and container versions must match, or `nvidia-smi` fails inside. Confirm `nvidia-smi` shows the card in the container.
 6. **Install Ollama.** `curl -fsSL https://ollama.com/install.sh | sh`. Then `systemctl edit ollama` and add:
@@ -122,7 +133,7 @@ Use an LXC container with the GPU shared in, not a VM. An LXC adds almost no ove
    ```
 
    Restart it, then pull a first model, e.g. `ollama pull gemma4:12b` (check exact tags at ollama.com/library). Run `ollama ps` while it answers; it should say 100% GPU.
-7. **Add Open WebUI.** In a second LXC (or Docker in this one): `docker run -d -p 3000:8080 -e OLLAMA_BASE_URL=http://ai-01:11434 -v open-webui:/app/backend/data --name open-webui --restart always ghcr.io/open-webui/open-webui:main`. The first account you create is the admin.
+7. **Add Open WebUI.** In a second LXC (or Docker in this one): `docker run -d -p 3000:8080 -e OLLAMA_BASE_URL=http://ai01:11434 -v open-webui:/app/backend/data --name open-webui --restart always ghcr.io/open-webui/open-webui:main`. The first account you create is the admin.
 8. **Lock down access.** Install Tailscale in the containers, keep ports 11434 and 8080 off the internet, and firewall them to your LAN and tailnet. Add the containers to your existing NAS backup jobs.
 9. **Add n8n** in its own LXC when you are ready for automations (see "Wiring up agents").
 
@@ -143,7 +154,7 @@ Ollama's automatic GPU/CPU split is much slower for big MoE models; one test got
 
    Lower `--n-cpu-moe` step by step until `nvidia-smi` shows the 3070 nearly full; each step moves more experts onto the GPU.
 3. **Handle the two sockets.** Memory on the other socket is slower to reach. Benchmark `numactl --cpunodebind=0 --membind=0` with `-t 12` against `--numa distribute` with `-t 24` and keep the faster one.
-4. **Point clients at it.** `http://ai-01:8080/v1` is OpenAI-compatible for n8n and Open WebUI. Run it as a systemd service so it starts with the container.
+4. **Point clients at it.** `http://ai01:8080/v1` is OpenAI-compatible for n8n and Open WebUI. Run it as a systemd service so it starts with the container.
 
 ## Setup guide: MacBook Pro
 
@@ -171,11 +182,11 @@ alias claude-local='ANTHROPIC_BASE_URL=http://localhost:11434 \
   claude --model qwen3.6:35b-a3b'
 ```
 
-Point the base URL at `http://ai-01:11434` to use the server instead; `ollama launch claude` does the same setup in one command. Hosted features such as web search do not work in this mode ([setup notes](https://www.developersdigest.tech/setup/ollama/claude-code)).
+Point the base URL at `http://ai01:11434` to use the server instead; `ollama launch claude` does the same setup in one command. Hosted features such as web search do not work in this mode ([setup notes](https://www.developersdigest.tech/setup/ollama/claude-code)).
 
 **OpenCode** is the open-source alternative agent; add Ollama as a provider and you get a second agent that never touches your Claude quota. Useful for running a local agent in parallel with a Claude session.
 
-**n8n for background agents.** Run n8n in its own LXC and use its Ollama or OpenAI-compatible model node pointed at `http://ai-01:11434` (small models) or `http://ai-01:8080/v1` (big MoE models). Starter workflows worth building:
+**n8n for background agents.** Run n8n in its own LXC and use its Ollama or OpenAI-compatible model node pointed at `http://ai01:11434` (small models) or `http://ai01:8080/v1` (big MoE models). Starter workflows worth building:
 
 - Draft resale listings (title, description, condition) from product photos dropped in a NAS folder, using a vision model.
 - Summarize and tag new email or form submissions for the market booth business each morning.
@@ -221,13 +232,13 @@ Start with the Mac tonight because it needs no infrastructure, then build the se
 - [ ] T640: check for the power interposer board, GPU cable and external GPU fans; check PSU wattage in iDRAC; run `dmidecode -t memory`; note the Mac's chip and memory
 - [ ] Install the 3070 (or the P2000 if the power board is missing) and confirm it in `nvidia-smi`
 - [ ] Mac: install Ollama or LM Studio, pull Qwen3.6-35B-A3B (or Gemma 4 on 24 GB), confirm ~35+ tok/s
-- [ ] Proxmox: host driver, `ai-01` LXC with the 3070, `/models` storage, Ollama, first model at 100% GPU
+- [ ] Proxmox: host driver, `ai01` LXC with the 3070, `/models` storage, Ollama, first model at 100% GPU
 - [ ] Open WebUI connected to both Ollama endpoints; Tailscale on everything
 
 ### Week 2: agents and big models
 
-- [ ] `claude-local` alias working against the Mac and against `ai-01`
-- [ ] llama.cpp on `ai-01` running gpt-oss-120b or Qwen3.6-35B-A3B with `--n-cpu-moe`; record `llama-bench` numbers
+- [ ] `claude-local` alias working against the Mac and against `ai01`
+- [ ] llama.cpp on `ai01` running gpt-oss-120b or Qwen3.6-35B-A3B with `--n-cpu-moe`; record `llama-bench` numbers
 - [ ] Try OpenCode on a small repo or your PowerShell scripts
 - [ ] One Open WebUI Knowledge collection with real documents
 - [ ] n8n LXC with one scheduled workflow (log digest or listing drafts)
