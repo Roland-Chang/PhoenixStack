@@ -37,8 +37,13 @@ locals {
         data_disk_gb = try(h.data_disk_gb, null)
         gpu_mapping  = try(h.gpu_mapping, null)
         cpu_type     = try(h.cpu_type, "x86-64-v2-AES")
-        storage     = try(h.storage, "ssd")
-        description = try(h.description, "")
+        # VMs only: the data disk's storage (default: the system disk's) and whether nightly backups
+        # include it; a host NUMA node (pve01: 0 = CPU 1, 1 = CPU 2) to keep the VM's memory on.
+        data_disk_storage = try(h.data_disk_storage, try(h.storage, "ssd"))
+        data_disk_backup  = try(h.data_disk_backup, true)
+        numa_node         = try(h.numa_node, null)
+        storage           = try(h.storage, "ssd")
+        description       = try(h.description, "")
         # Host, then group, then the gateway (see inventory.yml).
         dns_servers = try(h.dns_servers, group.vars.dns_servers, [group.vars.gateway])
         # Boot order on pve01 (DNS 1, databases 2); null leaves it unset.

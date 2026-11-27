@@ -53,6 +53,23 @@ resource "proxmox_virtual_environment_vm" "this" {
   cpu {
     cores = local.g.cores
     type  = local.g.cpu_type
+    numa  = local.g.numa_node != null
+  }
+
+  # One guest NUMA node backed by a host node (inventory numa_node), so a VM that uses RAM-heavy work
+  # (models partly in system RAM, ai01) keeps its memory next to its GPU's CPU. "preferred", not
+  # "bind": if that node runs short, the VM still starts, with some memory on the other node. vCPUs
+  # aren't pinned: Proxmox lets only root@pam set `affinity`; the kernel's NUMA balancing moves the
+  # vCPU threads toward their memory.
+  dynamic "numa" {
+    for_each = local.g.numa_node == null ? [] : [local.g.numa_node]
+    content {
+      device    = "numa0"
+      cpus      = "0-${local.g.cores - 1}"
+      memory    = local.g.memory
+      hostnodes = tostring(numa.value)
+      policy    = "preferred"
+    }
   }
 
   # floating = dedicated: the balloon device is present (so Proxmox reads the guest's own memory figures
@@ -71,11 +88,13 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
 
   # The app's data on its own disk (inventory data_disk_gb): it grows online, and to shrink it, its data is
-  # copied to a smaller disk. Thin, with discard, like the system disk.
+  # copied to a smaller disk. Thin, with discard, like the system disk. Its storage and whether backups
+  # include it: inventory data_disk_storage and data_disk_backup (ai01: models on `data`, not backed up).
   dynamic "disk" {
     for_each = local.g.data_disk_gb == null ? [] : [local.g.data_disk_gb]
     content {
-      datastore_id = local.g.storage
+      datastore_id = local.g.data_disk_storage
+      backup       = local.g.data_disk_backup
       interface    = "scsi1"
       size         = disk.value
       discard      = "on"

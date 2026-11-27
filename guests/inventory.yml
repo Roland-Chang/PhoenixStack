@@ -11,6 +11,9 @@
 #   ip        10.101.<zone>.<octet>; octet = code x 10 + instance (dns01 = .21), unique across zones
 #   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
 #   data_disk_gb  VMs only, optional: a second disk (scsi1) for the app's data (grows online)
+#   data_disk_storage, data_disk_backup   VMs only, optional: that disk's storage (default: storage)
+#                 and whether nightly backups include it (default true)
+#   numa_node     VMs only, optional: the pve01 NUMA node to keep the VM's memory on (0 = CPU 1, 1 = CPU 2)
 #   cpu_type      VMs only, optional: the CPU model the guest sees (default x86-64-v2-AES; plex01 x86-64-v4
 #                 for AVX2 and AVX-512, which software AV1 decoding needs)
 #   gpu_mapping   VMs only, optional: a PCI device by its pve01 mapping name (GPU01 = the P2000)
@@ -209,6 +212,31 @@ all:
           firewall_in:
             - {port: 9443, proto: tcp, source: docker01}   # Services Traefik
             - {port: 9443, proto: tcp, source: docker02}   # public Traefik (auth.phoenixstack.net)
+        # Local AI (L5h): Ollama (11434) and llama.cpp's llama-server (8080) with the RTX 5060 Ti (GPU02,
+        # slot 1, CPU 1), so its memory stays on NUMA node 0. Models on their own disk on `data`, not backed
+        # up (re-downloadable). Neither server has logins: only docker01 (Open WebUI, n8n) and the admin
+        # sources reach them.
+        ai01:
+          kind: vm
+          vmid: 11201
+          mac: "02:aa:bb:cc:12:01"
+          ip: 10.101.1.121
+          cores: 12
+          cpu_type: x86-64-v4
+          memory: 98304
+          numa_node: 0
+          disk_gb: 32
+          storage: nvme
+          data_disk_gb: 256
+          data_disk_storage: data
+          data_disk_backup: false
+          gpu_mapping: GPU02
+          description: "Local AI: Ollama, llama-server (L5h)"
+          firewall_in:
+            - {port: 11434, proto: tcp, source: docker01}   # Open WebUI, n8n
+            - {port: 11434, proto: tcp, source: admin}
+            - {port: 8080, proto: tcp, source: docker01}
+            - {port: 8080, proto: tcp, source: admin}
     dmz:
       vars:
         zone: dmz

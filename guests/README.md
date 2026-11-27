@@ -4,9 +4,10 @@ Purpose: how PhoenixStack guests are placed on the network, created (Terraform) 
 the services built on them, one layer at a time (L5a groundwork, then L5b onwards). The host (L0–L4) is in
 [../proxmox/README.md](../proxmox/README.md) and stays on `pve-bootstrap.sh`.
 
-Status (2026-11-24): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
-and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f under way**: `docker02` takes the internet's
-`443` and runs Audiobookshelf, with logins through Authentik; the other public apps follow one at a time.
+Status (2026-11-27): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
+and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f**: `docker02` takes the internet's `443` and runs
+the public apps (Audiobookshelf, Immich, Mealie, IT-Tools), with logins through Authentik. **L5g**: `plex01` live.
+**L5h under way**: the `ai01` VM is built; the NVIDIA driver and the model servers are next.
 [Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -148,7 +149,7 @@ no rule (code 01 had `.21`, code 05 `.81`, code 09 `.111`).
 | 09 | Vault | 109YY | Services | `.91`, `.92` | |
 | 10 | Docker host | 110YY | 01 Services, 02 DMZ | `.101`, `.102` | |
 | 11 | Backup | 111YY | Services | `.111` | |
-| 12 | AI | 112YY | Services | `.121` | `ai01` gets the RTX 5060 Ti (decision 4; not fitted yet). See L5h. |
+| 12 | AI | 112YY | Services | `.121` | `ai01` with the RTX 5060 Ti (decision 4), built 2026-11-27. See L5h. |
 | 99 | Test (throwaway) | 199YY | both | `.248`, `.249` | The exception to the rule. `test01` = LXC in Services (`10.101.1.249`); `test02` = VM in the DMZ (`10.101.2.248`). |
 
 The archived Terraform files used other codes for some tiers (AMP 11, Monitor 09, Vault 05, Backup 08); the scheme
@@ -1194,7 +1195,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ## L5h: Local AI (`ai01`)
 
-**Designed 2026-11-27, not built.** The RTX 5060 Ti is fitted and on `vfio-pci` as `GPU02`; the `data` pool is built (same day). Background, models and use cases:
+**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `data`. **Next:** the NVIDIA driver, the five stop/start cycles, then Ollama and llama-server (role `ai`). Background, models and use cases:
 [Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
 container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
 
@@ -1202,7 +1203,7 @@ container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `
 
 | Area | Decision | Why |
 | --- | --- | --- |
-| Guest | `ai01`: VM `11201`, MAC `02:aa:bb:cc:12:01`, **static** `10.101.1.121`, Services, Debian 13 (clone of `10001`). **12 cores, 96 GiB**, kept on **one socket** (CPU 1, NUMA node 0), raised to 128 GiB if the big models need it. | Tier 12 (decision 4). Models that don't fit on the GPU run partly from system RAM, and RAM on the other socket is slower to reach. |
+| Guest | `ai01`: VM `11201`, MAC `02:aa:bb:cc:12:01`, **static** `10.101.1.121`, Services, Debian 13 (clone of `10001`). **12 cores, 96 GiB**, kept on **one socket** (CPU 1, NUMA node 0), raised to 128 GiB if the big models need it. | Tier 12 (decision 4). Models that don't fit on the GPU run partly from system RAM, and RAM on the other socket is slower to reach. A VM with a GPU passed through has **all** its memory pinned at start: the 96 GiB are taken from node 0 at boot, used or not (node 0 had ~9.5 GB free after, node 1 ~119 GB). Memory binding is policy `preferred` (Terraform `numa_node`); vCPUs aren't pinned, as only `root@pam` may set `affinity`. |
 | GPU | **RTX 5060 Ti 16 GB** (blower, rear exhaust) in **slot 1** (CPU 1), bound to `vfio-pci` by device ID like the P2000, mapping **`GPU02`**. | VRAM decides what fits: 16 GB against the 3070's 8. Same memory bandwidth (448 GB/s), newer tensor cores with FP8 and FP4, 180 W on one power lead. Its x8 link (PCIe 3.0 here: ~8 GB/s) slows prompt reading only for models partly in RAM. The P2000 stays on `plex01`; the 3070 leaves the server. |
 | Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. | Some RTX 50 cards stopped responding after a VM restart. |
 | Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on the **`data`** pool (Terraform needs `/storage/data` for it). Models disk **not backed up**. | Models are large and re-downloadable; `data` keeps them apart from VM disk I/O, on the GPU's CPU. |
