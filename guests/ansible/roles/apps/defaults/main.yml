@@ -94,6 +94,14 @@ apps_catalog:
     folders: [state, cookies]
     version: "2026.11.06"
     port: 8081
+  # libraforge (audiobook metadata for Audiobookshelf): works on Media's ###Prep/audiobook-dev input folder.
+  # config holds its Audiobookshelf API key (abs.json) and Audible sign-ins (auth/): credentials, only on
+  # docker01's disk. Published as `latest` only, so pinned by digest (the image docker-temp ran, 2026-11-03).
+  libraforge:
+    uid: "{{ apps_media_uid }}"
+    folders: [config]
+    version: "latest@sha256:4be9eea46da06cc72e2f1fce6af995a4c02388aded91e49d64792345c3eece65"
+    port: 5056
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.

@@ -990,8 +990,8 @@ The public apps have all moved (Immich last, 2026-11-26); what's left are the ad
 
 ### Admin apps to `docker01`
 
-**Designed 2026-11-27, decided by the Young admin the same day. First group and MeTube moved the same day** (below);
-libraforge next. The admin apps leave docker-temp for `docker01` (Services: LAN and VPN only, decision 3); then
+**Designed 2026-11-27, decided by the Young admin the same day. All of them moved the same day** (below), Libation
+excepted. The admin apps leave docker-temp for `docker01` (Services: LAN and VPN only, decision 3); then
 docker-temp retires. **Libation stays out** (the Young admin, 2026-11-27: maybe not in use long-term); it goes with
 docker-temp unless decided otherwise.
 
@@ -1052,6 +1052,18 @@ in `state`) holds browser cookies for YouTube, a logged-in session: a credential
 was `debug`). Route `metube`, admins through Authentik. A new Authentik proxy app answers `404` for up to a minute
 until Authentik's outpost picks it up, then redirects to the login. Rollback: docker-temp's container, stopped
 with `restart=no`.
+
+**libraforge moved 2026-11-27** (03:43–03:44 UTC): pinned **by digest** (`latest@sha256:4be9eea4…`, the image docker-temp
+ran; it publishes no version tags); as uid `2010` with no capabilities as it is; its config folder (settings, 1,065
+reports, `auth/` with two Audible sign-ins, `abs.json` with its Audiobookshelf API key: credentials, owner-only on
+`docker01`'s disk), mounted as on docker-temp (`auth` and `reports` also at `/auth` and `/app/reports`). Checked: it
+writes its input folder (`Media/###Prep/audiobook-dev/01_libraforge_input`) and reaches Audiobookshelf at
+`https://abs.phoenixstack.net` (through Cloudflare to `docker02`). **To do:** a new Audiobookshelf API key for it (the
+old one was shown in a session's output on 2026-11-27): delete "LibraForge" in Audiobookshelf's API keys, create a
+new one, put it into `abs.json`. Rollback: docker-temp's container, stopped with `restart=no`.
+
+Left on docker-temp: Libation (out of this rebuild), Glances (dropped), Deployrr's Traefik and socket proxy, and the
+stopped containers kept for rollback.
 
 ## L5g: Media server (`plex01`)
 

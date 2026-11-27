@@ -1,0 +1,40 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ libraforge_has_no_staging_copy_yet }}
+{% endif %}
+# libraforge (role apps; guests/README.md, "Admin apps to docker01"). Reached through Traefik only (route
+# libraforge, admins only, through Authentik). As apps_media_uid with no capabilities. The same mounts as on
+# docker-temp: config, with its auth and reports folders also at /auth and /app/reports.
+{% set app = apps_catalog['libraforge'] %}
+name: {{ stack.name }}
+
+services:
+  libraforge:
+    image: ghcr.io/coconautilus17/libraforge:{{ stack.version or app.version }}
+    container_name: libraforge
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+      AUDIOBOOKS_ROOT: /audiobooks
+    volumes:
+      - ./config:/app/config
+      - ./config/auth:/auth
+      - ./config/reports:/app/reports
+      - "{{ apps_media_root }}/###Prep/audiobook-dev/01_libraforge_input:/audiobooks"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:{{ app.port }}/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  proxy:
+    external: true
