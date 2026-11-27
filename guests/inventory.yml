@@ -268,9 +268,9 @@ all:
             - {name: tools, url: "http://it-tools:80"}              # IT-Tools (moved 2026-11-25), public
             # Immich (moved 2026-11-26). Its docker-temp name until it's renamed with the Porter users.
             - {name: immich-p, url: "http://immich-server:2283"}
-        # Media server (L5g, designed 2026-11-26): replaces PLEX-TEMP. Plex, natively; its data on its own
-        # disk; media read-only at /content (the path every library uses). The GPU (gpu_mapping: GPU01)
-        # moves here at the switch, once PLEX-TEMP is stopped: a GPU belongs to one running VM.
+        # Media server (L5g, designed 2026-11-26): replaces PLEX-TEMP (stopped). Plex, natively; its data on
+        # its own disk; media read-only at /content (the path every library uses). The GPU (gpu_mapping:
+        # GPU01) is here now; it belongs to one running VM, so PLEX-TEMP can't be started while plex01 runs.
         plex01:
           kind: vm
           vmid: 10601
