@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ autobrr_has_no_staging_copy_yet }}
+{% endif %}
+# autobrr (role apps; guests/README.md, "Admin apps to docker01"). Reached through Traefik only (route autobrr,
+# admins only, through Authentik). As apps_media_uid with no capabilities.
+{% set app = apps_catalog['autobrr'] %}
+name: {{ stack.name }}
+
+services:
+  autobrr:
+    image: ghcr.io/autobrr/autobrr:{{ stack.version or app.version }}
+    container_name: autobrr
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+    volumes:
+      - ./config:/config
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ app.port }}/api/healthz/liveness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true

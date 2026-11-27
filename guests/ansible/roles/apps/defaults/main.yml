@@ -15,6 +15,9 @@ apps_staging: []
 # run as one uid: the owner of docker01's writable Media mount (nas_mounts allows one owner per share), and
 # so they can hand files to each other (download -> import). guests/README.md, "Admin apps to docker01".
 apps_media_uid: 2010
+# Where they find the NAS on docker01 (nas_mounts), and its downloads folder.
+apps_media_root: /mnt/nas/media
+apps_media_downloads: "/mnt/nas/media/###Downloads"
 
 # Per app, everything its template needs:
 #   uid              the uid its container runs as (no account on the host; its data folders belong to
@@ -58,6 +61,32 @@ apps_catalog:
     env_op:
       DB_PASSWORD: "op://infrastructure/auflj3qq4awwxhyaibzm3g2ayy/password"
 
+  # The admin apps on docker01 (guests/README.md, "Admin apps to docker01"): LAN and VPN only, behind Authentik
+  # (admins). All as apps_media_uid, the owner of docker01's writable Media mount, with no capabilities;
+  # LinuxServer's images need /run as a RAM folder of that uid to start without root. The same paths inside
+  # the containers as on docker-temp (their databases store them): Media at /data/media1, its ###Downloads
+  # folder at /data/downloads. They reach each other by container name (sonarr, radarr, sabnzbd, autobrr) on
+  # the proxy network. Versions: the images docker-temp ran (same image IDs, checked 2026-11-27).
+  sonarr:
+    uid: "{{ apps_media_uid }}"
+    folders: [config]
+    version: "develop-5.0.0.2941-ls208"   # Sonarr v5, nightly branch; to stable later, through staging
+    port: 8989
+  radarr:
+    uid: "{{ apps_media_uid }}"
+    folders: [config]
+    version: "6.4.4.10685-ls326"
+    port: 7878
+  sabnzbd:
+    uid: "{{ apps_media_uid }}"
+    folders: [config]
+    version: "5.1.3-ls280"
+    port: 8080
+  autobrr:
+    uid: "{{ apps_media_uid }}"
+    folders: [config]
+    version: "v1.90.0"
+    port: 7474
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.

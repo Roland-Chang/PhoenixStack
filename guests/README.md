@@ -990,8 +990,10 @@ The public apps have all moved (Immich last, 2026-11-26); what's left are the ad
 
 ### Admin apps to `docker01`
 
-**Designed 2026-11-27, decided by the Young admin the same day; not moved yet.** The admin apps leave docker-temp
-for `docker01` (Services: LAN and VPN only, decision 3); then docker-temp retires.
+**Designed 2026-11-27, decided by the Young admin the same day. First group moved the same day** (below); MeTube and
+libraforge next. The admin apps leave docker-temp for `docker01` (Services: LAN and VPN only, decision 3); then
+docker-temp retires. **Libation stays out** (the Young admin, 2026-11-27: maybe not in use long-term); it goes with
+docker-temp unless decided otherwise.
 
 On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on its `develop` branch, v5 nightly).
 
@@ -1017,7 +1019,31 @@ On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on
 | Versions | Pinned to the digest each runs today (Sonarr's nightly too; to its stable branch later, through staging). | As the public apps. |
 | Plex | **No rule `docker01 -> plex01`**: Sonarr and Radarr don't notify Plex (they didn't before either); Plex scans its libraries **every hour** instead (was daily; set 2026-11-27). Its "scan on change" can't see changes made over SMB by another machine. | A notification would need the server owner's full Plex token on `docker01`; an hour's delay is fine. |
 | Order | Sonarr, Radarr, SABnzbd and autobrr together (they work as one); then MeTube, libraforge, Libation one at a time. | |
-| Open | Where Libation's backups go. | |
+
+**First group moved 2026-11-27** (Sonarr, Radarr, SABnzbd, autobrr; stopped on docker-temp 03:15 UTC, healthy on
+`docker01` 03:23):
+
+- NAS: `Media` read-write at `/mnt/nas/media` for uid `2010` (`apps_media_uid`); checked: uid `2010` writes and
+  deletes, the admin user `aaron` can't even list it; UDM rule `docker01 -> NAS (SMB)` checked live (`445` open,
+  pve01's GUI closed).
+- Images: the tags with the same image IDs as docker-temp's (Sonarr's is `develop-5.0.0.2941-ls208`). LinuxServer's
+  images refuse to start as a non-root uid until **`/run` is a RAM folder owned by that uid** (their s6 needs it);
+  then they run as uid `2010` with no capabilities. autobrr runs that way as it is.
+- Data: each app's `/config` from docker-temp (4.1 GB) to `/opt/stacks/<app>/config`, through the laptop; the same
+  paths inside the containers, so their databases needed no change (root folders `/data/media1/…`, SABnzbd at
+  `sabnzbd:8080`). Checked: Sonarr and Radarr reach SABnzbd; they see 353 show and 2,010 film folders; all three
+  write to `/data/downloads`; Sonarr writes in `TV Shows`.
+- Logins: Sonarr and Radarr `AuthenticationMethod` **External**; SABnzbd's web login cleared (its `[misc]` only: the
+  Usenet server's login stays) and `sabnzbd.int.phoenixstack.net` added to its `host_whitelist`. Sonarr and Radarr
+  also have **`AllowedHosts`**, which still named their old public names (`tv.`, `movies.`) and refused anything else
+  with "Invalid Hostname": now `<app>,<app>.int.phoenixstack.net`. autobrr keeps its own login behind Authentik
+  (it can't switch it off; OIDC with Authentik is the alternative, later); it has no download clients configured.
+  The settings before the move are kept as `config.xml.pre-move` and `sabnzbd.ini.pre-move`.
+- Authentik (`authentik.yml`): a proxy provider and application per app, `authentik Admins` only; Pi-hole names on
+  `dns01`, then `dns02`. Checked from an admin machine: every name redirects to Authentik's login. Repeat runs of
+  `docker.yml`, `authentik.yml` and `dns.yml`: `changed=0`.
+- Rollback: docker-temp's four containers are stopped with `restart=no`, data untouched (`docker update
+  --restart=unless-stopped` and `docker start` brings them back, at `10.101.0.178:<port>`).
 
 ## L5g: Media server (`plex01`)
 

@@ -170,6 +170,8 @@ all:
             - {port: 443, proto: tcp, source: lan}
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
+          # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
+          apps: [sonarr, radarr, sabnzbd, autobrr]
           # NAS as svc_docker01 (1Password "(UNAS) - svc_docker01"): Media read-write for the admin apps' shared
           # uid (apps_media_uid), nothing else (2026-11-27; guests/README.md, "Admin apps to docker01").
           nas_username: svc_docker01
@@ -178,6 +180,11 @@ all:
             - {share: Media, path: /mnt/nas/media, rw: true, owner: "{{ apps_media_uid }}"}
           routes:
             - {name: traefik, url: "api@internal", admin_only: true, authentik: true, title: Traefik dashboard}
+            # The admin apps (moved from docker-temp 2026-11-27; guests/README.md, "Admin apps to docker01").
+            - {name: sonarr, url: "http://sonarr:8989", admin_only: true, authentik: true, title: Sonarr}
+            - {name: radarr, url: "http://radarr:7878", admin_only: true, authentik: true, title: Radarr}
+            - {name: sabnzbd, url: "http://sabnzbd:8080", admin_only: true, authentik: true, title: SABnzbd}
+            - {name: autobrr, url: "http://autobrr:7474", admin_only: true, authentik: true, title: autobrr}
             # authentik01's address typed out: other guests' roles read these routes (the authentik
             # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}

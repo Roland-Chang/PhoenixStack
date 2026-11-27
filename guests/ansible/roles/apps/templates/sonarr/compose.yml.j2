@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ sonarr_has_no_staging_copy_yet }}
+{% endif %}
+# Sonarr (role apps; guests/README.md, "Admin apps to docker01"). Reached through Traefik only (route sonarr,
+# admins only, through Authentik). As apps_media_uid with no capabilities; /run in RAM (LinuxServer's s6 needs it).
+{% set app = apps_catalog['sonarr'] %}
+name: {{ stack.name }}
+
+services:
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:{{ stack.version or app.version }}
+    container_name: sonarr
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+    volumes:
+      - ./config:/config
+      - "{{ apps_media_downloads }}:/data/downloads"
+      - "{{ apps_media_root }}:/data/media1"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /run:uid={{ app.uid }},gid={{ app.uid }},exec
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ app.port }}/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true

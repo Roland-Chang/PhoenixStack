@@ -1,0 +1,38 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ sabnzbd_has_no_staging_copy_yet }}
+{% endif %}
+# SABnzbd (role apps; guests/README.md, "Admin apps to docker01"). Reached through Traefik only (route sabnzbd,
+# admins only, through Authentik). As apps_media_uid with no capabilities; /run in RAM (LinuxServer's s6 needs it).
+{% set app = apps_catalog['sabnzbd'] %}
+name: {{ stack.name }}
+
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:{{ stack.version or app.version }}
+    container_name: sabnzbd
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+    volumes:
+      - ./config:/config
+      - "{{ apps_media_downloads }}:/data/downloads"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /run:uid={{ app.uid }},gid={{ app.uid }},exec
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ app.port }}/api?mode=version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  proxy:
+    external: true
