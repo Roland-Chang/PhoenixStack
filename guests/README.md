@@ -1053,7 +1053,10 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
      divert the system's `libGL` (only matters for tools like `ffmpeg`, not for Plex); PLEX-TEMP's start logs
      "failed to reset PCI device", harmless (its driver sees the card).
    - Plex's user is uid `999` here, `998` on PLEX-TEMP: copied files are given to `plex` afterwards.
-3. **Copy ahead** while PLEX-TEMP runs: `Metadata` and `Media` (about 27 GB). Mgmt and DMZ have no direct path, so through the NAS: PLEX-TEMP writes an archive to a transfer folder in `Media` (it can write there today), `plex01` reads it.
+3. ~~Copy ahead~~ Done 2026-11-27 while PLEX-TEMP served: `tar` of `Metadata` and `Media` to `Media/transfer/plex-ahead.tar`
+   (27.4 GB, 4 min, through PLEX-TEMP's guest agent; a marker file `/root/phx-ahead-start` there records the start),
+   unpacked on `plex01` (under 3 min) and given to `plex`. Checked: `Metadata` 63,606 files / 20 GB and `Media`
+   142,837 / 6.6 GB on both; none changed on PLEX-TEMP since the archive started.
 4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.
 5. **Rollback** for a week: stop `plex01`, start Plex on PLEX-TEMP, forward back to `.111`. Then PLEX-TEMP and the transfer folder go; `svc_plex` loses its access.
 
