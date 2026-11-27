@@ -277,7 +277,7 @@
         <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media, Porter read-only · plex01, docker02 · Podcasts, Immich read-write · docker02</text>
 
         <rect class="node later" x="536" y="818" width="628" height="44" rx="8"/>
-        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests until retired: docker-temp .166 (admin apps) · PLEX-TEMP .111 (stopped; rollback for plex01)</text>
+        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests until retired: docker-temp .178 (admin apps, moving to docker01) · PLEX-TEMP .111 (stopped; rollback for plex01)</text>
       </svg>
     </div>
     <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to <code>plex01</code> (DMZ, since 2026-11-27). The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media and the Porter photo archive, read-write for the <code>Podcasts</code> and <code>Immich</code> shares (<code>docker02</code>), one share per app that writes.</figcaption>

@@ -719,7 +719,7 @@ All of them have moved (Immich last, 2026-11-26), and the temporary rule to dock
 | Writable shares | **One share per app that must write**, read-write for `svc_docker02` only (`nas_mounts`: `rw: true`, `owner` = the app's uid). First: `Podcasts` (decided 2026-11-24), 32 GB of mostly complete archives, growing; the share reports 94 GB. | `Media` stays read-only. On `docker02`'s disk they'd go into every nightly guest backup. Each writable share holds data its one app can download or rebuild. |
 | App backups | Each app's own backups stay on `docker02` (Audiobookshelf: `/metadata/backups`); the nightly guest backups carry them off (proposed 2026-11-23). | On the NAS they'd need the `Backups` share, which also holds pve01's guest backups. |
 | Immich | Needs a writable share of its own (uploads, thumbnails, encoded video, below). Designed with its move. Until then its files sit in `Media`, which `docker02` can read (accepted, below). | `Media` stays read-only. |
-| Not published | Calibre (its basic auth lived in docker-temp's Traefik) and `absdev`, agreed 2026-11-24: admins reach them, and the admin tools, at `10.101.0.166:<port>` until they move to `docker01` (LAN and VPN only, decision 3). MyBibliotheca: deleted 2026-11-24; a fresh install if it comes back. | |
+| Not published | Calibre (its basic auth lived in docker-temp's Traefik) and `absdev`, agreed 2026-11-24; neither has a container on docker-temp any more (compose files only, checked 2026-11-27). Admins reach the admin tools at `10.101.0.178:<port>` until they move to `docker01` (LAN and VPN only, decision 3; [Admin apps to `docker01`](#admin-apps-to-docker01)). MyBibliotheca: deleted 2026-11-24; a fresh install if it comes back. | |
 | Names | Kept as on docker-temp (`immich-p`, `meal`, `tools`) until each app moves, then renamed after the app. | Phones and bookmarks keep working meanwhile. |
 
 Steps (each dry-run first):
@@ -791,7 +791,7 @@ On `docker02` since 2026-11-24.
 | Schedules | Library scan of Audiobooks nightly at midnight, Denver time (the folder watcher can't see what Libation writes over SMB); its own backup nightly at 01:30 into `/metadata/backups`. |
 | Logins | "Sign in with PhoenixStack": Authentik client `abs` (`authentik Admins`, `Family`), matching existing accounts by **email**, no auto-register. Local logins stay, for e-readers, the API accounts and people without a Google Account. Microsoft 365's links and settings were removed. |
 | Accounts | 34 (14 listened in the last 90 days). Each person's Authentik email must equal their Audiobookshelf email; the account list is on the Young admin's laptop, not in this repo. |
-| Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), and docker-temp's stopped copy (`docker start audiobookshelf`, the route back to `http://10.101.0.166:83`). `absdev` stays on docker-temp, offline from the internet. |
+| Rollback | Until about 2026-12-01: the database from before the login switch in `/opt/stacks/audiobookshelf/rollback/` (root only; back as `config/absdatabase.sqlite`, owner `2001`), the only rollback copy left (docker-temp's stopped container and `absdev` are gone: checked 2026-11-27). |
 
 #### IT-Tools
 
@@ -923,7 +923,7 @@ Progress (where to pick up):
 5. Rollback until about 2026-12-03: docker-temp's stopped stack and `Media/Immich/Porter` are left as they are
    (anything uploaded since the switch exists only on `docker02`). To roll back: `docker update
    --restart=unless-stopped` and `docker start` on docker-temp's four Immich containers, the route back to
-   `http://10.101.0.166:2283`, and a UDM rule `docker02` → docker-temp `2283` again. Then delete the old copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
+   `http://10.101.0.178:2283` (docker-temp's address since 2026-11-26), and a UDM rule `docker02` → docker-temp `2283` again. Then delete the old copy. Later: logins through Authentik, a version policy, the rename of `immich-p` (with the Porter users), and
    Cloudflare's 100 MB upload limit (checked with a phone after the move).
 
 ### Staging
@@ -981,15 +981,43 @@ Role `nas_mount` in `docker.yml`, for hosts with `nas_mounts` (since 2026-11-23)
 
 ### docker-temp: what's left to move
 
-Read 2026-11-23: a Deployrr layout in `~/docker` (one compose file including one file per app, `appdata/`,
-Traefik 3.6 with file rules in `appdata/traefik3/rules/docker-temp/`, basic auth on the admin tools). Its user
-`svc_docker` has no passwordless `sudo`, but is in the `docker` group. Since 2026-11-24 the internet doesn't reach
-it, and since 2026-11-26 neither does `docker02`.
+Read 2026-11-23 and 2026-11-27: a Deployrr layout in `~/docker` (one compose file including one file per app,
+`appdata/`, Traefik 3.6 with file rules, basic auth on the admin tools). Its user `svc_docker` has no passwordless
+`sudo`, but is in the `docker` group. Since 2026-11-24 the internet doesn't reach it, and since 2026-11-26 neither
+does `docker02`. **Its address is `10.101.0.178` since the patch reboot of 2026-11-26** (it was `.166`, a plain DHCP
+lease); a fixed IP `.178` in UniFi keeps it there until it retires (outside the address scheme: temporary, VMID 999).
+The public apps have all moved (Immich last, 2026-11-26); what's left are the admin apps, below.
 
-- Immich (7 users, password logins) writes to the NAS: uploads (about 32,000 photos), thumbnails (30 GB), encoded
-  video (44 GB) and its own database backups (6.6 GB), in `Media/Immich/Porter`. It also reads about 56,000 photos
-  from the `Porter` share (`PhotoArchive`) as an external library. Server `v3.1.0` but machine learning `v2.5.3`:
-  pin both to one version when it moves.
+### Admin apps to `docker01`
+
+**Designed 2026-11-27, decided by the Young admin the same day; not moved yet.** The admin apps leave docker-temp
+for `docker01` (Services: LAN and VPN only, decision 3); then docker-temp retires.
+
+On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on its `develop` branch, v5 nightly).
+
+| App | Data | NAS | Name today |
+| --- | --- | --- | --- |
+| Sonarr | 481 MB | `Media` read-write (imports into `TV Shows`), `###Downloads` | `tv.` |
+| Radarr | 3.1 GB | `Media` read-write (imports into `Movies`), `###Downloads` | `movies.` |
+| SABnzbd | 4 MB | `###Downloads` | `dl.` |
+| autobrr | 9 KB | none | `autobrr.` |
+| Libation | 88 MB | `###Downloads/libation`; its "backups" go to an unmounted folder, so onto docker-temp's own disk | (no web UI) |
+| libraforge | 11 MB | `###Prep/audiobook-dev` | `libraforge.` |
+| MeTube | 1 KB | `###Downloads/ytdl` | `ytdl.` |
+| Glances | config | docker-temp's Docker, through a socket proxy | `glances.` |
+
+| Area | Decision | Why |
+| --- | --- | --- |
+| Where | **`docker01`**, as stacks of role `apps`. | Admin tools, never public (decision 3). |
+| NAS | **`Media` read-write** for `docker01`'s own NAS user **`svc_docker01`** (1Password `(UNAS) - svc_docker01`). Checked 2026-11-27 with `smbclient`: reads and writes `Media`; `Porter`, `Backups`, `Immich`, `Podcasts` refused. UDM rule `docker01 -> NAS (SMB)` to create. | A deliberate exception to "one share per app that writes": Sonarr and Radarr import into the library itself, and managing it is their job. `docker01` isn't internet-facing and only admins reach it; the DMZ stays read-only. |
+| One uid | All apps that write to `Media` run as **one shared uid**, the owner of the writable mount (role `nas_mount`: one `owner` per share). | They hand files to each other (download → import). |
+| Logins | **Authentik only**, admins only (forward-auth on each route, `admin_only`). The apps' own logins switch to "External"; their API keys stay, for each other. | One login, with MFA, for every admin tool. |
+| Names | After the app: `sonarr.int`, `radarr.int`, `sabnzbd.int`, `autobrr.int`, `metube.int`, `libraforge.int`. The old public names (`tv.`, `movies.`, `dl.`, `ytdl.`) go. | The naming rule (2026-11-23). |
+| Glances | **Dropped.** | It needs the Docker socket; monitoring is decision 6. |
+| Versions | Pinned to the digest each runs today (Sonarr's nightly too; to its stable branch later, through staging). | As the public apps. |
+| Plex | **No rule `docker01 -> plex01`**: Sonarr and Radarr don't notify Plex (they didn't before either); Plex scans its libraries **every hour** instead (was daily; set 2026-11-27). Its "scan on change" can't see changes made over SMB by another machine. | A notification would need the server owner's full Plex token on `docker01`; an hour's delay is fine. |
+| Order | Sonarr, Radarr, SABnzbd and autobrr together (they work as one); then MeTube, libraforge, Libation one at a time. | |
+| Open | Where Libation's backups go. | |
 
 ## L5g: Media server (`plex01`)
 
