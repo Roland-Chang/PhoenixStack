@@ -52,11 +52,14 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   cpu {
     cores = local.g.cores
-    type  = "x86-64-v2-AES"
+    type  = local.g.cpu_type
   }
 
+  # floating = dedicated: the balloon device is present (so Proxmox reads the guest's own memory figures
+  # instead of counting its page cache as used) but never shrinks the VM.
   memory {
     dedicated = local.g.memory
+    floating  = local.g.memory
   }
 
   disk {

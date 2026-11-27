@@ -11,6 +11,8 @@
 #   ip        10.101.<zone>.<octet>; octet = code x 10 + instance (dns01 = .21), unique across zones
 #   cores, memory (MiB), disk_gb, storage (ssd | nvme)   optional, defaults in terraform/main.tf
 #   data_disk_gb  VMs only, optional: a second disk (scsi1) for the app's data (grows online)
+#   cpu_type      VMs only, optional: the CPU model the guest sees (default x86-64-v2-AES; plex01 x86-64-v4
+#                 for AVX2 and AVX-512, which software AV1 decoding needs)
 #   gpu_mapping   VMs only, optional: a PCI device by its pve01 mapping name (GPU01 = the P2000)
 #   dns_servers   optional; the guest's DNS servers (default: the group's, else the gateway)
 #   startup_order optional; boot order on pve01 (DNS 1, databases 2, the rest unset)
@@ -274,7 +276,10 @@ all:
           vmid: 10601
           mac: "02:aa:bb:cc:06:01"
           ip: 10.101.2.61
-          cores: 4
+          # 6 cores and x86-64-v4 (2026-11-27): the P2000 can't decode AV1, so AV1 sources decode on
+          # the CPU, which is much faster with AVX2 and AVX-512.
+          cores: 6
+          cpu_type: x86-64-v4
           memory: 12288
           disk_gb: 32
           data_disk_gb: 64
