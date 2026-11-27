@@ -1057,9 +1057,10 @@ ran; it publishes no version tags); as uid `2010` with no capabilities as it is;
 reports, `auth/` with two Audible sign-ins, `abs.json` with its Audiobookshelf API key: credentials, owner-only on
 `docker01`'s disk), mounted as on docker-temp (`auth` and `reports` also at `/auth` and `/app/reports`). Checked: it
 writes its input folder (`Media/###Prep/audiobook-dev/01_libraforge_input`) and reaches Audiobookshelf at
-`https://abs.phoenixstack.net` (through Cloudflare to `docker02`). **To do:** a new Audiobookshelf API key for it (the
-old one was shown in a session's output on 2026-11-27): delete "LibraForge" in Audiobookshelf's API keys, create a
-new one, put it into `abs.json`. Rollback: docker-temp's container, stopped with `restart=no`.
+`https://abs.phoenixstack.net` (through Cloudflare to `docker02`). **New Audiobookshelf API key 2026-11-27** (the old one
+was shown in a session's output): the old one deleted in Audiobookshelf, the new one in 1Password `(Audiobookshelf) -
+Libraforge API`, piped from there into `abs.json` (never on a command line); checked: the new key gets `200` from
+Audiobookshelf's API, the old one `401`. Rollback: docker-temp's container, stopped with `restart=no`.
 
 **Libation moved 2026-11-27** (03:53–03:54 UTC): `14.2.5`, the image docker-temp ran as `latest` (on Docker Hub, `latest`
 now points to a release candidate, 14.3.0-rc.1); as uid `2010` with no capabilities; no route (no web page), its
