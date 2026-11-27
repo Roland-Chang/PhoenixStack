@@ -48,7 +48,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.7"
+readonly VERSION="2026.11.8"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -280,13 +280,15 @@ stage_preflight() {
     done
   done
 
-  if [[ -n ${GPU_PCI_ADDR:-} ]]; then
-    if [[ -n $(lspci -s "$GPU_PCI_ADDR" 2>/dev/null) ]]; then
-      ok "GPU ${GPU_PCI_ADDR}: $(lspci -s "${GPU_PCI_ADDR}.0" | cut -d' ' -f2-)"
+  local g
+  for g in ${GPUS[@]+"${GPUS[@]}"}; do
+    [[ $g == GPU*=????:??:?? ]] || die "GPUS entry '${g}': expected <mapping name>=<PCI address>, e.g. GPU01=0000:b1:00"
+    if [[ -n $(lspci -s "${g#*=}" 2>/dev/null) ]]; then
+      ok "GPU ${g%%=*} ${g#*=}: $(lspci -s "${g#*=}.0" | cut -d' ' -f2-)"
     else
-      die "GPU_PCI_ADDR ${GPU_PCI_ADDR} not found (lspci)"
+      die "GPU ${g%%=*}: ${g#*=} not found (lspci)"
     fi
-  fi
+  done
 
   if ! grep -qw vmx /proc/cpuinfo; then warn "CPU virtualization (VT-x) not visible — check BIOS"; fi
   info "mode: ${MODE^^}   run id: ${RUN_ID}"
@@ -616,13 +618,14 @@ vfio_pci
 EOF
   if [[ $FILE_CHANGED == yes ]]; then rebuild_initramfs="yes"; fi
 
-  # GPU → vfio-pci (all functions: video + HDMI audio)
-  if [[ -n ${GPU_PCI_ADDR:-} ]]; then
-    local ids
-    ids=$(lspci -n -s "$GPU_PCI_ADDR" | awk '{print $3}' | sort -u | paste -sd, -)
-    [[ -n $ids ]] || die "could not read PCI IDs for ${GPU_PCI_ADDR}"
+  # GPUs → vfio-pci (all functions: video + HDMI audio), by device ID
+  if [[ -n ${GPUS[*]+set} ]] && ((${#GPUS[@]})); then
+    local g addr ids=""
+    for g in ${GPUS[@]+"${GPUS[@]}"}; do ids+=" $(lspci -n -s "${g#*=}" | awk '{print $3}')"; done
+    ids=$(tr ' ' '\n' <<<"$ids" | grep . | sort -u | paste -sd, -)
+    [[ -n $ids ]] || die "could not read PCI IDs for the GPUs"
     ensure_file /etc/modprobe.d/vfio.conf 0644 <<EOF
-# Managed by PhoenixStack pve-bootstrap.sh — GPU ${GPU_PCI_ADDR} reserved for passthrough
+# Managed by PhoenixStack pve-bootstrap.sh — GPUs reserved for passthrough: ${GPUS[*]}
 options vfio-pci ids=${ids} disable_vga=1
 softdep nouveau pre: vfio-pci
 softdep nvidia pre: vfio-pci
@@ -638,26 +641,34 @@ blacklist nvidiafb
 EOF
     if [[ $FILE_CHANGED == yes ]]; then rebuild_initramfs="yes"; fi
 
-    # Cluster PCI resource mapping, so guests reference the GPU by name
-    # (hostpci0: mapping=<id>) instead of a host-specific PCI address.
-    if [[ -n ${GPU_MAPPING_ID:-} ]]; then
-      if pve_exists "/cluster/mapping/pci/${GPU_MAPPING_ID}"; then
-        ok "PCI mapping ${GPU_MAPPING_ID}"
-      else
-        local dev="/sys/bus/pci/devices/${GPU_PCI_ADDR}.0" vid did svid sdid grp
-        vid=$(<"$dev/vendor"); did=$(<"$dev/device")
-        svid=$(<"$dev/subsystem_vendor"); sdid=$(<"$dev/subsystem_device")
-        grp=$(basename "$(readlink -f "$dev/iommu_group" 2>/dev/null)" 2>/dev/null || true)
-        if [[ -z $grp || $grp == . ]]; then
-          warn "PCI mapping ${GPU_MAPPING_ID}: no IOMMU group yet — reboot after this stage, then re-run it"
-        else
-          local map="node=${NODE_NAME},path=${GPU_PCI_ADDR},id=${vid#0x}:${did#0x},subsystem-id=${svid#0x}:${sdid#0x},iommugroup=${grp}"
-          change "create PCI mapping ${GPU_MAPPING_ID}: ${map}"
-          run pvesh create /cluster/mapping/pci --id "$GPU_MAPPING_ID" \
-            --description "GPU ${GPU_PCI_ADDR} (all functions), managed by pve-bootstrap" --map "$map"
-        fi
+    # Cluster PCI resource mappings, so guests reference a GPU by name (hostpci0: mapping=<id>)
+    # instead of a host-specific PCI address. Created when missing, updated when the card's
+    # address, IDs or IOMMU group no longer match (adding a card can renumber the groups).
+    local id dev vid did svid sdid grp map cur
+    for g in ${GPUS[@]+"${GPUS[@]}"}; do
+      id=${g%%=*}; addr=${g#*=}; dev="/sys/bus/pci/devices/${addr}.0"
+      vid=$(<"$dev/vendor"); did=$(<"$dev/device")
+      svid=$(<"$dev/subsystem_vendor"); sdid=$(<"$dev/subsystem_device")
+      grp=$(basename "$(readlink -f "$dev/iommu_group" 2>/dev/null)" 2>/dev/null || true)
+      if [[ -z $grp || $grp == . ]]; then
+        warn "PCI mapping ${id}: no IOMMU group yet — reboot after this stage, then re-run it"
+        continue
       fi
-    fi
+      map="node=${NODE_NAME},path=${addr},id=${vid#0x}:${did#0x},subsystem-id=${svid#0x}:${sdid#0x},iommugroup=${grp}"
+      if pve_exists "/cluster/mapping/pci/${id}"; then
+        cur=$(pve_get "/cluster/mapping/pci/${id}" map)
+        if [[ $cur == "$map" ]]; then
+          ok "PCI mapping ${id}"
+        else
+          change "update PCI mapping ${id}: ${cur} → ${map}"
+          run pvesh set "/cluster/mapping/pci/${id}" --map "$map"
+        fi
+      else
+        change "create PCI mapping ${id}: ${map}"
+        run pvesh create /cluster/mapping/pci --id "$id" \
+          --description "GPU ${addr} (all functions), managed by pve-bootstrap" --map "$map"
+      fi
+    done
   fi
 
   # ZFS ARC cap
@@ -1604,12 +1615,14 @@ stage_verify() {
   check_eq "vmbr0 VLAN-aware"             "$(cat /sys/class/net/vmbr0/bridge/vlan_filtering 2>/dev/null)" 1
   check "gateway ${MGMT_GATEWAY} reachable" ping -c 1 -W 2 "$MGMT_GATEWAY"
   check "IOMMU groups present"            sh -c 'ls /sys/kernel/iommu_groups | grep -q .'
-  if [[ -n ${GPU_PCI_ADDR:-} ]]; then
-    check "GPU ${GPU_PCI_ADDR} bound to vfio-pci" sh -c "lspci -nnk -s ${GPU_PCI_ADDR}.0 | grep -q 'in use: vfio-pci'"
-    if [[ -n ${GPU_MAPPING_ID:-} ]]; then
-      check "PCI mapping ${GPU_MAPPING_ID} exists" pve_exists "/cluster/mapping/pci/${GPU_MAPPING_ID}"
-    fi
-  fi
+  local g f
+  for g in ${GPUS[@]+"${GPUS[@]}"}; do
+    for f in "${g#*=}".0 "${g#*=}".1; do
+      [[ -e /sys/bus/pci/devices/$f ]] || continue
+      check "GPU ${g%%=*} ${f} bound to vfio-pci" sh -c "lspci -nnk -s ${f} | grep -q 'in use: vfio-pci'"
+    done
+    check "PCI mapping ${g%%=*} exists" pve_exists "/cluster/mapping/pci/${g%%=*}"
+  done
   check_eq "ZFS ARC max ${ZFS_ARC_MAX_GIB} GiB" "$(cat /sys/module/zfs/parameters/zfs_arc_max 2>/dev/null)" "$((ZFS_ARC_MAX_GIB * 1024 * 1024 * 1024))"
   check "firewall enabled/running"        sh -c 'pve-firewall status | grep -q "enabled/running"'
   check "SSH password auth disabled"      sh -c 'sshd -T 2>/dev/null | grep -qx "passwordauthentication no"'

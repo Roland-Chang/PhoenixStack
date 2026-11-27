@@ -112,7 +112,7 @@ Restore one database: `sudo -u postgres pg_restore --create --dbname=postgres /v
 | Guest firewall (PVE) | Every Terraform guest has its firewall on (`firewall=1` on the NIC), `policy_in: DROP`, only the rules its service needs (in Terraform next to the guest; a source may name another guest), and an **IP filter**: each guest may only send from its own address, IP and ARP (`ipfilter` with an `ipfilter-net0` list holding that address; since 2026-11-22). One shared module: [terraform/modules/firewall](terraform/modules/firewall/main.tf). | Defense in depth: also covers traffic between guests in the same zone, which the UDM never sees. Rules between guests trust the source address, which the IP filter makes trustworthy: before it, a connection from an address `docker01` doesn't own reached `dns01`; afterwards it's dropped (tested 2026-11-22). |
 | Guest type | See [Guest types](#guest-types). | |
 | Templates | **Container:** Debian 13 standard, downloaded by the bootstrap's `templates` stage (done). **VM:** `debian13-cloud`, VMID `10001`, built by the same stage (bootstrap 2026.11.7) from Debian's `genericcloud` image, checked against Debian's published SHA512 sums. Disk on `ssd`, in pool **`templates`**, where Terraform may only read and clone (`PVETemplateUser`). NIC tagged VLAN 100. A cloud-init vendor snippet (`local:snippets/phoenix-vendor.yaml`, written by the bootstrap) installs the QEMU guest agent at first boot. Terraform full-clones, so the template can be rebuilt (`qm destroy 10001`, re-run the stage) without touching guests. | Downloading needs `Sys.Modify`, which the Terraform token doesn't have. Cloud-init sets the user, SSH key and static IP at first boot through the API. A separate pool keeps Terraform from changing or deleting the template. The VLAN tag means a fresh clone never sits untagged on mgmt. |
-| Storage | Root disks on `ssd` for light guests, on `nvme` for I/O-heavy ones and Docker hosts. AI models wait for the `data` pool. | `ssd` holds 231 GB; Docker images and media metadata grow. |
+| Storage | Root disks on `ssd` for light guests, on `nvme` for I/O-heavy ones and Docker hosts. AI models on the `data` pool (built 2026-11-27). | `ssd` holds 231 GB; Docker images and media metadata grow. |
 | Names | `<role><nn>`, e.g. `dns01`; FQDN `<name>.int.phoenixstack.net`. | Short and predictable. The domain is the one the host uses. |
 | Start order | `onboot: 1`; DNS first (`startup order=1`), databases second, then everything else. | After a patch reboot, other guests find DNS and their databases already up. |
 | Backups | Nothing to add: both nightly jobs back up all guests. NAS shares are mounted inside guests, so they aren't in the backups. Database dumps: see [Databases](#databases). | Already covered by L4. |
@@ -224,8 +224,8 @@ Now (bootstrap 2026.11.6, **applied 2026-11-20**):
   | `/storage/local` | `PVEDatastoreUser` (built-in) | Use the container template and the cloud-init vendor snippet. A VM that references a snippet needs `Datastore.AllocateSpace` here (found by the first test apply, 2026-11-20; was `PVEAuditor`). `local` holds no guest disks, and this role can't upload. |
   | `/sdn/zones/localnetwork/vmbr0/100`, `/vmbr0/200` | `PVESDNUser` (built-in) | Attach NICs to `vmbr0` on VLAN 100 (Services) or 200 (DMZ) only. Without a grant on `vmbr0` itself, Terraform can't create an untagged NIC, so it can't put a guest on mgmt. (bootstrap 2026.11.7; was all of `vmbr0`) |
   | `/nodes/pve01` | `PVEAuditor` (built-in, read-only) | Read node status. |
+  | `/mapping/pci/GPU01`, `/mapping/pci/GPU02` | `PVEMappingUser` (built-in) | Pass a GPU to a VM by its mapping name: the P2000 to `plex01`, the RTX 5060 Ti to `ai01` (`GPU02`: bootstrap 2026.11.8). No other PCI devices. |
 
-- Later: `Mapping.Use` on `/mapping/pci/GPU01` only, when `plex01` is built (and the same on `GPU02`, the 5060 Ti's mapping, for `ai01`).
 - The `access` stage sets each service account's grants **exactly**: it adds the configured ones and removes
   any others. `verify` checks that each token's grants match the config.
 - The privilege list is a starting point. The test guests prove it: create, change, firewall rules, destroy.
@@ -1194,7 +1194,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ## L5h: Local AI (`ai01`)
 
-**Designed 2026-11-27, not built:** the RTX 5060 Ti isn't fitted yet. Background, models and use cases:
+**Designed 2026-11-27, not built.** The RTX 5060 Ti is fitted and on `vfio-pci` as `GPU02`; the `data` pool is built (same day). Background, models and use cases:
 [Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
 container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
 
@@ -1205,7 +1205,7 @@ container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `
 | Guest | `ai01`: VM `11201`, MAC `02:aa:bb:cc:12:01`, **static** `10.101.1.121`, Services, Debian 13 (clone of `10001`). **12 cores, 96 GiB**, kept on **one socket** (CPU 1, NUMA node 0), raised to 128 GiB if the big models need it. | Tier 12 (decision 4). Models that don't fit on the GPU run partly from system RAM, and RAM on the other socket is slower to reach. |
 | GPU | **RTX 5060 Ti 16 GB** (blower, rear exhaust) in **slot 1** (CPU 1), bound to `vfio-pci` by device ID like the P2000, mapping **`GPU02`**. | VRAM decides what fits: 16 GB against the 3070's 8. Same memory bandwidth (448 GB/s), newer tensor cores with FP8 and FP4, 180 W on one power lead. Its x8 link (PCIe 3.0 here: ~8 GB/s) slows prompt reading only for models partly in RAM. The P2000 stays on `plex01`; the 3070 leaves the server. |
 | Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. | Some RTX 50 cards stopped responding after a VM restart. |
-| Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on `nvme` until the `data` pool exists, then on `data/models`. Models disk **not backed up**. | Models are large and re-downloadable. `nvme` had ~578 GB free on 2026-11-27. |
+| Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on the **`data`** pool (Terraform needs `/storage/data` for it). Models disk **not backed up**. | Models are large and re-downloadable; `data` keeps them apart from VM disk I/O, on the GPU's CPU. |
 | Driver | NVIDIA's **open kernel modules**, from NVIDIA's own Debian 13 repository, version pinned (Blackwell needs 575 or later; Debian's `non-free` 550 series predates it); Debian's standard kernel, as on `plex01`. | Blackwell runs only with the open modules. |
 | Model servers | **Ollama** on `:11434` (small models, all on the GPU) and **llama.cpp's `llama-server`** on `:8080` (big MoE models, experts in RAM); native, systemd, versions pinned. New role `ai`, playbook `ai.yml`. | Both speak the OpenAI API, Ollama also Anthropic's, so every client changes only a base URL. |
 | Apps | **Open WebUI** and **n8n** on `docker01` (`<app>.int.phoenixstack.net`, LAN and VPN only), logins through Authentik (OIDC). Public on `docker02`: later, if at all. | Neither model server has logins: family members reach the models only through Open WebUI. |
@@ -1296,7 +1296,7 @@ Each keeps its number: code comments and the other docs refer to them ("decision
   - Logins: each app's **built-in OIDC** with Authentik wherever it has one, forward-auth only for browser-only apps
     without it. Immich has password logins today (7 users, none linked to anything).
 - **6.** Monitoring (uptime and service alerts): which zone and when.
-- **7.** Hardware, not blocking: the 990 Pro drives and ASUS card (`data` pool) and the RTX 5060 Ti aren't installed.
+- **7.** Hardware, not blocking: a 4th 990 Pro drive (the `data` pool's second mirror) and 4 more DIMMs (L5h, Later). The ASUS card, 3 drives and the RTX 5060 Ti went in 2026-11-27.
 - Small items (2026-11-25): the Porter admin's SSH access to the guests (the Young admin sets it up with the Porter admin and passes on the details);
   a non-work email for Mealie's `svc_mealie`; an Authentik account for the remaining family member, if wanted.
 
