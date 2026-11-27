@@ -35,8 +35,8 @@ How things got here is in the git history (`git log -- proxmox/`).
 6. ~~Temporary migration host~~ **Wiped** (review item O8, closed 2026-11-26): the separate Proxmox machine on the
    Young LAN that ran copies of the guests during the rebuild (2026-11-12 to 2026-11-20).
 7. **Port forwards** (2026-11-24): `443` → `docker02` (`10.101.2.102`), Cloudflare's addresses only, port `443`
-   only; every public app runs there since 2026-11-26 (the temporary rule to docker-temp is deleted). `32400` (Plex) → PLEX-TEMP (`10.101.0.111`): an internet-facing guest on
-   the mgmt subnet, next to the host, iDRAC and NAS, until Plex moves to `plex01` in the DMZ. No game-port forward
+   only; every public app runs there since 2026-11-26 (the temporary rule to docker-temp is deleted). `32400` (Plex) → `plex01` (`10.101.2.61`, DMZ) since
+   2026-11-27; no forward reaches the mgmt subnet any more. PLEX-TEMP is stopped (rollback until about 2026-12-04). No game-port forward
    is left (confirmed in UniFi 2026-11-26, review item O11).
 8. **Mgmt network** `10.101.0.0/24` (since 2026-11-20; DHCP `10.101.0.100`–`.249`, fixed addresses below `.100`).
    PLEX-TEMP has a fixed IP `.111` in UniFi since 2026-11-26: after that day's patch reboot it came back at

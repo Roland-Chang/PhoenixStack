@@ -993,7 +993,7 @@ it, and since 2026-11-26 neither does `docker02`.
 
 ## L5g: Media server (`plex01`)
 
-**Designed and built 2026-11-26 (step 2), not switched yet: Plex installed but off.** Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
+**Live since 2026-11-27** (switched 02:26–02:30 UTC; remote access a few minutes later). Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
 the same day: **Plex only** (Jellyfin, if it comes, is its own instance); **native** install; **read-only** media;
 downtime is acceptable. Goals: users never reconfigure a client, and the VM is only as big as it needs to be.
 
@@ -1057,8 +1057,23 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
    (27.4 GB, 4 min, through PLEX-TEMP's guest agent; a marker file `/root/phx-ahead-start` there records the start),
    unpacked on `plex01` (under 3 min) and given to `plex`. Checked: `Metadata` 63,606 files / 20 GB and `Media`
    142,837 / 6.6 GB on both; none changed on PLEX-TEMP since the archive started.
-4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.
-5. **Rollback** for a week: stop `plex01`, start Plex on PLEX-TEMP, forward back to `.111`. Then PLEX-TEMP and the transfer folder go; `svc_plex` loses its access.
+4. ~~Switch~~ Done 2026-11-27, Plex offline 02:26–02:30 UTC: Plex stopped and disabled on PLEX-TEMP (databases closed
+   cleanly, no `-wal`); catch-up archive `Media/transfer/plex-switch.tar` (1.76 GB: `Preferences.xml`, the two
+   databases, `Plug-in Support/{Data,Metadata Combination,Preferences}`, `Scanners`, `Plug-ins` with the third-party
+   agent `Audnexus.bundle`; nothing in `Metadata`/`Media` had changed), checksums equal on `plex01`; PLEX-TEMP shut
+   down with `onboot` off (it must not take the GPU at a pve01 reboot); `Preferences.xml` changed before the first
+   start (original kept as `Preferences.xml.pre-switch`): `LanNetworksBandwidth` the current networks, database
+   backups to `/var/lib/plexmediaserver/db-backups`, transcoder `/transcode`, hardware decode and encode on;
+   `gpu_mapping: GPU01` and `plex_enabled: true` in the inventory; forward "Plex - 32400" → `10.101.2.61` (the Young
+   admin). Then **manual public port `32400`** (it was automatic, waiting for UPnP, which a fixed forward doesn't
+   answer): plex.tv reports it `mapped`. Checked: same name `PLEX01` and machine identifier, claimed; all 15 libraries
+   with their IDs; through the public address; a phone on mobile data browses and plays with no change on it; a
+   transcode runs on the GPU (`nvdec` → `nvenc`, 15.7× real time).
+5. **Rollback** until about 2026-12-04: on `plex01`, `plex_enabled: false` and `gpu_mapping` removed (`apb plex.yml`,
+   `tf apply`); PLEX-TEMP `onboot` on, started, `systemctl enable --now plexmediaserver` there; forward back to
+   `.111`. (Plex data changed on `plex01` meanwhile stays there.) Afterwards: delete PLEX-TEMP (VM `9999`), the
+   transfer folder's two archives (29 GB), `Preferences.xml.pre-switch`, the UDM rules `Internal -> Plex-TEMP` and
+   `Site VPNs -> Plex-TEMP` and their returns; `svc_plex` loses its access to `Media`.
 
 ## Household DNS
 

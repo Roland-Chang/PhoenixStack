@@ -264,6 +264,7 @@ all:
           disk_gb: 32
           data_disk_gb: 64
           storage: nvme
+          gpu_mapping: GPU01
           description: "Media server, DMZ: Plex (L5g)"
           firewall_in:
             - {port: 32400, proto: tcp, source: any}
@@ -272,3 +273,5 @@ all:
           nas_op_password: "op://infrastructure/2ysigwqdmsfi3u7g3o3hm2gfhy/password"
           nas_mounts:
             - {share: Media, path: /content}
+          # Plex runs (since the switch, 2026-11-27); role plex: it starts only with its Preferences.xml.
+          plex_enabled: true

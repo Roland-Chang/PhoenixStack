@@ -106,7 +106,7 @@
 <div class="wrap">
   <header>
     <h1>PhoenixStack Topology</h1>
-    <p class="sub">L5 design, updated 2026-11-26. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
+    <p class="sub">L5 design, updated 2026-11-27. Every guest runs on pve01; each zone is a VLAN on its bridge <code>vmbr0</code>.</p>
   </header>
 
   <figure>
@@ -178,8 +178,8 @@
         <text class="t-acc" x="640" y="104">443</text>
         <line class="ln acc later" x1="850" y1="90" x2="850" y2="107" marker-end="url(#ahA)"/>
         <text class="t-acc" x="856" y="104">game ports · later</text>
-        <line class="ln acc later" x1="1066" y1="90" x2="1066" y2="107" marker-end="url(#ahA)"/>
-        <text class="t-acc" x="1072" y="104">32400 · later</text>
+        <line class="ln acc" x1="1066" y1="90" x2="1066" y2="107" marker-end="url(#ahA)"/>
+        <text class="t-acc" x="1072" y="104">32400</text>
 
         <rect class="node" x="536" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="548" y="134">docker02</text><text class="t-badge" x="722" y="134" text-anchor="end">VM</text>
@@ -193,7 +193,7 @@
         <rect class="pill" x="762" y="168" width="176" height="30" rx="5"/><text x="772" y="188">AMP instances</text>
         <rect class="pill" x="762" y="206" width="176" height="30" rx="5"/><text x="772" y="226">direct UDP / TCP</text>
 
-        <rect class="node later" x="968" y="110" width="196" height="145" rx="8"/>
+        <rect class="node" x="968" y="110" width="196" height="145" rx="8"/>
         <text class="t-name" x="980" y="134">plex01</text><text class="t-badge" x="1154" y="134" text-anchor="end">VM · GPU</text>
         <text class="t-muted" x="980" y="153">.61 · media server</text>
         <rect class="pill" x="978" y="168" width="176" height="30" rx="5"/><text x="988" y="188">Plex (native)</text>
@@ -277,10 +277,10 @@
         <text x="1214" y="495" text-anchor="middle" transform="rotate(-90 1214 495)">media, Porter read-only · plex01, docker02 · Podcasts, Immich read-write · docker02</text>
 
         <rect class="node later" x="536" y="818" width="628" height="44" rx="8"/>
-        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests stay here until moved: docker-temp .166 · PLEX-TEMP .111 (Plex 32400 from the internet)</text>
+        <text class="t-muted" x="850" y="845" text-anchor="middle">-TEMP guests until retired: docker-temp .166 (admin apps) · PLEX-TEMP .111 (stopped; rollback for plex01)</text>
       </svg>
     </div>
-    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to PLEX-TEMP on mgmt until <code>plex01</code> exists. The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media and the Porter photo archive, read-write for the <code>Podcasts</code> and <code>Immich</code> shares (<code>docker02</code>), one share per app that writes.</figcaption>
+    <figcaption>Two paths come in from the internet today: <code>443</code> through Cloudflare's proxy to <code>docker02</code> (DMZ), and Plex's <code>32400</code> to <code>plex01</code> (DMZ, since 2026-11-27). The design adds game ports to <code>amp01</code>; dashed means planned. Every arrow between zones passes the UDM's zone firewall on named ports; nothing in the DMZ reaches the management network except file sharing to the NAS: read-only for media and the Porter photo archive, read-write for the <code>Podcasts</code> and <code>Immich</code> shares (<code>docker02</code>), one share per app that writes.</figcaption>
     <div class="legend">
       <span><i class="sw"></i>decided</span>
       <span><i class="sw dash"></i>later or optional</span>
@@ -339,10 +339,10 @@
         <tbody>
           <tr><th>Internal</th>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69, 10.1.1.169: all · NAS 445 · Plex 32400 · docker-temp Deployrr ports</span></td>
+            <td class="c-part"><b>4 rules</b><span>Young admin 10.1.1.69, 10.1.1.169: all · NAS 445 · Plex 32400 to PLEX-TEMP (rollback only) · docker-temp Deployrr ports</span></td>
             <td class="c-allow"><b>Allow all</b></td>
             <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · 443 for everyone with the first household app (names come through the UDM)</span></td>
-            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · everyone else blocked</span></td>
+            <td class="c-part"><b>Admin only</b><span>Young admin 10.1.1.69, 10.1.1.169: all · everyone: Plex 32400 to plex01 · the rest blocked</span></td>
             <td class="c-allow"><b>Allow all</b><span>control your devices</span></td>
             <td class="c-allow"><b>Allow</b></td>
             <td class="c-allow"><b>Allow all</b></td>
@@ -359,10 +359,10 @@
           </tr>
           <tr><th>VPN</th>
             <td class="c-allow"><b>Allow all</b></td>
-            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69, 10.2.1.169: all · sites: NAS 445, Plex 32400</span></td>
+            <td class="c-part"><b>4 rules</b><span>Teleport 192.168.2.0/24 and Porter admin 10.2.1.69, 10.2.1.169: all · sites: NAS 445, Plex 32400 to PLEX-TEMP (rollback only)</span></td>
             <td class="c-allow"><b>Allow all</b></td>
             <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · Porter gateway → Pi-hole 53</span></td>
-            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · everyone else blocked</span></td>
+            <td class="c-part"><b>Admin only</b><span>Teleport and Porter admin 10.2.1.69, 10.2.1.169: all · everyone: Plex 32400 to plex01 · the rest blocked</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-allow"><b>Allow</b></td>
             <td class="c-allow"><b>Allow all</b></td>
@@ -394,15 +394,15 @@
             <td class="c-block"><b>Block</b><span>names come through the UDM</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">same network</td>
-            <td class="c-allow c-flag"><b>Allow</b><span>straight out · outbound DNS still open (2)</span></td>
+            <td class="c-allow c-flag"><b>Allow</b><span>straight out · outbound DNS still open (1)</span></td>
             <td class="c-part"><b>DNS, DHCP, ICMP</b></td>
           </tr>
           <tr><th>Internet</th>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-fwd c-flag"><b>1 forward</b><span>Plex 32400 → PLEX-TEMP .111 (1)</span></td>
+            <td class="c-block"><b>Block</b><span>no forward since 2026-11-27</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-block"><b>Block</b></td>
-            <td class="c-fwd"><b>1 forward</b><span>443 → docker02 (Cloudflare IPs only); every public app now runs on docker02</span></td>
+            <td class="c-fwd"><b>2 forwards</b><span>443 → docker02 (Cloudflare IPs only), every public app · 32400 → plex01 (Plex, from anywhere)</span></td>
             <td class="c-block"><b>Block</b></td>
             <td class="c-self">—</td>
             <td class="c-part"><b>VPN ports</b><span>IPsec, WireGuard 20000–20001</span></td>
@@ -420,10 +420,9 @@
 
     <h2 style="margin-top:28px">Still open</h2>
     <ol class="flags">
-      <li><b>Internet-facing hosts on the management network.</b> The Plex forward reaches PLEX-TEMP on mgmt. Accepted until Plex moves to plex01 in the DMZ.</li>
       <li><b>Outbound DNS from IOT</b> (53, 853) to the internet: still to block. IOT gets internal names through the UDM's forward to Pi-hole (2026-11-22), so it needs no rule into Services.</li>
       <li><b>Teleport clients count as admins.</b> The whole Teleport range (192.168.2.0/24) is an admin source, with all ports into Management. Fine while only admins use Teleport; before anyone else does, give admins fixed Teleport addresses and list only those.</li>
     </ol>
-    <p style="margin-top:14px">Last updated 2026-11-26. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
+    <p style="margin-top:14px">Last updated 2026-11-27. How it got here is in git (<code>git log -- guests/topology.html</code>).</p>
   </section>
 </div>
