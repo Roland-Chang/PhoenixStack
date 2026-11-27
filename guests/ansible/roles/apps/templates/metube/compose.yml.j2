@@ -1,0 +1,44 @@
+# {{ ansible_managed }}
+{% if stack.staging %}
+{{ metube_has_no_staging_copy_yet }}
+{% endif %}
+# MeTube (role apps; guests/README.md, "Admin apps to docker01"). Reached through Traefik only (route metube,
+# admins only, through Authentik). As apps_media_uid with no capabilities. The same paths inside as on docker-temp.
+{% set app = apps_catalog['metube'] %}
+name: {{ stack.name }}
+
+services:
+  metube:
+    image: ghcr.io/alexta69/metube:{{ stack.version or app.version }}
+    container_name: metube
+    restart: unless-stopped
+    user: "{{ app.uid }}:{{ app.uid }}"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+      PORT: "{{ app.port }}"
+      STATE_DIR: /state
+      DOWNLOAD_DIR: /downloads
+      TEMP_DIR: /downloads
+      UMASK: "022"
+      # yt-dlp uses the cookies (a logged-in YouTube session) for videos that need one.
+      YTDL_OPTIONS: '{"cookiefile":"/cookies/cookies.txt"}'
+    volumes:
+      - ./state:/state
+      - ./cookies:/cookies
+      - "{{ apps_media_downloads }}/ytdl:/downloads"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ app.port }}/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  proxy:
+    external: true

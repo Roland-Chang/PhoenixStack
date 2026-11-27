@@ -990,7 +990,7 @@ The public apps have all moved (Immich last, 2026-11-26); what's left are the ad
 
 ### Admin apps to `docker01`
 
-**Designed 2026-11-27, decided by the Young admin the same day. First group moved the same day** (below); MeTube and
+**Designed 2026-11-27, decided by the Young admin the same day. First group and MeTube moved the same day** (below);
 libraforge next. The admin apps leave docker-temp for `docker01` (Services: LAN and VPN only, decision 3); then
 docker-temp retires. **Libation stays out** (the Young admin, 2026-11-27: maybe not in use long-term); it goes with
 docker-temp unless decided otherwise.
@@ -1044,6 +1044,14 @@ On docker-temp (read 2026-11-27): all as uid 1000, images on `latest` (Sonarr on
   `docker.yml`, `authentik.yml` and `dns.yml`: `changed=0`.
 - Rollback: docker-temp's four containers are stopped with `restart=no`, data untouched (`docker update
   --restart=unless-stopped` and `docker start` brings them back, at `10.101.0.178:<port>`).
+
+**MeTube moved 2026-11-27** (03:33–03:34 UTC): `2026.11.06` (the same image as docker-temp's); as uid `2010` with no
+capabilities as it is; `state` (history, queue) and `cookies` from docker-temp. `cookies/cookies.txt` (a copy also
+in `state`) holds browser cookies for YouTube, a logged-in session: a credential, kept only on `docker01`'s disk
+(`0600`, uid `2010`). Downloads into `Media/###Downloads/ytdl` (checked: writes). Log level back to the default (it
+was `debug`). Route `metube`, admins through Authentik. A new Authentik proxy app answers `404` for up to a minute
+until Authentik's outpost picks it up, then redirects to the login. Rollback: docker-temp's container, stopped
+with `restart=no`.
 
 ## L5g: Media server (`plex01`)
 

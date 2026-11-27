@@ -87,6 +87,13 @@ apps_catalog:
     folders: [config]
     version: "v1.90.0"
     port: 7474
+  # MeTube (yt-dlp with a web page): downloads into Media's ###Downloads/ytdl. cookies holds browser cookies
+  # for YouTube (a logged-in session, a credential): only on docker01's disk, never in git.
+  metube:
+    uid: "{{ apps_media_uid }}"
+    folders: [state, cookies]
+    version: "2026.11.06"
+    port: 8081
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.
