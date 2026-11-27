@@ -69,3 +69,7 @@ How things got here is in the git history (`git log -- proxmox/`).
     ([../guests/README.md](../guests/README.md#ansible), SSH agent).
 12. **Offsite backup copy**: both backup copies (PBS and the NAS) are in the same building. An open decision
     (see "Backup design" in [README.md](README.md)).
+13. **Retire docker-temp and PLEX-TEMP on about 2026-12-04** (planned 2026-11-27; steps in
+    [../guests/README.md](../guests/README.md#retiring-docker-temp-and-plex-temp)): final backups Protected for 3
+    months, delete both guests, drop pve01's `media` and `porter` mounts, narrow `svc_proxmox` and `svc_plex`, UniFi
+    rules, revoke docker-temp's Cloudflare token.

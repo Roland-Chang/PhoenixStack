@@ -1075,6 +1075,38 @@ with `restart=no` (its `/config-internal` is still in it).
 Left on docker-temp: Glances (dropped), Deployrr's Traefik and socket proxy, and the stopped containers kept for
 rollback.
 
+### Retiring docker-temp and PLEX-TEMP
+
+**Planned 2026-11-27, decided by the Young admin the same day; on about 2026-12-04**, when the last rollback windows
+end (Mealie ~12-02, Immich ~12-03, the admin apps and Plex ~12-04). Both together, in one window.
+
+Done already (2026-11-27): nothing runs on docker-temp any more (Glances, Deployrr's Traefik and socket proxy stopped
+with `restart=no`; ports 80, 443, 8080 closed); `Failed_Books_Report.csv` moved to the root of `Media` (checksum
+equal); Deployrr's compose files and Traefik rules archived on the Young admin's laptop,
+`~/phoenix-docker-temp-archive/` (owner-only; not `.env` or `secrets`, and one compose line holds a literal secret,
+so it stays private).
+
+On the day, in this order (each checked; dry runs first where there are any):
+
+1. **A final backup** of docker-temp (`999`) and PLEX-TEMP (`9999`) to PBS and the NAS, **Protected for 3 months**
+   (until about 2026-03-04), then deleted only when the Young admin says so. Everything not copied out is only there:
+   docker-temp's `.env` and `secrets`, the old Audiobookshelf folder (with the Microsoft 365 secret, review item S5),
+   Libation's June–August logs.
+2. **Delete both guests** on pve01 (`pct destroy 999`, `qm destroy 9999`): irreversible, so only after step 1 is
+   checked. Not kept: Calibre's settings, `audiobookshelfdev`, `bragi`, `audiobook-organizer` (decided 2026-11-27).
+3. **pve01:** `media` and `porter` out of `NAS_MOUNTS` (`pve01.conf`), `nas` stage (plan, then apply); unmount
+   `/mnt/nas/media` and `/mnt/nas/porter` (an applied stage rewrites `/etc/fstab` but leaves a mounted share mounted
+   until it's unmounted or pve01 reboots).
+4. **NAS users:** `svc_proxmox` loses `Porter` and **keeps `Media` read-write** (pve01's ISO storage is
+   `Media/Software/ISO`; uploads through the GUI); `svc_plex` loses `Media`.
+5. **UniFi:** delete `Internal -> Docker-Temp`, `Internal -> Plex-TEMP`, `Site VPNs -> Plex-TEMP` (with their
+   returns) and the port group "Deployrr"; remove the fixed IPs `.178` and `.111`.
+6. **Cloudflare:** revoke docker-temp's Traefik API token (DNS edit for `phoenixstack.net`; unused since 2026-11-24).
+7. **NAS clean-up:** `Media/Immich/Porter` (229 GB), `Media/transfer` with its two archives (29 GB).
+8. **Docs:** README, REBUILD_STATE and the topology without the -TEMP guests; review item S5 closed.
+
+Later (roadmap): **an ISO share** of its own for pve01, so `svc_proxmox` no longer needs all of `Media`.
+
 ## L5g: Media server (`plex01`)
 
 **Live since 2026-11-27** (switched 02:26–02:30 UTC; remote access a few minutes later). Replaces PLEX-TEMP (VM `9999`, `10.101.0.111`, mgmt). Decided by the Young admin
@@ -1249,6 +1281,8 @@ Each keeps its number: code comments and the other docs refer to them ("decision
   down. Ad blocking needs Pi-hole to see every query: once the Porter Pi-hole exists, switch household networks to
   Pi-hole directly (DHCP DNS + a LAN → Services port 53 rule), for per-device logs and blocklists. Networks that
   shouldn't depend on Pi-hole (IOT, guests) keep the UDM.
+- **ISO share for pve01** (decided 2026-11-27): pve01's ISO and template storage on a NAS share of its own, so its NAS
+  user `svc_proxmox` no longer needs read-write access to all of `Media` (today `Media/Software/ISO`).
 - **10. SIEM / central logs** (2026-11-22, after the core services; decide together with 6). Sources: the UDM's
   firewall log, pve01, guests' journals, Authentik events, Traefik access logs, Pi-hole queries. First decide the
   scope: log aggregation with alerts (e.g. Grafana + Loki, shared with monitoring) or a full SIEM (e.g. Wazuh:
