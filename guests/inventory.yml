@@ -170,6 +170,12 @@ all:
             - {port: 443, proto: tcp, source: lan}
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
+          # NAS as svc_docker01 (1Password "(UNAS) - svc_docker01"): Media read-write for the admin apps' shared
+          # uid (apps_media_uid), nothing else (2026-11-27; guests/README.md, "Admin apps to docker01").
+          nas_username: svc_docker01
+          nas_op_password: "op://infrastructure/iq2klbzio3ykym3bvpvrirzjtm/password"
+          nas_mounts:
+            - {share: Media, path: /mnt/nas/media, rw: true, owner: "{{ apps_media_uid }}"}
           routes:
             - {name: traefik, url: "api@internal", admin_only: true, authentik: true, title: Traefik dashboard}
             # authentik01's address typed out: other guests' roles read these routes (the authentik

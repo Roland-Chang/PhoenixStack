@@ -11,6 +11,11 @@ apps_dir: /opt/stacks
 # read-only stand-ins for its folders, staging_folders below) until docker01 has NAS access.
 apps_staging: []
 
+# The admin apps that write to the NAS share Media (Sonarr, Radarr, SABnzbd, MeTube, libraforge; on docker01)
+# run as one uid: the owner of docker01's writable Media mount (nas_mounts allows one owner per share), and
+# so they can hand files to each other (download -> import). guests/README.md, "Admin apps to docker01".
+apps_media_uid: 2010
+
 # Per app, everything its template needs:
 #   uid              the uid its container runs as (no account on the host; its data folders belong to
 #                    it, and a writable NAS share's `owner` in the inventory refers to it)
