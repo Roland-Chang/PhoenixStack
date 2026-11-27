@@ -83,13 +83,15 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   # A GPU passed through by its resource mapping on pve01 (inventory gpu_mapping, e.g. GPU01). The token
   # needs Mapping.Use on /mapping/pci/<name>. Adding it to a running VM takes effect at its next start.
+  # rombar off: the guest uses the GPU for compute and video encoding only, never as a display, so it
+  # needs no option ROM; with the ROM, SeaBIOS hung before booting (plex01 + P2000, 2026-11-26).
   dynamic "hostpci" {
     for_each = local.g.gpu_mapping == null ? [] : [local.g.gpu_mapping]
     content {
       device  = "hostpci0"
       mapping = hostpci.value
       pcie    = true
-      rombar  = true
+      rombar  = false
     }
   }
 

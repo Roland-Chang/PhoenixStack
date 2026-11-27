@@ -1042,9 +1042,16 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
      (the only one Plex accepts): **Plex starts only if its `Preferences.xml` exists**. Its post-install start was
      skipped by that condition, so no new identity was created; a Plex rebuilt from nothing needs the condition
      removed for its first start.
-   - The template boots with SeaBIOS (PLEX-TEMP uses OVMF): before the switch, a **GPU test** of about 10 minutes
-     with Plex offline: PLEX-TEMP off, the GPU to `plex01` (`gpu_mapping: GPU01`, the token's `Mapping.Use`), driver
-     and hardware encoding checked, then back. If SeaBIOS doesn't work with the card: OVMF without Secure Boot.
+   - **GPU test, done 2026-11-26** (Plex offline about 25 minutes): the token got `Mapping.Use` on `GPU01` (`access`
+     stage), PLEX-TEMP off, `gpu_mapping: GPU01` on `plex01`. With the card's option ROM, **SeaBIOS hung before
+     booting** (0 bytes read from disk); with **`rombar` off** (the VM module now always passes the GPU that way: it
+     is never a display) it booted in 30 s. `nvidia-smi`: Quadro P2000, 550.163.01. NVDEC + NVENC (`h264_nvenc`,
+     Debian's `ffmpeg`, removed afterwards with its 175 libraries): 20 s of a film at 226 fps, 9.4× real time. So
+     **SeaBIOS works; no UEFI needed.** Then the GPU went back to PLEX-TEMP (`gpu_mapping` removed again: two VMs
+     with one GPU configured would fail at the next pve01 reboot), Plex on `.111` and remotely again. Notes: Plex's
+     own transcoder can't be tested while Plex is off (its codecs come with the running server); the NVIDIA packages
+     divert the system's `libGL` (only matters for tools like `ffmpeg`, not for Plex); PLEX-TEMP's start logs
+     "failed to reset PCI device", harmless (its driver sees the card).
    - Plex's user is uid `999` here, `998` on PLEX-TEMP: copied files are given to `plex` afterwards.
 3. **Copy ahead** while PLEX-TEMP runs: `Metadata` and `Media` (about 27 GB). Mgmt and DMZ have no direct path, so through the NAS: PLEX-TEMP writes an archive to a transfer folder in `Media` (it can write there today), `plex01` reads it.
 4. **Switch:** stop Plex on PLEX-TEMP and disable it; copy what changed, the two databases and `Preferences.xml`; start Plex on `plex01`; point the `32400` forward at `10.101.2.61`. Check: the server shows the same name and identity in a client at home and on a phone outside; one film plays with hardware transcoding.

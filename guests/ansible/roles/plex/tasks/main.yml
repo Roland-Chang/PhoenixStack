@@ -263,4 +263,7 @@
 
 - name: GPU
   ansible.builtin.debug:
-    msg: "{{ plex_gpu.stdout | default('no GPU passed through yet (it moves here at the switch)') }}"
+    msg: >-
+      {{ plex_gpu.stdout if (plex_gpu.stdout | default('')) else
+         ('GPU present, not checked in a dry run' if plex_gpu_present.stdout | int > 0
+          else 'no GPU passed through yet (it moves here at the switch)') }}
