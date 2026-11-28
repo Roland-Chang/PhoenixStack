@@ -48,7 +48,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.8"
+readonly VERSION="2026.11.9"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -794,12 +794,20 @@ stage_storage() {
   fi
 
   # Guest pool storages
-  local id pool content
+  # Optional 4th field: the block size of new disks (volblocksize; existing disks keep theirs).
+  local id pool content bs
   for entry in "${PVE_ZFS_STORAGES[@]}"; do
-    IFS='|' read -r id pool content <<<"$entry"
-    if storage_exists "$id"; then ok "storage ${id}"
-    else change "add storage ${id} (zfspool ${pool}: ${content})"
-      run pvesm add zfspool "$id" --pool "$pool" --content "$content" --sparse 1; fi
+    IFS='|' read -r id pool content bs <<<"$entry"
+    if storage_exists "$id"; then
+      ok "storage ${id}"
+      if [[ -n $bs ]]; then
+        if [[ $(storage_prop "$id" blocksize) == "$bs" ]]; then ok "storage ${id} blocksize ${bs}"
+        else change "storage ${id} blocksize -> ${bs} (new disks only)"; run pvesm set "$id" --blocksize "$bs"; fi
+      fi
+    else
+      change "add storage ${id} (zfspool ${pool}: ${content}${bs:+, blocksize ${bs}})"
+      run pvesm add zfspool "$id" --pool "$pool" --content "$content" --sparse 1 ${bs:+--blocksize "$bs"}
+    fi
   done
 }
 

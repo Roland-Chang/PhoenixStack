@@ -213,8 +213,8 @@ all:
             - {port: 9443, proto: tcp, source: docker01}   # Services Traefik
             - {port: 9443, proto: tcp, source: docker02}   # public Traefik (auth.phoenixstack.net)
         # Local AI (L5h): Ollama (11434) and llama.cpp's llama-server (8080) with the RTX 5060 Ti (GPU02,
-        # slot 1, CPU 1), so its memory stays on NUMA node 0. Models on their own disk on `data`, not backed
-        # up (re-downloadable). Neither server has logins: only docker01 (Open WebUI, n8n) and the admin
+        # slot 1, CPU 1), so its memory stays on NUMA node 0. Models on their own disk on storage `models`
+        # (dataset data/models), not backed up (re-downloadable). Neither server has logins: only docker01 (Open WebUI, n8n) and the admin
         # sources reach them.
         ai01:
           kind: vm
@@ -228,7 +228,7 @@ all:
           disk_gb: 32
           storage: nvme
           data_disk_gb: 256
-          data_disk_storage: data
+          data_disk_storage: models
           data_disk_backup: false
           gpu_mapping: GPU02
           description: "Local AI: Ollama, llama-server (L5h)"

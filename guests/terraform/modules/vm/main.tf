@@ -89,7 +89,7 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   # The app's data on its own disk (inventory data_disk_gb): it grows online, and to shrink it, its data is
   # copied to a smaller disk. Thin, with discard, like the system disk. Its storage and whether backups
-  # include it: inventory data_disk_storage and data_disk_backup (ai01: models on `data`, not backed up).
+  # include it: inventory data_disk_storage and data_disk_backup (ai01: models on `models`, not backed up).
   dynamic "disk" {
     for_each = local.g.data_disk_gb == null ? [] : [local.g.data_disk_gb]
     content {
