@@ -156,10 +156,18 @@ all:
           description: "Database: PostgreSQL 17 (L5c)"
           firewall_in:
             - {port: 5432, proto: tcp, source: authentik01}
+            - {port: 5432, proto: tcp, source: docker01}      # Open WebUI and n8n (L5h step 5)
           pg_databases:
             - name: authentik
               client: authentik01
               password: "op://infrastructure/b7ycchopd2lagrf3jg4samuk5q/password"
+            # L5h step 5, 1Password "(Open WebUI) - PostgreSQL" and "(n8n) - PostgreSQL".
+            - name: openwebui
+              client: docker01
+              password: "op://infrastructure/nxx6ggspf33jfzzkw3j3zgxd4u/password"
+            - name: n8n
+              client: docker01
+              password: "op://infrastructure/gw2wglvujcbh4bqgl7krn24nsi/password"
         # Docker host for Services (L5d): the Services Traefik and the apps behind it.
         docker01:
           kind: vm
