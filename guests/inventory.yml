@@ -37,6 +37,9 @@
 #                   oidc           the app logs in through its own OIDC support: a client in Authentik,
 #                                  {title, redirects: [paths on the app's name], groups: [who may use it]}
 #                   blocked_paths  path prefixes Traefik refuses (403) on that name
+#                   open_paths     [{path, from: [cidrs], comment}]: a path prefix served WITHOUT the
+#                                  route's admin_only and authentik, from those addresses only (a
+#                                  machine posting to a webhook); the app checks its own secret
 #   routes_domain Docker hosts only; the domain of its routes (default: domain). Pi-hole serves
 #                 only routes under domain; public names come from Cloudflare's wildcard record.
 #   apps          Docker hosts only: the apps run as compose stacks (role apps; their settings are
@@ -181,6 +184,7 @@ all:
           description: "Docker host, Services: Traefik and apps (L5d)"
           firewall_in:
             - {port: 443, proto: tcp, source: lan}
+            - {port: 443, proto: tcp, source: "10.101.0.11/32"}   # pve01: lab report to n8n's webhook
           # Names served by Traefik here: each becomes <name>.int.phoenixstack.net in Pi-hole
           # (pointing at this guest) and a route to <url>. admin_only: admin sources only.
           # Apps on this host (role apps; their settings in roles/apps/defaults/main.yml).
@@ -209,7 +213,15 @@ all:
                 title: Open WebUI
                 redirects: [/oauth/oidc/login/callback]
                 groups: [authentik Admins]
-            - {name: n8n, url: "http://n8n:5678", admin_only: true, authentik: true, title: n8n}
+            - name: n8n
+              url: "http://n8n:5678"
+              admin_only: true
+              authentik: true
+              title: n8n
+              # pve01's nightly lab report posts its facts to an n8n webhook (guests/README.md, "Nightly lab
+              # report"). n8n checks the secret header; nothing else on n8n is open.
+              open_paths:
+                - {path: /webhook/, from: ["10.101.0.11/32"], comment: "pve01's lab report"}
             # authentik01's address typed out: other guests' roles read these routes (the authentik
             # role builds its apps from them), and there a {{ hostvars[...] }} reference can't resolve.
             - {name: auth, url: "https://10.101.1.41:9443", self_signed: true}

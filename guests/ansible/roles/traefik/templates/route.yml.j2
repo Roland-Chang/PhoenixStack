@@ -38,6 +38,28 @@ http:
       middlewares:
         - deny-all@file
 {% endif %}
+{% for op in route.open_paths | default([]) %}
+    # {{ op.comment | default('Open path') }}: {{ op.path }} without the route's own checks (admin-only, Authentik),
+    # from {{ op['from'] | join(', ') }} only. The longer rule wins over the route above.
+    {{ route.name }}-open-{{ loop.index }}:
+      rule: "Host(`{{ route.name }}.{{ traefik_domain }}`) && PathPrefix(`{{ op.path }}`)"
+      entryPoints:
+        - websecure
+      service: {{ route.name }}
+      middlewares:
+        - {{ route.name }}-open-{{ loop.index }}-from
+{% endfor %}
+{% if route.open_paths | default([]) | length > 0 %}
+  middlewares:
+{% for op in route.open_paths %}
+    {{ route.name }}-open-{{ loop.index }}-from:
+      ipAllowList:
+        sourceRange:
+{% for cidr in op['from'] %}
+          - "{{ cidr }}"
+{% endfor %}
+{% endfor %}
+{% endif %}
 {% if route.url != 'api@internal' %}
   services:
     {{ route.name }}:
