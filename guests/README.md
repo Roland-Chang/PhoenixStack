@@ -1334,6 +1334,37 @@ Steps (each dry-run first):
 6. Later, for family: the groups `Young` and `Porter` on its OIDC client, the UDM rule, then a test from a family
    member's device.
 
+### Nightly lab report
+
+**Live 2026-11-28** (designed and decided by the Young admin the same day: option B, `alerts@phoenixstack.net`,
+12:45 UTC, `gpt-oss-120b`). Every morning an email says whether pve01 is healthy: a short summary by the local model,
+then every fact behind it. It adds what alerts don't cover (pools filling, drive wear, certificates, updates piling up,
+unusual firewall drops) and a daily "all OK" that makes silence meaningful: no report means something upstream broke.
+
+```
+pve01 (Management)              docker01 (Services)                        ai01
+phoenix-lab-report  ──POST──►   Traefik: n8n.int /webhook/, pve01 only  ─► gpt-oss-120b
+12:45 UTC (timer)  X-Phoenix-   n8n "Nightly lab report": check header,     (summary)
+collect + COUNT    Token        subject, summary, facts tables ── SMTP ──► alerts@ (Brevo, n8n's own key)
+fallback: facts mailed to root when n8n can't be reached
+```
+
+| Piece | Where | What |
+|---|---|---|
+| Collector | `proxmox/bootstrap/phoenix-lab-report` → `/usr/local/sbin`, bootstrap stage `report` (2026.11.11), timer `phoenix-lab-report.timer` | Host (failed units, updates, kernel), guests (stopped but set to start at boot), last night's backup runs and failed guests, PBS jobs, storage use, ZFS health, capacity and scrubs, disks (SMART, temperature, wear; each disk once, by serial; reallocations and grown defects are problems only when they **rise**, against `/var/lib/phoenix-lab-report/disks.json`), certificates, 24 h of firewall drops by flow. **Problems are decided here, by fixed thresholds**, never by the model. A check that fails is itself a problem. `--dry-run` prints the JSON. |
+| Transport | UDM `pve01 -> docker01 (lab report)`, docker01's firewall `443` from pve01, Traefik `open_paths` on route `n8n` | Only n8n's `/webhook/` and only from pve01; the token (1Password `(n8n) - Lab report webhook token`, `/etc/phoenixstack/lab-report.token` on pve01) is checked by n8n's Header Auth. |
+| Workflow | n8n "Nightly lab report", from [n8n/lab-report.workflow.json](n8n/lab-report.workflow.json) | Answers pve01 at once; a code step sets the subject (`Lab report <date>: all OK` or `N issues`) and builds the facts tables; `gpt-oss-120b` writes ≤ 10 lines from the facts only; if it fails, the email still goes, marked "summary unavailable". Credentials in n8n only: `Lab report webhook token`, `ai01 (llama-server)`, `Brevo (n8n)` (1Password `(Brevo) - n8n SMTP`). The From address is set in n8n (not in this public repo). |
+
+**Changing the workflow:** in n8n, a change to a published workflow is a draft until **Publish**; the webhook runs
+the published version. A node whose value is chosen "from list" (the model) must be re-selected for n8n to save it.
+Export it back to the repo file after a change.
+
+Checked 2026-11-28: three runs by hand (`systemctl start phoenix-lab-report.service`). The first two failed in the
+model step ("Could not get parameter model.value": the file stored the model as text; fixed) and still emailed the
+facts. The third: 2,398 prompt tokens, 120b loaded in ~80 s, answered in ~75 s, email sent; every issue in the
+summary, nothing added. To improve: mark failed guests that no longer exist, and give the next scheduled scrub
+date, so the model's advice fits.
+
 ### Later
 
 - **RAM:** 4 more **Samsung M393A4K40CB2-CTD** (32 GB, 2Rx4, registered DDR4-2666, the installed part) in **A3, A6,
