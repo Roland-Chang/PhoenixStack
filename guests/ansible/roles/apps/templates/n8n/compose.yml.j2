@@ -16,15 +16,15 @@ services:
     environment:
       TZ: {{ app_timezone }}
       # Its uid has no account in the image, so its home would be / (n8n then tries to create /.n8n).
-      # n8n keeps everything in <N8N_USER_FOLDER>/.n8n: the mounted data folder. HOME is that folder too:
-      # n8n also writes $HOME/.cache, and /home/node belongs to the image's own user.
-      HOME: /home/node/.n8n
+      # The data folder is mounted as the whole home: n8n keeps its data in <N8N_USER_FOLDER>/.n8n and its
+      # cache in <N8N_USER_FOLDER>/.cache, both inside it (/home/node itself belongs to the image's user).
+      HOME: /home/node
       N8N_USER_FOLDER: /home/node
       GENERIC_TIMEZONE: {{ app_timezone }}
       N8N_HOST: {{ n8n_host }}
       N8N_PROTOCOL: https
       N8N_PORT: "{{ n8n.port }}"
-      WEBHOOK_URL: https://{{ n8n_host }}/
+      N8N_WEBHOOK_URL: https://{{ n8n_host }}/
       N8N_PROXY_HOPS: "1"
       # Every credential n8n stores is encrypted with this key (1Password; never change it).
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?no .env}
@@ -50,7 +50,7 @@ services:
       # No public REST API for now (workflows are built in the editor).
       N8N_PUBLIC_API_DISABLED: "true"
     volumes:
-      - ./data:/home/node/.n8n
+      - ./data:/home/node
     mem_limit: 2g
     security_opt:
       - no-new-privileges:true
