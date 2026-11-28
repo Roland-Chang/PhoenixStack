@@ -1254,6 +1254,47 @@ reasoning models spent their whole budget counting lines.
   340 tokens/s; after a reboot both start and Ollama finds the GPU; the laptop and `docker01` reach both ports,
   `dns01` reaches neither.
 
+### Step 5: Open WebUI and n8n (design, 2026-11-27)
+
+**Draft, for the Young admin's decisions** (marked *Decide*). Both on `docker01` as stacks of role `apps`, like the
+admin apps; both use `ai01` through llama-server's OpenAI API, `http://ai01.int.phoenixstack.net:8080/v1` (`ai01`'s
+firewall already lets `docker01` in).
+
+| Area | Open WebUI (chat) | n8n (automations) |
+| --- | --- | --- |
+| Version | `v0.13.5` (2026-11-25), pinned | `2.49.8` (stable, 2026-11-27), pinned |
+| Who | *Decide:* admins only, or also family (`Young`, `Porter`) | Admins only |
+| Name | *Decide:* `openwebui.int` (the naming rule: after the app) or `chat.int` | `n8n.int` |
+| Login | **Authentik OIDC**, its own login form off: as Mealie. Accounts are created at first login and matched by email; `authentik Admins` become Open WebUI admins (role claim), everyone else a user. | **Authentik forward-auth** (`admin_only`, `authentik: true`), then n8n's own owner login behind it, as autobrr. n8n's OIDC needs its paid Enterprise licence. Owner password in 1Password. |
+| Database | **PostgreSQL on `pgsql01`**: database `openwebui`, nightly dumps (the dump standard). Uploaded files and the document index (Chroma) in the stack's data folder. | **PostgreSQL on `pgsql01`**: database `n8n`. n8n's runs history is pruned after 14 days. |
+| Secrets (1Password, the stack's `.env`) | DB password, OIDC client secret, `WEBUI_SECRET_KEY` (signs sessions) | DB password, **`N8N_ENCRYPTION_KEY`**: it encrypts every credential n8n stores. Losing it makes them unreadable, so it's in 1Password before the first start. |
+| Models | `gpt-oss-20b` for everyone. **`gpt-oss-120b` visible to admins only:** loading it takes ~1.5 min and pushes 20b out (one model at a time), so a family member picking it would stall everyone. | Both, by workflow. Heavy jobs on 120b **overnight**, when nobody is chatting. |
+| Off | Community sharing, telemetry (`ANONYMIZED_TELEMETRY`, `DO_NOT_TRACK`, `SCARF_NO_ANALYTICS`), web search (for now), sign-up by form | Telemetry (`N8N_DIAGNOSTICS_ENABLED=false`), version notifications, templates from n8n's site |
+| Reaches | `ai01` (8080; Ollama's 11434 for an embedding model later) | `ai01`. Anything else (logs, the NAS, Proxmox) is added per workflow, each with its own read-only credential and firewall rule, never broad access. |
+| Webhooks | | None from outside for now: forward-auth answers callers that aren't browsers with a redirect. A webhook path of its own (with a secret) when a workflow needs one. |
+| Backups | `docker01`'s nightly VM backups (data folders) and `pgsql01`'s dumps | The same |
+
+**If family members use Open WebUI**, it's the first household app on `docker01`:
+
+- **UDM:** the rule `LAN and VPN clients → docker01:443` ([UDM rules](#udm-rules)). Every other route on `docker01`
+  stays `admin_only`, which Traefik still enforces.
+- **DNS:** household devices need the `int.` names. The Young LAN has them through the UDM; Porter is in progress
+  ([Household DNS](#household-dns)); VPN clients don't (REBUILD_STATE item 1).
+- **Accounts:** each person already exists in Authentik (`first.last`, Google sign-in) with group `Young` or `Porter`.
+
+Steps (each dry-run first):
+
+1. 1Password: the database passwords, `WEBUI_SECRET_KEY` and `N8N_ENCRYPTION_KEY` (generated), and the n8n owner
+   password.
+2. `pgsql01`: `pg_databases` `openwebui` and `n8n` for client `docker01`, and `5432` from `docker01`
+   (`tf apply` for the firewall rule, then `apb database.yml`).
+3. Authentik: Open WebUI's OIDC client (route `oidc:`), n8n's proxy app (route `authentik: true`); `apb authentik.yml`.
+   Then the client secret from Authentik into 1Password.
+4. `docker01`: the two stacks and routes (`apb docker.yml`), then `dns.yml` on `dns01`, then `dns02`.
+5. Open WebUI: the connection to `ai01`, model names and access. n8n: the owner account, an OpenAI credential pointing
+   at `ai01`, a first test workflow.
+6. If family: the UDM rule, then a test from a family member's device.
+
 ### Later
 
 - **RAM:** 4 more **Samsung M393A4K40CB2-CTD** (32 GB, 2Rx4, registered DDR4-2666, the installed part) in **A3, A6,
