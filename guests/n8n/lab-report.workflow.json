@@ -12,9 +12,16 @@
       "name": "Facts from pve01",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "phoenix-lab-report",
-      "credentials": { "httpHeaderAuth": { "name": "Lab report webhook token" } }
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Lab report webhook token"
+        }
+      }
     },
     {
       "parameters": {
@@ -23,7 +30,10 @@
       "name": "Prepare",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 0]
+      "position": [
+        240,
+        0
+      ]
     },
     {
       "parameters": {
@@ -33,13 +43,21 @@
       "name": "Summary",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.4,
-      "position": [480, 0],
+      "position": [
+        480,
+        0
+      ],
       "onError": "continueRegularOutput",
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "model": "gpt-oss-120b-MXFP4",
+        "model": {
+          "__rl": true,
+          "value": "gpt-oss-120b-MXFP4",
+          "mode": "list",
+          "cachedResultName": "gpt-oss-120b-MXFP4"
+        },
         "options": {
           "temperature": 0.2,
           "maxTokens": 3000,
@@ -49,8 +67,15 @@
       "name": "gpt-oss-120b on ai01",
       "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
       "typeVersion": 1.2,
-      "position": [480, 220],
-      "credentials": { "openAiApi": { "name": "ai01 (llama-server)" } }
+      "position": [
+        480,
+        220
+      ],
+      "credentials": {
+        "openAiApi": {
+          "name": "ai01 (llama-server)"
+        }
+      }
     },
     {
       "parameters": {
@@ -59,7 +84,10 @@
       "name": "Compose",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 0]
+      "position": [
+        720,
+        0
+      ]
     },
     {
       "parameters": {
@@ -73,17 +101,76 @@
       "name": "Email the report",
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
-      "position": [960, 0],
-      "credentials": { "smtp": { "name": "Brevo (n8n)" } }
+      "position": [
+        960,
+        0
+      ],
+      "credentials": {
+        "smtp": {
+          "name": "Brevo (n8n)"
+        }
+      }
     }
   ],
   "connections": {
-    "Facts from pve01": { "main": [[{ "node": "Prepare", "type": "main", "index": 0 }]] },
-    "Prepare": { "main": [[{ "node": "Summary", "type": "main", "index": 0 }]] },
-    "gpt-oss-120b on ai01": { "ai_languageModel": [[{ "node": "Summary", "type": "ai_languageModel", "index": 0 }]] },
-    "Summary": { "main": [[{ "node": "Compose", "type": "main", "index": 0 }]] },
-    "Compose": { "main": [[{ "node": "Email the report", "type": "main", "index": 0 }]] }
+    "Facts from pve01": {
+      "main": [
+        [
+          {
+            "node": "Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gpt-oss-120b on ai01": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summary": {
+      "main": [
+        [
+          {
+            "node": "Compose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compose": {
+      "main": [
+        [
+          {
+            "node": "Email the report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "pinData": {}
 }
