@@ -1,12 +1,12 @@
-# Local AI (L5h): ai01. Debian's standard kernel and NVIDIA's driver (role ai); the model servers come
-# after the GPU has passed its five stop/start cycles. Run after site.yml has set up the guest. Always
-# with --check --diff first.
+# Local AI (L5h): ai01. Role ai: Debian's standard kernel and NVIDIA's driver, the models disk at
+# /models, Ollama (:11434) and llama.cpp's llama-server (:8080, router mode). Run after site.yml has
+# set up the guest. Always with --check --diff first.
 #
 #   apb ai.yml --check --diff
 #   apb ai.yml
 #
-# The first real run installs the standard kernel and reboots into it, then installs the driver and
-# reboots again to load it.
+# A first run on a new VM installs the standard kernel and reboots into it, then installs the driver
+# and reboots again to load it. Versions are pinned in roles/ai/defaults/main.yml.
 
 - name: Local AI
   hosts: ai01

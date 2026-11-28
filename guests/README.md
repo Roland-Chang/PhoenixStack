@@ -7,7 +7,7 @@ the services built on them, one layer at a time (L5a groundwork, then L5b onward
 Status (2026-11-27): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
 and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f**: `docker02` takes the internet's `443` and runs
 the public apps (Audiobookshelf, Immich, Mealie, IT-Tools), with logins through Authentik. **L5g**: `plex01` live.
-**L5h under way**: the `ai01` VM is built and its GPU works (driver R620, five stop/start cycles passed); the model servers are next.
+**L5h under way**: `ai01` serves Ollama and llama-server on its GPU (2026-11-27), no models yet; next, Open WebUI and n8n on `docker01`.
 [Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -1198,7 +1198,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ## L5h: Local AI (`ai01`)
 
-**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `models` (`data/models`). **Driver 2026-11-27** (role `ai`, playbook `ai.yml`): Debian's standard kernel, NVIDIA 620.70.10, five stop/start cycles passed. **Next:** the models disk, then Ollama and llama-server (role `ai`). Background, models and use cases:
+**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `models` (`data/models`). **Driver and model servers 2026-11-27** (role `ai`, playbook `ai.yml`): Debian's standard kernel, NVIDIA 620.70.10, five stop/start cycles passed; the models disk at `/models`; Ollama 0.40.19 and llama-server (llama.cpp v1.1.0, build b12774), both on the GPU, no models yet. **Next:** choose the models; Open WebUI and n8n on `docker01` (step 5). Background, models and use cases:
 [Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
 container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
 
@@ -1211,10 +1211,24 @@ container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `
 | Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. **Passed 2026-11-27:** each cycle a full power-off (`qm shutdown`, `qm start`), back in ~20 s, the GPU in P0 at PCIe 3.0 x8, no NVIDIA errors in ai01's kernel log, only normal `vfio-pci` resets in pve01's. | Some RTX 50 cards stopped responding after a VM restart. |
 | Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on storage **`models`**: the dataset `data/models` on the `data` pool, 128k blocks (bootstrap 2026.11.9; Terraform needs `/storage/models`). Inside it the disk gets the dataset's 600G quota, metadata-only caching and no compression. Models disk **not backed up**. | Models are large and re-downloadable; `data` keeps them apart from VM disk I/O, on the GPU's CPU. Metadata-only caching keeps a 60 GB model load from pushing the other guests' data out of the host's 24 GB ARC. The first models disk (2026-11-27) sat at the pool's root without these settings; it was empty and was replaced. |
 | Driver | NVIDIA's **open kernel modules** (`nvidia-kernel-open-dkms`, `nvidia-driver-cuda`, `libcuda1`; headless, no X), from NVIDIA's own Debian 13 repository (signing key fingerprint checked on every run), held on **branch R620** by NVIDIA's pinning package `nvidia-driver-pinning-620`: 620.70.10 at install. The weekly `patch.yml` takes fixes within the branch, never another branch. Debian's standard kernel, as on `plex01`; the persistence daemon on. | Blackwell runs only with the open modules (575 or later; Debian's `non-free` 550 series predates it). R620 is a Long Term Support Branch, supported until September 2029 (NVIDIA's support matrix, 2026-11-27); R595, the Production Branch, ends March 2027. |
-| Model servers | **Ollama** on `:11434` (small models, all on the GPU) and **llama.cpp's `llama-server`** on `:8080` (big MoE models, experts in RAM); native, systemd, versions pinned. New role `ai`, playbook `ai.yml`. | Both speak the OpenAI API, Ollama also Anthropic's, so every client changes only a base URL. |
+| Model servers | **Ollama** on `:11434` (small models, all on the GPU) and **llama.cpp's `llama-server`** on `:8080` (big MoE models, experts in RAM); native, systemd, versions pinned. Role `ai`, playbook `ai.yml`. Each from GitHub's release archive, its SHA-256 checked against the one GitHub publishes, unpacked into `/opt/<name>/<version>` with a `current` link, run as its own system user with a sandboxed unit. **Ollama:** models in `/models/ollama`, unloaded after 10 minutes idle, flash attention on, **cloud models and web search off** (`OLLAMA_NO_CLOUD=1`: they're on by default, and would send prompts to ollama.com). **llama-server:** router mode (no fixed model: a request names a GGUF file in `/models/gguf`; one loaded at a time, unloaded after 10 minutes idle), its built-in chat app off. Its default port changed to 9931 in v1.1.0, so 8080 is set explicitly. | Both speak the OpenAI API, Ollama also Anthropic's, so every client changes only a base URL. Both unload when idle because they share the GPU's 16 GB. |
 | Apps | **Open WebUI** and **n8n** on `docker01` (`<app>.int.phoenixstack.net`, LAN and VPN only), logins through Authentik (OIDC). Public on `docker02`: later, if at all. | Neither model server has logins: family members reach the models only through Open WebUI. |
 | Firewall | `11434` and `8080` from `docker01` and the admin sources only; SSH and ping from admin sources. | The model servers' APIs are open to anyone who can reach them. |
 | Backups | System disk in the nightly guest backups; the models disk excluded. | |
+
+### How to use it
+
+- **An Ollama model:** `ssh ai01`, then `/opt/ollama/current/bin/ollama pull <model>` (listed with `ollama list`,
+  removed with `ollama rm`).
+- **A GGUF model for llama-server:** download it into `/models/gguf` as its user, e.g.
+  `sudo -u llama curl -fL -o /models/gguf/<file>.gguf <url>`, then `sudo systemctl restart llama-server`: it reads
+  the folder only when it starts. A request's `model` is the file name without `.gguf`. Per-model settings
+  (`--n-cpu-moe`, context size) go in a presets file (`--models-preset`), added with the first big model.
+- **A new version:** change it and its SHA-256 in `roles/ai/defaults/main.yml`, `apb ai.yml --check --diff`, then
+  `apb ai.yml`. The old version's folder stays in `/opt` for a rollback until removed by hand.
+- **Checked 2026-11-27** with 1B test models, then removed: Ollama 243 tokens/s, all layers on the GPU; llama-server
+  340 tokens/s; after a reboot both start and Ollama finds the GPU; the laptop and `docker01` reach both ports,
+  `dns01` reaches neither.
 
 ### Later
 

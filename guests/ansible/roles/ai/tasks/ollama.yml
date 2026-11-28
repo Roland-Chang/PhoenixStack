@@ -1,0 +1,113 @@
+# Ollama, natively: GitHub's release archive (its own CUDA libraries included) in
+# /opt/ollama/<version>, /opt/ollama/current pointing at it, its models on the models disk.
+- name: Ollama's user
+  ansible.builtin.user:
+    name: ollama
+    system: true
+    home: /var/lib/ollama
+    create_home: true
+    shell: /usr/sbin/nologin
+
+- name: Ollama's models folder
+  ansible.builtin.file:
+    path: "{{ ai_models_dir }}/ollama"
+    state: directory
+    owner: ollama
+    group: ollama
+    mode: "0750"
+  when: not ansible_check_mode or ai_disk.stat.exists
+
+- name: Is Ollama {{ ai_ollama_version }} installed?
+  ansible.builtin.stat:
+    path: "/opt/ollama/{{ ai_ollama_version }}/bin/ollama"
+  register: ai_ollama_bin
+
+- name: Install Ollama {{ ai_ollama_version }}
+  when: not ai_ollama_bin.stat.exists
+  block:
+    - name: Download Ollama {{ ai_ollama_version }} (SHA-256 checked)
+      ansible.builtin.get_url:
+        url: "{{ ai_ollama_url }}"
+        dest: "/var/tmp/ollama-{{ ai_ollama_version }}.tar.zst"
+        checksum: "sha256:{{ ai_ollama_sha256 }}"
+        mode: "0600"
+        timeout: 600
+
+    - name: Folder for Ollama {{ ai_ollama_version }}
+      ansible.builtin.file:
+        path: "/opt/ollama/{{ ai_ollama_version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Unpack Ollama {{ ai_ollama_version }}
+      ansible.builtin.command:
+        argv: [tar, --zstd, -xf, "/var/tmp/ollama-{{ ai_ollama_version }}.tar.zst", -C, "/opt/ollama/{{ ai_ollama_version }}", --no-same-owner]
+        creates: "/opt/ollama/{{ ai_ollama_version }}/bin/ollama"
+
+    - name: Remove the archive
+      ansible.builtin.file:
+        path: "/var/tmp/ollama-{{ ai_ollama_version }}.tar.zst"
+        state: absent
+
+- name: Ollama {{ ai_ollama_version }} is the current version
+  ansible.builtin.file:
+    src: "/opt/ollama/{{ ai_ollama_version }}"
+    dest: /opt/ollama/current
+    state: link
+    force: true
+  register: ai_ollama_link
+
+# Listens on every address: the Proxmox firewall lets only docker01 and the admin sources reach it.
+# Ollama has no logins.
+- name: Ollama's service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ollama.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role ai).
+      [Unit]
+      Description=Ollama
+      After=network-online.target nvidia-persistenced.service
+      Wants=network-online.target
+      RequiresMountsFor={{ ai_models_dir }}
+
+      [Service]
+      User=ollama
+      Group=ollama
+      ExecStart=/opt/ollama/current/bin/ollama serve
+      Environment=HOME=/var/lib/ollama
+      Environment=OLLAMA_HOST=0.0.0.0:{{ ai_ollama_port }}
+      Environment=OLLAMA_MODELS={{ ai_models_dir }}/ollama
+      Environment=OLLAMA_KEEP_ALIVE={{ ai_ollama_keep_alive }}
+      Environment=OLLAMA_FLASH_ATTENTION=1
+      # No cloud models or web search: prompts never leave ai01 (on by default; chosen 2026-11-27).
+      Environment=OLLAMA_NO_CLOUD=1
+      Restart=always
+      RestartSec=3
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      PrivateTmp=true
+      ReadWritePaths={{ ai_models_dir }}/ollama /var/lib/ollama
+
+      [Install]
+      WantedBy=multi-user.target
+  register: ai_ollama_unit
+
+- name: Ollama runs
+  ansible.builtin.systemd_service:
+    name: ollama.service
+    enabled: true
+    state: started
+    daemon_reload: "{{ ai_ollama_unit is changed }}"
+  when: not (ansible_check_mode and ai_ollama_unit is changed)
+
+- name: Restart Ollama (new version or settings)
+  ansible.builtin.systemd_service:
+    name: ollama.service
+    state: restarted
+  when: (ai_ollama_link is changed or ai_ollama_unit is changed) and not ansible_check_mode

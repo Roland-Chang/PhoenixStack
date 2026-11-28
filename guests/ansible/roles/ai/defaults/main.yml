@@ -26,3 +26,38 @@ ai_nvidia_packages:
 ai_kernel_packages:
   - linux-image-amd64
   - linux-headers-amd64
+
+# --- Models disk -----------------------------------------------------------------------------------
+# The VM's second disk (Terraform data_disk_gb), on storage `models` (dataset data/models on pve01).
+# Found by its ID: on ai01 /dev/sda is this disk and /dev/sdb the system disk.
+ai_models_disk: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+ai_models_dir: /models
+
+# --- Ollama ----------------------------------------------------------------------------------------
+# Small models, all on the GPU. Pinned: the release archive from GitHub, checked against the SHA-256
+# GitHub publishes for it. A new version: change both, run ai.yml (the old version's folder stays for
+# a rollback until removed by hand).
+ai_ollama_version: "0.40.19"
+ai_ollama_sha256: 8eb99f9dd91c82f4c51a2c891415bfbdf07bd43f627d82514c47dfd613d2070f
+ai_ollama_url: "https://github.com/ollama/ollama/releases/download/v{{ ai_ollama_version }}/ollama-linux-amd64.tar.zst"
+ai_ollama_port: 11434
+# Unload a model this long after its last request, so llama-server can have the GPU.
+ai_ollama_keep_alive: 10m
+
+# --- llama.cpp's llama-server ----------------------------------------------------------------------
+# Big models (MoE experts in system RAM). Release v1.1.0 is build b12774; its CUDA 13.5 build for Linux
+# comes as two archives (the programs; CUDA's runtime and cuBLAS), unpacked into one folder. SHA-256s
+# as GitHub publishes them.
+ai_llama_build: b12774
+ai_llama_archives:
+  - name: "llama-{{ ai_llama_build }}-bin-ubuntu-cuda-13.5-x64.tar.gz"
+    sha256: 15ffe2e6ab20d9383d22ce96e1376a05966b343c3b23e8b4294a602318b5274f
+  - name: "cudart-llama-{{ ai_llama_build }}-bin-ubuntu-cuda-13.5-x64.tar.gz"
+    sha256: bf83f2f5c3a0885fd99b3910cf69997d62976fd6b81b9a8e1230d6f698306bf5
+ai_llama_url: "https://github.com/ggml-org/llama.cpp/releases/download/{{ ai_llama_build }}"
+# Its default is 9931 since v1.1.0; the design, firewall and clients use 8080.
+ai_llama_port: 8080
+# Router mode: no fixed model; a request names a GGUF file in this folder and it's loaded then. One at
+# a time (16 GB of VRAM), and unloaded after this much idle time, so Ollama can have the GPU.
+ai_llama_max_models: 1
+ai_llama_idle_seconds: 600

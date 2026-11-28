@@ -1,0 +1,121 @@
+# llama.cpp's llama-server, natively: GitHub's CUDA build (two archives) in /opt/llama.cpp/<build>,
+# /opt/llama.cpp/current pointing at it. Router mode: GGUF files in /models/gguf, loaded on request.
+- name: llama-server's user
+  ansible.builtin.user:
+    name: llama
+    system: true
+    home: /var/lib/llama
+    create_home: true
+    shell: /usr/sbin/nologin
+
+# Readable by everyone on the VM; models are added as this user (guests/README.md, L5h).
+- name: GGUF models folder
+  ansible.builtin.file:
+    path: "{{ ai_models_dir }}/gguf"
+    state: directory
+    owner: llama
+    group: llama
+    mode: "0755"
+  when: not ansible_check_mode or ai_disk.stat.exists
+
+- name: Is llama.cpp {{ ai_llama_build }} installed?
+  ansible.builtin.stat:
+    path: "/opt/llama.cpp/{{ ai_llama_build }}/llama-server"
+  register: ai_llama_bin
+
+- name: Install llama.cpp {{ ai_llama_build }}
+  when: not ai_llama_bin.stat.exists
+  block:
+    - name: Download llama.cpp {{ ai_llama_build }} (SHA-256 checked)
+      ansible.builtin.get_url:
+        url: "{{ ai_llama_url }}/{{ item.name }}"
+        dest: "/var/tmp/{{ item.name }}"
+        checksum: "sha256:{{ item.sha256 }}"
+        mode: "0600"
+        timeout: 600
+      loop: "{{ ai_llama_archives }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Folder for llama.cpp {{ ai_llama_build }}
+      ansible.builtin.file:
+        path: "/opt/llama.cpp/{{ ai_llama_build }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Both archives have one top folder; their contents go side by side (the programs find CUDA's
+    # libraries next to them).
+    - name: Unpack llama.cpp {{ ai_llama_build }}
+      ansible.builtin.command:
+        argv: [tar, -xzf, "/var/tmp/{{ item.name }}", -C, "/opt/llama.cpp/{{ ai_llama_build }}", --strip-components=1, --no-same-owner]
+      loop: "{{ ai_llama_archives }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: true
+      when: not ansible_check_mode
+
+    - name: Remove the archives
+      ansible.builtin.file:
+        path: "/var/tmp/{{ item.name }}"
+        state: absent
+      loop: "{{ ai_llama_archives }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+- name: llama.cpp {{ ai_llama_build }} is the current version
+  ansible.builtin.file:
+    src: "/opt/llama.cpp/{{ ai_llama_build }}"
+    dest: /opt/llama.cpp/current
+    state: link
+    force: true
+  register: ai_llama_link
+
+# Listens on every address: the Proxmox firewall lets only docker01 and the admin sources reach it.
+# No built-in chat app (Open WebUI is the front end) and no API key (as Ollama).
+- name: llama-server's service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/llama-server.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (role ai).
+      [Unit]
+      Description=llama.cpp llama-server (router mode)
+      After=network-online.target nvidia-persistenced.service
+      Wants=network-online.target
+      RequiresMountsFor={{ ai_models_dir }}
+
+      [Service]
+      User=llama
+      Group=llama
+      ExecStart=/opt/llama.cpp/current/llama-server --host 0.0.0.0 --port {{ ai_llama_port }} --models-dir {{ ai_models_dir }}/gguf --models-max {{ ai_llama_max_models }} --sleep-idle-seconds {{ ai_llama_idle_seconds }} --no-webui
+      Environment=HOME=/var/lib/llama
+      Environment=LLAMA_CACHE=/var/lib/llama/cache
+      Restart=always
+      RestartSec=3
+      NoNewPrivileges=true
+      ProtectSystem=strict
+      ProtectHome=true
+      PrivateTmp=true
+      ReadWritePaths=/var/lib/llama
+
+      [Install]
+      WantedBy=multi-user.target
+  register: ai_llama_unit
+
+- name: llama-server runs
+  ansible.builtin.systemd_service:
+    name: llama-server.service
+    enabled: true
+    state: started
+    daemon_reload: "{{ ai_llama_unit is changed }}"
+  when: not (ansible_check_mode and ai_llama_unit is changed)
+
+- name: Restart llama-server (new build or settings)
+  ansible.builtin.systemd_service:
+    name: llama-server.service
+    state: restarted
+  when: (ai_llama_link is changed or ai_llama_unit is changed) and not ansible_check_mode

@@ -1,0 +1,24 @@
+# The models disk at /models: Ollama's models in /models/ollama, GGUF files for llama-server in
+# /models/gguf. Not in the backups (Terraform data_disk_backup: false); everything on it can be
+# downloaded again.
+- name: Models disk is there (Terraform data_disk_gb)
+  ansible.builtin.stat:
+    path: "{{ ai_models_disk }}"
+  register: ai_disk
+  failed_when: not ai_disk.stat.exists
+
+- name: Filesystem on the models disk (only if it has none)
+  community.general.filesystem:
+    dev: "{{ ai_models_disk }}"
+    fstype: ext4
+    opts: -L models -m 0
+    resizefs: true
+
+- name: Models disk at {{ ai_models_dir }}
+  ansible.posix.mount:
+    path: "{{ ai_models_dir }}"
+    src: LABEL=models
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted
+  when: not ansible_check_mode
