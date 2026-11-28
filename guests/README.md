@@ -1299,8 +1299,16 @@ Checked 2026-11-28: both healthy, no restarts; databases created (Open WebUI 55 
 TLS; `openwebui.int` and `n8n.int` on both resolvers; n8n redirects to Authentik; Open WebUI offers only the OIDC
 login (form and sign-up off), which hands over to Authentik with client `openwebui`.
 
-Left: the first logins (Open WebUI makes an `authentik Admins` member its admin; n8n's owner account from
-`(n8n) - Owner login`); in Open WebUI, `gpt-oss-120b` visible to admins only; a first n8n workflow against `ai01`.
+First logins 2026-11-28: Open WebUI through Authentik (`auth.int`; the account came in as `admin` from the group
+claim; use your own Authentik account, never `akadmin`). n8n: owner account, a credential of type OpenAI with base
+URL `http://ai01.int.phoenixstack.net:8080/v1` and any text as its API key (llama-server checks none; n8n's test lists
+both models), and a first workflow (manual trigger → Basic LLM Chain → OpenAI Chat Model, `gpt-oss-20b-MXFP4`) ran.
+n8n notes: new things come from **Create** (top left); in the chat model, leave **Use Responses API** off (Chat
+Completions, which llama-server serves) and raise **Timeout** (ms) for 120b, whose first load takes ~1.5 min.
+Publishing matters only for workflows that start themselves (schedule, webhook); a manual one runs from **Execute
+workflow** either way.
+
+Left: in Open WebUI, `gpt-oss-120b` visible to admins only; the first real workflow (proposed: a nightly lab report).
 
 Steps (each dry-run first):
 
