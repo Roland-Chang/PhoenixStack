@@ -128,11 +128,12 @@ apps_catalog:
     password_login: false
     openai_url: "http://ai01.int.phoenixstack.net:8080/v1"
     ollama_url: "http://ai01.int.phoenixstack.net:11434"
-    # 1Password: "(Open WebUI) - PostgreSQL", "(Open WebUI) - Secret key", and the OIDC client secret
-    # (Authentik generates it; copied into 1Password by hand).
+    # 1Password: "(Open WebUI) - PostgreSQL", "(Open WebUI) - Secret key", and "(Authentik) - Open WebUI
+    # OIDC" (the client secret Authentik generated; copied into 1Password by hand).
     env_op:
       DB_PASSWORD: "op://infrastructure/nxx6ggspf33jfzzkw3j3zgxd4u/password"
       WEBUI_SECRET_KEY: "op://infrastructure/sehdjnsgvqr7sw5nqpywpn3xry/password"
+      OIDC_CLIENT_SECRET: "op://infrastructure/2mjxb6yip5neuqyfl2pomtlxkm/password"
   # n8n (L5h step 5): automations, admins only. Its database on pgsql01 (n8n, TLS without certificate
   # checks, as Authentik: pgsql01 has Debian's self-signed certificate). Behind Authentik forward-auth,
   # then its own owner login (OIDC needs n8n's paid Enterprise licence). N8N_ENCRYPTION_KEY encrypts every
