@@ -110,6 +110,45 @@ apps_catalog:
     uid: "{{ apps_media_uid }}"
     folders: [config, config-internal]
     version: "14.2.5"
+  # Open WebUI (L5h step 5): chat with the local models on ai01 (llama-server's OpenAI API; Ollama for
+  # helper models). Its database on pgsql01 (openwebui, TLS); uploads, the document index and caches in
+  # data. Runs as uid with group 0: the image makes its app and static folders group-0 writable for
+  # that (it writes favicons and similar there at start). Logins through Authentik (OIDC, client
+  # openwebui) only, on when env_op has OIDC_CLIENT_SECRET; Authentik's groups claim decides access
+  # (allowed_groups) and who is an Open WebUI admin (admin_groups). password_login: its own form, the
+  # way in when Authentik is down (turn it on here and run again).
+  openwebui:
+    uid: 2011
+    folders: [data]
+    version: "v0.13.5"
+    port: 8080
+    route: openwebui
+    allowed_groups: [authentik Admins]        # family later: Young, Porter (and on the OIDC client)
+    admin_groups: [authentik Admins]
+    password_login: false
+    openai_url: "http://ai01.int.phoenixstack.net:8080/v1"
+    ollama_url: "http://ai01.int.phoenixstack.net:11434"
+    # 1Password: "(Open WebUI) - PostgreSQL", "(Open WebUI) - Secret key", and the OIDC client secret
+    # (Authentik generates it; copied into 1Password by hand).
+    env_op:
+      DB_PASSWORD: "op://infrastructure/nxx6ggspf33jfzzkw3j3zgxd4u/password"
+      WEBUI_SECRET_KEY: "op://infrastructure/sehdjnsgvqr7sw5nqpywpn3xry/password"
+  # n8n (L5h step 5): automations, admins only. Its database on pgsql01 (n8n, TLS without certificate
+  # checks, as Authentik: pgsql01 has Debian's self-signed certificate). Behind Authentik forward-auth,
+  # then its own owner login (OIDC needs n8n's paid Enterprise licence). N8N_ENCRYPTION_KEY encrypts every
+  # credential it stores: never change it. Runs history pruned after prune_hours.
+  n8n:
+    uid: 2012
+    folders: [data]
+    version: "2.49.8"
+    port: 5678
+    route: n8n
+    prune_hours: 336                          # 14 days
+    # 1Password: "(n8n) - PostgreSQL", "(n8n) - Encryption key" (owner login: "(n8n) - Owner login").
+    env_op:
+      DB_POSTGRESDB_PASSWORD: "op://infrastructure/gw2wglvujcbh4bqgl7krn24nsi/password"
+      N8N_ENCRYPTION_KEY: "op://infrastructure/u3hhqeapmfjszpay5m5ahmos74/password"
+
   # IT-Tools: a static site served by nginx; no data, no settings, no login (public, decided 2026-11-25).
   # The image's nginx starts as root and hands off to its own user, so it keeps the four capabilities
   # that takes; its filesystem is read-only, with temporary folders for nginx's cache and run files.

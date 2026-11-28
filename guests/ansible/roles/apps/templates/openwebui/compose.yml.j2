@@ -1,0 +1,77 @@
+# {{ ansible_managed }}
+# Open WebUI (role apps, L5h step 5). Reached through Traefik only: route {{ apps_catalog.openwebui.route }}
+# → http://{{ stack.name }}:{{ apps_catalog.openwebui.port }}. Models on ai01; database on pgsql01.
+{% set owui = apps_catalog.openwebui %}
+{% set owui_url = 'https://' ~ owui.route ~ '.' ~ (routes_domain | default(domain)) %}
+name: {{ stack.name }}
+
+services:
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:{{ stack.version or owui.version }}
+    container_name: {{ stack.name }}
+    restart: unless-stopped
+    # Its own uid, group 0 (see apps_catalog.openwebui).
+    user: "{{ owui.uid }}:0"
+    networks:
+      - proxy
+    environment:
+      TZ: {{ app_timezone }}
+      WEBUI_URL: {{ owui_url }}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?no .env}
+      # PostgreSQL on pgsql01 over TLS (as Authentik: encrypted, certificate not checked).
+      DATABASE_URL: postgresql://openwebui:${DB_PASSWORD:?no .env}@postgres.{{ domain }}:5432/openwebui
+      PGSSLMODE: require
+      # The models: llama-server (OpenAI API, no key) and Ollama, both on ai01.
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: {{ owui.openai_url }}
+      OPENAI_API_KEY: none
+      ENABLE_OLLAMA_API: "true"
+      OLLAMA_BASE_URL: {{ owui.ollama_url }}
+      # New accounts only through Authentik; nobody waits for approval (Authentik decides who gets in).
+      ENABLE_SIGNUP: "false"
+      DEFAULT_USER_ROLE: user
+{% if stack.env_op.OIDC_CLIENT_SECRET is defined %}
+      # Logins through Authentik (client {{ owui.route }}); the secret from .env (root only, role apps).
+      ENABLE_OAUTH_SIGNUP: "true"
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
+      OAUTH_PROVIDER_NAME: PhoenixStack
+      OPENID_PROVIDER_URL: https://auth.{{ public_domain }}/application/o/{{ owui.route }}/.well-known/openid-configuration
+      OPENID_REDIRECT_URI: {{ owui_url }}/oauth/oidc/login/callback
+      OAUTH_CLIENT_ID: {{ owui.route }}
+      OAUTH_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?no .env}
+      OAUTH_SCOPES: openid email profile
+      # Authentik's groups claim decides who may log in and who is an admin, at every login.
+      ENABLE_OAUTH_ROLE_MANAGEMENT: "true"
+      OAUTH_ROLES_CLAIM: groups
+      OAUTH_ALLOWED_ROLES: "{{ owui.allowed_groups | join(',') }}"
+      OAUTH_ADMIN_ROLES: "{{ owui.admin_groups | join(',') }}"
+      ENABLE_LOGIN_FORM: "{{ owui.password_login | string | lower }}"
+      ENABLE_PASSWORD_AUTH: "{{ owui.password_login | string | lower }}"
+{% endif %}
+      # Nothing leaves for Open WebUI's own services: no telemetry, no update checks, no community sharing,
+      # no web search (prompts stay in the house).
+      ANONYMIZED_TELEMETRY: "false"
+      DO_NOT_TRACK: "true"
+      SCARF_NO_ANALYTICS: "true"
+      ENABLE_VERSION_UPDATE_CHECK: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      ENABLE_WEB_SEARCH: "false"
+      # Traefik is the only proxy in front of it.
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - ./data:/app/backend/data
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+networks:
+  proxy:
+    external: true
