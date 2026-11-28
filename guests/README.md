@@ -181,6 +181,7 @@ NAS-only rule when that system retires (REBUILD_STATE item 9).
 | DMZ `docker02` | docker-temp (Management) | **None since 2026-11-26.** The temporary rule `docker02 -> Docker-Temp (temporary)` (2026-11-24) carried the public apps' ports while they moved one by one (Step B) | Rule deleted by the Young admin 2026-11-26 after Immich moved; checked from `docker02`: `2283`, `83`, `8081`, `9925` and `22` on docker-temp time out (dropped), the NAS's `445` still answers |
 | DMZ `plex01` | Management | NAS file sharing (`445` or NFS) to `10.101.0.101`, read-only share access | `plex01 -> NAS (SMB)` (2026-11-26): TCP `445` to `10.101.0.101`, IPv4; its NAS user reads `Media` only. Checked live from `plex01`: `445` open, pve01's GUI and PostgreSQL closed |
 | Services `docker01` | Management | NAS file sharing to `10.101.0.101` | Not yet |
+| Management `pve01` | Services `docker01` | `443`, for one path: n8n's `/webhook/` (the nightly lab report; Traefik `open_paths` lets only pve01 use it, n8n checks a secret header) | `pve01 -> docker01 (lab report)` (2026-11-28; its return rule matches replies only). Checked from `pve01`: `/webhook/` reaches n8n; n8n's editor, API, test webhooks and `openwebui` answer `403`; `docker01`'s SSH closed |
 | Services | DMZ | Nothing (add monitoring later, by port) | Nothing |
 | Services, DMZ | Management, client LANs | Nothing else | Nothing |
 
