@@ -1362,8 +1362,9 @@ Export it back to the repo file after a change.
 Checked 2026-11-28: three runs by hand (`systemctl start phoenix-lab-report.service`). The first two failed in the
 model step ("Could not get parameter model.value": the file stored the model as text; fixed) and still emailed the
 facts. The third: 2,398 prompt tokens, 120b loaded in ~80 s, answered in ~75 s, email sent; every issue in the
-summary, nothing added. To improve: mark failed guests that no longer exist, and give the next scheduled scrub
-date, so the model's advice fits.
+summary, nothing added. Improved the same evening, so the model's advice fits: a backup failure only for guests deleted since is a
+note ("no action needed"), not a problem; a pool without a scrub yet gives the next scheduled one, read from the
+host's own schedule (`/etc/cron.d/phoenix-zfs-maintenance`: second Sunday, 13:24 UTC; first 2026-12-13).
 
 ### Later
 

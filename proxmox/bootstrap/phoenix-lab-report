@@ -113,16 +113,24 @@ def backups():
     jobs = [j for j in pvesh("/cluster/backup") if j.get("enabled", 1)]
     tasks = [t for t in pvesh(f"/nodes/{NODE}/tasks", typefilter="vzdump", since=int(SINCE.timestamp()), limit=50)
              if t.get("starttime", 0) >= SINCE.timestamp()]
+    existing = {str(g["vmid"]) for g in pvesh("/cluster/resources", type="vm")}
     runs = []
     for t in sorted(tasks, key=lambda t: t["starttime"]):
-        failed = []
+        failed, gone = [], []
         if t.get("status") != "OK":
             log = pvesh(f"/nodes/{NODE}/tasks/{t['upid']}/log", limit=5000)
             failed = sorted({m.group(1) for l in log if (m := re.search(r"Backup of VM (\d+) failed", l.get("t", "")))})
-            issues.append(f"Backup job started {ts(t['starttime'])} ended '{t.get('status')}'"
-                          + (f": failed guests {', '.join(failed)}" if failed else ""))
+            gone = [v for v in failed if v not in existing]
+            text = f"Backup job started {ts(t['starttime'])} ended '{t.get('status')}'"
+            if failed and len(gone) == len(failed):
+                # Every guest it failed on has been deleted since: nothing left to fix.
+                notes.append(f"{text}: failed only for guests deleted since ({', '.join(gone)}); no action needed")
+            else:
+                live = [v for v in failed if v not in gone]
+                issues.append(text + (f": failed guests {', '.join(live)}" if live else "")
+                              + (f" (and {', '.join(gone)}, deleted since)" if gone else ""))
         runs.append({"started": ts(t["starttime"]), "minutes": round((t.get("endtime", t["starttime"]) - t["starttime"]) / 60),
-                     "status": t.get("status"), "failed_guests": failed})
+                     "status": t.get("status"), "failed_guests": failed, "failed_guests_deleted_since": gone})
     if len(runs) < len(jobs):
         issues.append(f"Only {len(runs)} backup runs in the last 26 hours; {len(jobs)} jobs are scheduled")
     return {"jobs": [j["id"] for j in jobs], "runs": runs}
@@ -164,9 +172,33 @@ def storage():
     return out
 
 
+def next_scrub():
+    """The next scrub from the host's schedule (/etc/cron.d/phoenix-zfs-maintenance, pve-bootstrap.sh):
+    a line 'M H D1-D2 * * ... date +%w) -eq N ... /scrub' runs on weekday N between days D1 and D2."""
+    try:
+        text = open("/etc/cron.d/phoenix-zfs-maintenance").read()
+    except OSError:
+        return None
+    m = re.search(r"^(\d+) (\d+) (\d+)-(\d+) \* \* .*-eq (\d) .*zfs-linux/scrub", text, re.M)
+    if not m:
+        return None
+    minute, hour, d1, d2, wday = map(int, m.groups())
+    day = NOW.date()
+    for _ in range(400):
+        # cron's %w: Sunday 0; Python's weekday(): Monday 0.
+        if d1 <= day.day <= d2 and (day.weekday() + 1) % 7 == wday:
+            when = dt.datetime(day.year, day.month, day.day, hour, minute, tzinfo=dt.timezone.utc)
+            if when > NOW:
+                return when
+        day += dt.timedelta(days=1)
+    return None
+
+
 @section("zfs")
 def zfs():
     out = []
+    scheduled = next_scrub()
+    nxt = scheduled.strftime("%Y-%m-%d %H:%M UTC") if scheduled else None
     for line in run("zpool", "list", "-Hp", "-o", "name,health,size,alloc,cap,frag").splitlines():
         name, health, size, alloc, cap, frag = line.split("\t")
         status = run("zpool", "status", name)
@@ -178,13 +210,15 @@ def zfs():
         errors_line = re.search(r"errors: (.*)", status)
         out.append({"pool": name, "health": health, "size_gb": round(int(size) / 1e9), "cap_pct": int(cap),
                     "frag_pct": int(frag) if frag.isdigit() else None, "last_scrub_days": scrub_days,
+                    "next_scheduled_scrub": nxt,
                     "errors": errors_line.group(1) if errors_line else None})
         if health != "ONLINE":
             issues.append(f"ZFS pool {name} is {health}")
         if int(cap) >= POOL_CAP:
             issues.append(f"ZFS pool {name} is {cap}% full")
         if scrub_days is None:
-            notes.append(f"ZFS pool {name} has no completed scrub yet")
+            notes.append(f"ZFS pool {name} has no completed scrub yet"
+                         + (f"; the first scheduled one is {nxt} (monthly, automatic)" if nxt else ""))
         elif scrub_days > SCRUB_MAX_DAYS:
             issues.append(f"ZFS pool {name}: last scrub {scrub_days} days ago")
         if errors_line and errors_line.group(1) != "No known data errors":
