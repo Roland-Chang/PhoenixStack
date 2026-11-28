@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""PhoenixStack nightly lab report: collect and COUNT pve01's health facts, then send them as JSON to n8n,
+which has the local model summarise them and emails the report (guests/README.md, "Nightly lab report").
+
+Every fact and every problem is decided here, by fixed thresholds; the model only writes the summary.
+A check that fails becomes a problem in the report instead of stopping the script.
+
+  phoenix-lab-report --dry-run    print the JSON, send nothing
+  phoenix-lab-report              send it (systemd timer phoenix-lab-report.timer); if n8n can't be
+                                  reached, mail the facts to root (alerts) instead
+
+Installed by pve-bootstrap.sh (stage `report`); settings in /etc/phoenixstack/lab-report.env.
+"""
+import datetime as dt
+import glob
+import gzip
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import urllib.request
+from collections import Counter
+
+NODE = socket.gethostname()
+NOW = dt.datetime.now(dt.timezone.utc)
+SINCE = NOW - dt.timedelta(hours=26)          # "last night", with margin for the job times
+TOKEN_FILE = "/etc/phoenixstack/lab-report.token"
+# Yesterday's disk counters, so a rising count (not a steady one) is a problem.
+STATE_FILE = "/var/lib/phoenix-lab-report/disks.json"
+
+# Thresholds: a value past one is a problem (in `issues`); past a `NOTE_` one only a note.
+STORAGE_FULL = 0.85
+STORAGE_NOTE = 0.75
+POOL_CAP = 80
+SCRUB_MAX_DAYS = 40                             # monthly scrub (2nd Sunday) plus margin
+NVME_TEMP, DISK_TEMP = 70, 55
+WEAR = 80                                       # % of rated life used (NVMe percentage_used, SATA attribute 202)
+CERT_DAYS, CERT_NOTE_DAYS = 14, 30
+
+issues, notes, errors = [], [], []
+
+
+def run(*cmd, check=True):
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"{' '.join(cmd[:3])}: exit {r.returncode}: {r.stderr.strip()[:200]}")
+    return r.stdout
+
+
+def pvesh(path, **params):
+    args = ["pvesh", "get", path, "--output-format", "json"]
+    for k, v in params.items():
+        args += [f"--{k}", str(v)]
+    return json.loads(run(*args))
+
+
+def section(name):
+    """Run one collector; a failure becomes a problem, not a crash."""
+    def wrap(fn):
+        def inner():
+            try:
+                return fn()
+            except Exception as e:                       # noqa: BLE001 - report every kind of failure
+                errors.append(f"{name}: {type(e).__name__}: {e}"[:300])
+                issues.append(f"Check '{name}' failed to run ({type(e).__name__})")
+                return None
+        return inner
+    return wrap
+
+
+def ts(epoch):
+    return dt.datetime.fromtimestamp(int(epoch), dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+@section("host")
+def host():
+    uptime_s = float(open("/proc/uptime").read().split()[0])
+    running = os.uname().release
+    installed = sorted((os.path.basename(p) for p in glob.glob("/lib/modules/*")),
+                       key=lambda v: [int(x) if x.isdigit() else x for x in re.split(r"[.-]", v)])
+    failed = [u["unit"] for u in json.loads(run("systemctl", "list-units", "--failed", "--output=json") or "[]")]
+    pending = sum(1 for l in run("apt-get", "-s", "dist-upgrade", check=False).splitlines() if l.startswith("Inst "))
+    reboot = bool(installed) and installed[-1] != running
+    if failed:
+        issues.append(f"Failed systemd units on {NODE}: {', '.join(failed)}")
+    if pending:
+        notes.append(f"{pending} package updates pending (weekly patching)")
+    if reboot:
+        notes.append(f"Newer kernel installed ({installed[-1]}), running {running}: reboot at the next patch window")
+    return {"uptime_days": round(uptime_s / 86400, 1), "kernel": running, "newest_kernel": installed[-1] if installed else None,
+            "pve": run("pveversion").strip(), "failed_units": failed, "pending_updates": pending}
+
+
+@section("guests")
+def guests():
+    out = []
+    for g in pvesh("/cluster/resources", type="vm"):
+        if g.get("template"):
+            continue
+        kind = "qemu" if g["type"] == "qemu" else "lxc"
+        onboot = bool(pvesh(f"/nodes/{g['node']}/{kind}/{g['vmid']}/config").get("onboot"))
+        out.append({"vmid": g["vmid"], "name": g.get("name"), "type": kind, "status": g["status"],
+                    "uptime_days": round(g.get("uptime", 0) / 86400, 1), "onboot": onboot})
+        if g["status"] != "running" and onboot:
+            issues.append(f"Guest {g.get('name')} ({g['vmid']}) is {g['status']} but set to start at boot")
+    return sorted(out, key=lambda x: x["vmid"])
+
+
+@section("backups")
+def backups():
+    jobs = [j for j in pvesh("/cluster/backup") if j.get("enabled", 1)]
+    tasks = [t for t in pvesh(f"/nodes/{NODE}/tasks", typefilter="vzdump", since=int(SINCE.timestamp()), limit=50)
+             if t.get("starttime", 0) >= SINCE.timestamp()]
+    runs = []
+    for t in sorted(tasks, key=lambda t: t["starttime"]):
+        failed = []
+        if t.get("status") != "OK":
+            log = pvesh(f"/nodes/{NODE}/tasks/{t['upid']}/log", limit=5000)
+            failed = sorted({m.group(1) for l in log if (m := re.search(r"Backup of VM (\d+) failed", l.get("t", "")))})
+            issues.append(f"Backup job started {ts(t['starttime'])} ended '{t.get('status')}'"
+                          + (f": failed guests {', '.join(failed)}" if failed else ""))
+        runs.append({"started": ts(t["starttime"]), "minutes": round((t.get("endtime", t["starttime"]) - t["starttime"]) / 60),
+                     "status": t.get("status"), "failed_guests": failed})
+    if len(runs) < len(jobs):
+        issues.append(f"Only {len(runs)} backup runs in the last 26 hours; {len(jobs)} jobs are scheduled")
+    return {"jobs": [j["id"] for j in jobs], "runs": runs}
+
+
+@section("pbs")
+def pbs():
+    tasks = json.loads(run("proxmox-backup-manager", "task", "list", "--all", "--limit", "300", "--output-format", "json"))
+    recent = [t for t in tasks if t.get("starttime", 0) >= SINCE.timestamp()]
+    out = {}
+    for kind in ("garbage_collection", "prunejob", "verificationjob", "backup"):
+        ts_ = [t for t in recent if t.get("worker_type") == kind]
+        bad = [t for t in ts_ if t.get("status") not in ("OK", None)]
+        out[kind] = {"runs": len(ts_), "not_ok": len(bad)}
+        for t in bad:
+            issues.append(f"PBS {kind} {t.get('worker_id')} ended '{t.get('status')}'")
+    if out["garbage_collection"]["runs"] == 0:
+        issues.append("No PBS garbage collection in the last 26 hours")
+    if out["prunejob"]["runs"] == 0:
+        issues.append("No PBS prune job in the last 26 hours")
+    return out
+
+
+@section("storage")
+def storage():
+    out = []
+    for s in pvesh(f"/nodes/{NODE}/storage"):
+        if not s.get("enabled", 1):
+            continue
+        used = round(s.get("used_fraction") or 0, 3)
+        out.append({"id": s["storage"], "type": s["type"], "active": bool(s.get("active")), "used": used,
+                    "total_gb": round((s.get("total") or 0) / 1e9)})
+        if not s.get("active"):
+            issues.append(f"Storage {s['storage']} is not active")
+        elif used >= STORAGE_FULL:
+            issues.append(f"Storage {s['storage']} is {used:.0%} full")
+        elif used >= STORAGE_NOTE:
+            notes.append(f"Storage {s['storage']} is {used:.0%} full")
+    return out
+
+
+@section("zfs")
+def zfs():
+    out = []
+    for line in run("zpool", "list", "-Hp", "-o", "name,health,size,alloc,cap,frag").splitlines():
+        name, health, size, alloc, cap, frag = line.split("\t")
+        status = run("zpool", "status", name)
+        scrub = re.search(r"scan: scrub .* on (\w{3} \w{3}\s+\d+ [\d:]+ \d{4})", status)
+        scrub_days = None
+        if scrub:
+            when = dt.datetime.strptime(re.sub(r"\s+", " ", scrub.group(1)), "%a %b %d %H:%M:%S %Y")
+            scrub_days = (NOW.replace(tzinfo=None) - when).days
+        errors_line = re.search(r"errors: (.*)", status)
+        out.append({"pool": name, "health": health, "size_gb": round(int(size) / 1e9), "cap_pct": int(cap),
+                    "frag_pct": int(frag) if frag.isdigit() else None, "last_scrub_days": scrub_days,
+                    "errors": errors_line.group(1) if errors_line else None})
+        if health != "ONLINE":
+            issues.append(f"ZFS pool {name} is {health}")
+        if int(cap) >= POOL_CAP:
+            issues.append(f"ZFS pool {name} is {cap}% full")
+        if scrub_days is None:
+            notes.append(f"ZFS pool {name} has no completed scrub yet")
+        elif scrub_days > SCRUB_MAX_DAYS:
+            issues.append(f"ZFS pool {name}: last scrub {scrub_days} days ago")
+        if errors_line and errors_line.group(1) != "No known data errors":
+            issues.append(f"ZFS pool {name}: {errors_line.group(1)}")
+    return out
+
+
+@section("disks")
+def disks():
+    """Each physical disk once (by serial). The RAID controller in HBA mode shows every disk twice, directly
+    (/dev/sdX) and through itself (/dev/bus/N -d megaraid,N, without temperatures): the direct view wins."""
+    out, seen = [], set()
+    try:
+        before = json.load(open(STATE_FILE))
+    except (OSError, ValueError):
+        before = {}
+    for line in run("smartctl", "--scan").splitlines():
+        parts = line.split("#")[0].split()
+        if not parts:
+            continue
+        dev, dtype = parts[0], (parts[2] if len(parts) > 2 and parts[1] == "-d" else None)
+        # The scan calls every /dev/sdX "scsi", which hides a SATA drive's ATA attributes (temperature, wear,
+        # reallocations): let smartctl detect the type itself (SATA passthrough).
+        if dtype == "scsi":
+            dtype = None
+        args = ["smartctl", "-j", "-H", "-A", "-i", dev] + (["-d", dtype] if dtype else [])
+        d = json.loads(run(*args, check=False) or "{}")
+        serial = d.get("serial_number")
+        if not serial or serial in seen:
+            continue
+        seen.add(serial)
+        nvme = d.get("nvme_smart_health_information_log") or {}
+        ata = {a["id"]: a["raw"]["value"] for a in (d.get("ata_smart_attributes") or {}).get("table", [])}
+        rec = {"device": dev, "model": d.get("model_name") or d.get("scsi_model_name"), "serial": serial,
+               "passed": (d.get("smart_status") or {}).get("passed"),
+               # None when the drive reports none (the Micron SATA SSDs: 0 in every field).
+               "temp_c": (d.get("temperature") or {}).get("current") or (ata[194] & 0xFF if 194 in ata else None) or None,
+               "wear_pct": nvme["percentage_used"] if "percentage_used" in nvme else ata.get(202),
+               "power_on_hours": (d.get("power_on_time") or {}).get("hours"),
+               "reallocated": ata.get(5), "grown_defects": d.get("scsi_grown_defect_list")}
+        out.append(rec)
+        name = f"{rec['model'] or dev} {serial} ({dev})"
+        if rec["passed"] is False:
+            issues.append(f"Disk {name}: SMART health check FAILED")
+        limit = NVME_TEMP if dev.startswith("/dev/nvme") else DISK_TEMP
+        if rec["temp_c"] is not None and rec["temp_c"] >= limit:
+            issues.append(f"Disk {name}: {rec['temp_c']} °C")
+        if rec["wear_pct"] is not None and rec["wear_pct"] >= WEAR:
+            issues.append(f"Disk {name}: {rec['wear_pct']}% of its rated life used")
+        for key, label in (("reallocated", "reallocated sectors"), ("grown_defects", "grown defects")):
+            now, then = rec[key], (before.get(serial) or {}).get(key)
+            if now and then is not None and now > then:
+                issues.append(f"Disk {name}: {label} rose from {then} to {now}")
+            elif now:
+                notes.append(f"Disk {name}: {now} {label} (unchanged; a rise would be a problem)")
+    if "--dry-run" not in sys.argv:              # a dry run doesn't move the baseline
+        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+        json.dump({r["serial"]: {"reallocated": r["reallocated"], "grown_defects": r["grown_defects"]} for r in out},
+                  open(STATE_FILE, "w"))
+    return out
+
+
+@section("certificates")
+def certificates():
+    out = {}
+    for label, path in (("PVE GUI (8006)", "/etc/pve/local/pveproxy-ssl.pem"), ("PBS GUI (8007)", "/etc/proxmox-backup/proxy.pem")):
+        if not os.path.exists(path):
+            continue
+        end = run("openssl", "x509", "-enddate", "-noout", "-in", path).strip().split("=", 1)[1]
+        days = (dt.datetime.strptime(end, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=dt.timezone.utc) - NOW).days
+        out[label] = days
+        if days < CERT_DAYS:
+            issues.append(f"Certificate {label} expires in {days} days")
+        elif days < CERT_NOTE_DAYS:
+            notes.append(f"Certificate {label} expires in {days} days (renewal should happen by itself)")
+    return out
+
+
+@section("firewall")
+def firewall():
+    """Dropped inbound packets in the last 24 hours, counted by guest, source, destination, protocol and port."""
+    since = NOW - dt.timedelta(hours=24)
+    flows, total = Counter(), 0
+    for path in ("/var/log/pve-firewall.log.1", "/var/log/pve-firewall.log"):
+        if not os.path.exists(path):
+            continue
+        with (gzip.open(path, "rt", errors="replace") if path.endswith(".gz") else open(path, errors="replace")) as f:
+            for line in f:
+                m = re.match(r"(\d+) \d+ (\S+) (\S+ [+-]\d{4}) policy DROP: (.*)", line)
+                if not m:
+                    continue
+                when = dt.datetime.strptime(m.group(3), "%d/%b/%Y:%H:%M:%S %z")
+                if when < since:
+                    continue
+                kv = dict(re.findall(r"(SRC|DST|PROTO|DPT)=(\S+)", m.group(4)))
+                guest = "host" if m.group(1) == "0" else m.group(1)
+                flows[(guest, kv.get("SRC"), kv.get("DST"), kv.get("PROTO"), kv.get("DPT"))] += 1
+                total += 1
+    top = [{"guest": k[0], "src": k[1], "dst": k[2], "proto": k[3], "dport": k[4], "count": n}
+           for k, n in flows.most_common(10)]
+    return {"dropped_24h": total, "distinct_flows": len(flows), "top": top}
+
+
+def collect():
+    facts = {"report": "phoenixstack-lab-report", "version": 1, "node": NODE,
+             "generated": NOW.strftime("%Y-%m-%d %H:%M UTC"), "window": f"since {SINCE.strftime('%Y-%m-%d %H:%M UTC')}"}
+    for name, fn in (("host", host), ("guests", guests), ("backups", backups), ("pbs", pbs), ("storage", storage),
+                     ("zfs", zfs), ("disks", disks), ("certificates", certificates), ("firewall", firewall)):
+        facts[name] = fn()
+    facts["issues"], facts["notes"], facts["check_errors"] = issues, notes, errors
+    facts["status"] = "OK" if not issues else f"{len(issues)} issue" + ("s" if len(issues) != 1 else "")
+    return facts
+
+
+def as_text(facts):
+    lines = [f"PhoenixStack lab report, {facts['generated']}: {facts['status']}", ""]
+    lines += ["Issues:"] + [f"  - {i}" for i in facts["issues"]] if facts["issues"] else ["No issues."]
+    if facts["notes"]:
+        lines += ["", "Notes:"] + [f"  - {n}" for n in facts["notes"]]
+    lines += ["", "Facts (JSON):", json.dumps(facts, indent=1)]
+    return "\n".join(lines)
+
+
+def send(facts):
+    url = os.environ.get("LAB_REPORT_URL")
+    token = open(TOKEN_FILE).read().strip()
+    req = urllib.request.Request(url, data=json.dumps(facts).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "X-Phoenix-Token": token})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.status
+
+
+def mail_root(facts, reason):
+    body = f"Subject: Lab report ({reason}): {facts['status']}\nTo: root\n\n{reason}\n\n{as_text(facts)}\n"
+    subprocess.run(["/usr/sbin/sendmail", "-t"], input=body, text=True, check=True, timeout=60)
+
+
+def main():
+    facts = collect()
+    if "--dry-run" in sys.argv:
+        print(json.dumps(facts, indent=1))
+        return 0
+    try:
+        status = send(facts)
+        print(f"sent to n8n: HTTP {status}; {facts['status']}")
+        return 0
+    except Exception as e:                               # noqa: BLE001 - any failure falls back to mail
+        mail_root(facts, f"n8n unreachable: {type(e).__name__}")
+        print(f"n8n unreachable ({type(e).__name__}: {str(e)[:150]}); facts mailed to root", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
