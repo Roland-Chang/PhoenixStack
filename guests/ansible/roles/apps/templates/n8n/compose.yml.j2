@@ -15,6 +15,10 @@ services:
       - proxy
     environment:
       TZ: {{ app_timezone }}
+      # Its uid has no account in the image, so its home would be / (n8n then tries to create /.n8n).
+      # n8n keeps everything in <N8N_USER_FOLDER>/.n8n: the mounted data folder.
+      HOME: /home/node
+      N8N_USER_FOLDER: /home/node
       GENERIC_TIMEZONE: {{ app_timezone }}
       N8N_HOST: {{ n8n_host }}
       N8N_PROTOCOL: https

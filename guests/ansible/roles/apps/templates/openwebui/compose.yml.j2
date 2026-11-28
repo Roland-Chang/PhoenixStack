@@ -16,6 +16,9 @@ services:
       - proxy
     environment:
       TZ: {{ app_timezone }}
+      # Its uid has no home in the image (HOME=/root, unreadable to it). The PostgreSQL client looks for a
+      # client certificate in $HOME/.postgresql, and a refused look is fatal; the data folder is its home.
+      HOME: /app/backend/data
       WEBUI_URL: {{ owui_url }}
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?no .env}
       # PostgreSQL on pgsql01 over TLS (as Authentik: encrypted, certificate not checked).
