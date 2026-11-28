@@ -48,9 +48,10 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.10"
-readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme verify)
+readonly VERSION="2026.11.11"
+readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme report verify)
 readonly STATE_DIR="/etc/phoenixstack"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; readonly SCRIPT_DIR
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
 readonly BACKUP_DIR="/var/backups/phoenix-bootstrap/${RUN_ID}"
 readonly LOCK_FILE="/run/phoenix-bootstrap.lock"
@@ -1630,6 +1631,64 @@ check() {  # check <description> <command...>
 check_eq() {  # check_eq <description> <actual> <expected>
   if [[ $2 == "$3" ]]; then ok "$1"; else warn "FAIL: $1 (found '${2:-nothing}')"; fi
 }
+# ----------------------------------------------------------------------------
+# Stage: report (optional) — the nightly lab report (guests/README.md, "Nightly lab report")
+# ----------------------------------------------------------------------------
+# phoenix-lab-report collects and counts the host's health facts and posts them to an n8n webhook, which has
+# the local model summarise them and emails the report; if n8n can't be reached it mails the facts to root.
+stage_report() {
+  section "report"
+  if [[ ${LAB_REPORT_ENABLE:-no} != yes ]]; then info "lab report not enabled — skipped"; return 0; fi
+  local token="${STATE_DIR}/lab-report.token" changed=no
+
+  ensure_file /usr/local/sbin/phoenix-lab-report 0755 <"${SCRIPT_DIR}/phoenix-lab-report"
+  [[ $FILE_CHANGED == yes ]] && changed=yes
+  ensure_file "${STATE_DIR}/lab-report.env" 0600 < <(printf '# Managed by pve-bootstrap (stage report)\nLAB_REPORT_URL=%s\n' "$LAB_REPORT_URL")
+  # The webhook's secret (1Password "(n8n) - Lab report webhook token"): prompted once, root-only.
+  if [[ -s $token ]]; then ok "$token"
+  elif is_apply; then
+    read_secret LAB_REPORT_TOKEN "n8n webhook token (1Password: (n8n) - Lab report webhook token)"
+    ensure_file "$token" 0600 --secret <<<"$LAB_REPORT_TOKEN"
+    unset LAB_REPORT_TOKEN
+  else
+    change "$token (token prompted at apply)"
+  fi
+
+  ensure_file /etc/systemd/system/phoenix-lab-report.service 0644 < <(printf '%s\n' \
+    "# Managed by pve-bootstrap (stage report)" \
+    "[Unit]" \
+    "Description=PhoenixStack nightly lab report (facts to n8n)" \
+    "After=network-online.target pve-cluster.service" \
+    "Wants=network-online.target" \
+    "" \
+    "[Service]" \
+    "Type=oneshot" \
+    "EnvironmentFile=${STATE_DIR}/lab-report.env" \
+    "ExecStart=/usr/local/sbin/phoenix-lab-report" \
+    "Nice=10")
+  [[ $FILE_CHANGED == yes ]] && changed=yes
+  # In the host's time zone (UTC): after the night's backups, prune, GC and verify (see PBS above).
+  ensure_file /etc/systemd/system/phoenix-lab-report.timer 0644 < <(printf '%s\n' \
+    "# Managed by pve-bootstrap (stage report)" \
+    "[Unit]" \
+    "Description=PhoenixStack nightly lab report at ${LAB_REPORT_TIME} (host time, UTC)" \
+    "" \
+    "[Timer]" \
+    "OnCalendar=*-*-* ${LAB_REPORT_TIME}:00" \
+    "Persistent=true" \
+    "" \
+    "[Install]" \
+    "WantedBy=timers.target")
+  [[ $FILE_CHANGED == yes ]] && changed=yes
+  if [[ $changed == yes ]]; then run systemctl daemon-reload; fi
+  if systemctl is-enabled --quiet phoenix-lab-report.timer 2>/dev/null && systemctl is-active --quiet phoenix-lab-report.timer; then
+    ok "phoenix-lab-report.timer enabled and active"
+  else
+    change "enable phoenix-lab-report.timer"
+    run systemctl enable --now phoenix-lab-report.timer
+  fi
+}
+
 stage_verify() {
   section "verify"
   check "rpool mirrored"                  sh -c 'zpool status rpool | grep -qE "^\s+mirror-"'
