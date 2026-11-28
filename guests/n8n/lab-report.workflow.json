@@ -1,0 +1,89 @@
+{
+  "name": "Nightly lab report",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lab-report",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Facts from pve01",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "phoenix-lab-report",
+      "credentials": { "httpHeaderAuth": { "name": "Lab report webhook token" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// The facts pve01 counted (phoenix-lab-report). Problems and the subject are decided here and there,\n// never by the model: it only writes the summary.\nconst f = $input.first().json.body;\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst day = (f.generated || '').slice(0, 10);\nconst subject = `Lab report ${day}: ${f.issues.length ? f.status : 'all OK'}`;\n\nconst list = (title, items) => items && items.length ? `<h3>${title}</h3><ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>` : '';\nconst table = (title, rows, cols) => !rows || !rows.length ? '' :\n  `<h3>${title}</h3><table border=\"1\" cellpadding=\"4\" cellspacing=\"0\" style=\"border-collapse:collapse;font-size:13px\">` +\n  `<tr>${cols.map(c => `<th align=\"left\">${esc(c[0])}</th>`).join('')}</tr>` +\n  rows.map(r => `<tr>${cols.map(c => `<td>${esc(typeof c[1] === 'function' ? c[1](r) : r[c[1]])}</td>`).join('')}</tr>`).join('') + '</table>';\n\nconst h = f.host || {};\nconst factsHtml = [\n  list('Issues', f.issues), list('Notes', f.notes), list('Checks that failed to run', f.check_errors),\n  `<h3>Host</h3><p>${esc(h.pve)}<br>Up ${esc(h.uptime_days)} days, kernel ${esc(h.kernel)}; ${esc(h.pending_updates)} updates pending; failed units: ${esc((h.failed_units || []).join(', ') || 'none')}</p>`,\n  table('Guests', f.guests, [['ID', 'vmid'], ['Name', 'name'], ['Type', 'type'], ['Status', 'status'], ['Up (days)', 'uptime_days'], ['Starts at boot', r => r.onboot ? 'yes' : 'no']]),\n  table('Backup runs (last 26 hours)', (f.backups || {}).runs, [['Started', 'started'], ['Minutes', 'minutes'], ['Status', 'status'], ['Failed guests', r => (r.failed_guests || []).join(', ')]]),\n  table('PBS jobs (last 26 hours)', Object.entries(f.pbs || {}).map(([k, v]) => ({ k, ...v })), [['Job', 'k'], ['Runs', 'runs'], ['Not OK', 'not_ok']]),\n  table('Storage', f.storage, [['Storage', 'id'], ['Type', 'type'], ['Active', r => r.active ? 'yes' : 'NO'], ['Used', r => Math.round(r.used * 100) + '%'], ['Size (GB)', 'total_gb']]),\n  table('ZFS pools', f.zfs, [['Pool', 'pool'], ['Health', 'health'], ['Used', r => r.cap_pct + '%'], ['Size (GB)', 'size_gb'], ['Last scrub (days)', r => r.last_scrub_days ?? 'none yet'], ['Errors', 'errors']]),\n  table('Disks', f.disks, [['Device', 'device'], ['Model', 'model'], ['SMART', r => r.passed === false ? 'FAILED' : 'passed'], ['Temp (°C)', r => r.temp_c ?? '-'], ['Wear', r => r.wear_pct == null ? '-' : r.wear_pct + '%'], ['Reallocated', r => r.reallocated ?? '-'], ['Defects', r => r.grown_defects ?? '-']]),\n  table('Certificates (days left)', Object.entries(f.certificates || {}).map(([k, v]) => ({ k, v })), [['Certificate', 'k'], ['Days', 'v']]),\n  table(`Firewall drops, last 24 hours: ${(f.firewall || {}).dropped_24h ?? '?'} in ${(f.firewall || {}).distinct_flows ?? '?'} flows (top 10)`, (f.firewall || {}).top, [['Guest', 'guest'], ['Source', 'src'], ['Destination', 'dst'], ['Protocol', 'proto'], ['Port', 'dport'], ['Count', 'count']]),\n].join('\\n');\n\n// What the model sees: the decided problems and notes, plus the facts in compact form.\nconst compact = { generated: f.generated, status: f.status, issues: f.issues, notes: f.notes, check_errors: f.check_errors,\n  host: h, guests: f.guests, backups: f.backups, pbs: f.pbs, storage: f.storage, zfs: f.zfs,\n  disks: (f.disks || []).map(d => ({ model: d.model, device: d.device, temp_c: d.temp_c, wear_pct: d.wear_pct, passed: d.passed })),\n  certificates: f.certificates, firewall: f.firewall };\nconst prompt = `You write the morning health summary of a home lab's Proxmox server (pve01) for its administrator.\nRules: use ONLY the facts below; never invent numbers, names or causes. The ISSUES list is authoritative: every\nissue must appear, none may be added. Write plain text, at most 10 short lines:\n1. One line: the verdict (all OK, or how many issues).\n2. Each issue: what it means and the obvious next step, in one or two lines.\n3. Only then, at most three notes worth knowing (trends, things coming up), if any.\nNo greeting, no sign-off, no tables, no markdown headings.\n\nFACTS (JSON):\n${JSON.stringify(compact)}`;\n\nreturn [{ json: { subject, prompt, factsHtml } }];"
+      },
+      "name": "Prepare",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}"
+      },
+      "name": "Summary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [480, 0],
+      "onError": "continueRegularOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "model": "gpt-oss-120b-MXFP4",
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 3000,
+          "timeout": 600000
+        }
+      },
+      "name": "gpt-oss-120b on ai01",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [480, 220],
+      "credentials": { "openAiApi": { "name": "ai01 (llama-server)" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "// The summary first (or a note that it's missing), then every fact, so nothing depends on the model.\nconst p = $('Prepare').first().json;\nconst text = $input.first().json.text;\nconst esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst summary = text && String(text).trim()\n  ? `<pre style=\"font-family:inherit;white-space:pre-wrap;font-size:14px\">${esc(String(text).trim())}</pre>`\n  : '<p><b>Summary unavailable</b> (the model on ai01 didn\\'t answer); the facts below are complete.</p>';\nconst html = `<div style=\"font-family:sans-serif\">${summary}<hr><p style=\"color:#666;font-size:12px\">Summary by gpt-oss-120b on ai01; the facts and problems below are counted by phoenix-lab-report on pve01.</p>${p.factsHtml}</div>`;\nreturn [{ json: { subject: p.subject, html } }];"
+      },
+      "name": "Compose",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [720, 0]
+    },
+    {
+      "parameters": {
+        "fromEmail": "SET-IN-N8N: Brevo's verified sender",
+        "toEmail": "alerts@phoenixstack.net",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "html",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "name": "Email the report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [960, 0],
+      "credentials": { "smtp": { "name": "Brevo (n8n)" } }
+    }
+  ],
+  "connections": {
+    "Facts from pve01": { "main": [[{ "node": "Prepare", "type": "main", "index": 0 }]] },
+    "Prepare": { "main": [[{ "node": "Summary", "type": "main", "index": 0 }]] },
+    "gpt-oss-120b on ai01": { "ai_languageModel": [[{ "node": "Summary", "type": "ai_languageModel", "index": 0 }]] },
+    "Summary": { "main": [[{ "node": "Compose", "type": "main", "index": 0 }]] },
+    "Compose": { "main": [[{ "node": "Email the report", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
