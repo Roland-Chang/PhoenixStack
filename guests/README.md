@@ -1256,15 +1256,15 @@ reasoning models spent their whole budget counting lines.
 
 ### Step 5: Open WebUI and n8n (design, 2026-11-27)
 
-**Draft, for the Young admin's decisions** (marked *Decide*). Both on `docker01` as stacks of role `apps`, like the
+**Decided by the Young admin 2026-11-27:** admins first, family later; the name `openwebui.int`. Both on `docker01` as stacks of role `apps`, like the
 admin apps; both use `ai01` through llama-server's OpenAI API, `http://ai01.int.phoenixstack.net:8080/v1` (`ai01`'s
 firewall already lets `docker01` in).
 
 | Area | Open WebUI (chat) | n8n (automations) |
 | --- | --- | --- |
 | Version | `v0.13.5` (2026-11-25), pinned | `2.49.8` (stable, 2026-11-27), pinned |
-| Who | *Decide:* admins only, or also family (`Young`, `Porter`) | Admins only |
-| Name | *Decide:* `openwebui.int` (the naming rule: after the app) or `chat.int` | `n8n.int` |
+| Who | **Admins first** (`authentik Admins`); family (`Young`, `Porter`) later, as its own step (below) | Admins only |
+| Name | **`openwebui.int`** (the naming rule). A friendlier name later (e.g. `chat.int`) is a redirect: its own Pi-hole name and a Traefik route redirecting to `openwebui.int`. Not a plain CNAME: Traefik answers only the names it routes, and the OIDC redirect URIs are strict on the real name. | `n8n.int` |
 | Login | **Authentik OIDC**, its own login form off: as Mealie. Accounts are created at first login and matched by email; `authentik Admins` become Open WebUI admins (role claim), everyone else a user. | **Authentik forward-auth** (`admin_only`, `authentik: true`), then n8n's own owner login behind it, as autobrr. n8n's OIDC needs its paid Enterprise licence. Owner password in 1Password. |
 | Database | **PostgreSQL on `pgsql01`**: database `openwebui`, nightly dumps (the dump standard). Uploaded files and the document index (Chroma) in the stack's data folder. | **PostgreSQL on `pgsql01`**: database `n8n`. n8n's runs history is pruned after 14 days. |
 | Secrets (1Password, the stack's `.env`) | DB password, OIDC client secret, `WEBUI_SECRET_KEY` (signs sessions) | DB password, **`N8N_ENCRYPTION_KEY`**: it encrypts every credential n8n stores. Losing it makes them unreadable, so it's in 1Password before the first start. |
@@ -1274,7 +1274,7 @@ firewall already lets `docker01` in).
 | Webhooks | | None from outside for now: forward-auth answers callers that aren't browsers with a redirect. A webhook path of its own (with a secret) when a workflow needs one. |
 | Backups | `docker01`'s nightly VM backups (data folders) and `pgsql01`'s dumps | The same |
 
-**If family members use Open WebUI**, it's the first household app on `docker01`:
+**Family, later** (its own step, once it has proven itself with the admins): it's the first household app on `docker01`:
 
 - **UDM:** the rule `LAN and VPN clients → docker01:443` ([UDM rules](#udm-rules)). Every other route on `docker01`
   stays `admin_only`, which Traefik still enforces.
@@ -1293,7 +1293,8 @@ Steps (each dry-run first):
 4. `docker01`: the two stacks and routes (`apb docker.yml`), then `dns.yml` on `dns01`, then `dns02`.
 5. Open WebUI: the connection to `ai01`, model names and access. n8n: the owner account, an OpenAI credential pointing
    at `ai01`, a first test workflow.
-6. If family: the UDM rule, then a test from a family member's device.
+6. Later, for family: the groups `Young` and `Porter` on its OIDC client, the UDM rule, then a test from a family
+   member's device.
 
 ### Later
 
