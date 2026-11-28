@@ -7,7 +7,7 @@ the services built on them, one layer at a time (L5a groundwork, then L5b onward
 Status (2026-11-27): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
 and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f**: `docker02` takes the internet's `443` and runs
 the public apps (Audiobookshelf, Immich, Mealie, IT-Tools), with logins through Authentik. **L5g**: `plex01` live.
-**L5h under way**: `ai01` serves gpt-oss-20b and gpt-oss-120b through llama-server (model test 2026-11-27); next, Open WebUI and n8n on `docker01`.
+**L5h under way**: `ai01` serves gpt-oss-20b and gpt-oss-120b; Open WebUI and n8n run on `docker01` (2026-11-28, admins only); next, the first logins and model access.
 [Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -1281,6 +1281,21 @@ firewall already lets `docker01` in).
 - **DNS:** household devices need the `int.` names. The Young LAN has them through the UDM; Porter is in progress
   ([Household DNS](#household-dns)); VPN clients don't (REBUILD_STATE item 1).
 - **Accounts:** each person already exists in Authentik (`first.last`, Google sign-in) with group `Young` or `Porter`.
+
+**Applied 2026-11-28.** Found on the way, fixed in the templates: both images assume their own user's home, so
+each uid needs one it can write. Open WebUI: `HOME` = its data folder (the PostgreSQL client treats an unreadable
+`/root/.postgresql` as fatal). n8n: the data folder mounted as the whole `/home/node` (n8n keeps `.n8n` **and**
+`.cache` under `N8N_USER_FOLDER`); `WEBHOOK_URL` is deprecated, `N8N_WEBHOOK_URL` used. At first start Open WebUI
+downloads its document-search model from Hugging Face (no prompts involved). n8n logs that Python is missing (its
+Code node runs JavaScript only) and that its internal task runner mode is deprecated (a separate runner container
+later).
+
+Checked 2026-11-28: both healthy, no restarts; databases created (Open WebUI 55 tables, n8n 180) and reached over
+TLS; `openwebui.int` and `n8n.int` on both resolvers; n8n redirects to Authentik; Open WebUI offers only the OIDC
+login (form and sign-up off), which hands over to Authentik with client `openwebui`.
+
+Left: the first logins (Open WebUI makes an `authentik Admins` member its admin; n8n's owner account from
+`(n8n) - Owner login`); in Open WebUI, `gpt-oss-120b` visible to admins only; a first n8n workflow against `ai01`.
 
 Steps (each dry-run first):
 
