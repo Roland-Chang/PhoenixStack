@@ -48,7 +48,7 @@ umask 022
 # UTF-8 locale `sort` ignores case and reports a false "update role" on every run.
 export LC_COLLATE=C
 
-readonly VERSION="2026.11.9"
+readonly VERSION="2026.11.10"
 readonly ALL_STAGES=(preflight repos system network kernel nas storage access templates firewall notify pbs backups acme verify)
 readonly STATE_DIR="/etc/phoenixstack"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"; readonly RUN_ID
@@ -1145,6 +1145,16 @@ ensure_matcher() {
     --comment "Managed by pve-bootstrap: ${desc}" "$@"
 }
 
+# matcher_severities <name> <file> — a matcher's match-severity rules, one per line as written
+matcher_severities() {
+  awk -v sec="matcher: $1" '/^[a-z]+: / { insec = ($0 == sec); next } insec && $1 == "match-severity" { print $2 }' "$2"
+}
+
+# The alerts matcher needs ONE match-severity rule listing every severity ("warning,error"). One rule per
+# severity never matches: a matcher's default mode is "all", so a notification would need every severity
+# at once (2026.11.10; found 2026-11-28, when four failed backups sent no email since 2026-11-16).
+alert_matcher_ok() { [[ $(matcher_severities phoenix-alerts "$1" | paste -sd' ') == "$NOTIFY_SEVERITIES" ]]; }
+
 # pve_notify_value <target> <key> [file] — one value from PVE's notification config section
 # (the SMTP key is only in /etc/pve/priv/notifications.cfg, which the API never returns)
 pve_notify_value() {
@@ -1221,9 +1231,14 @@ stage_notify() {
     fi
   fi
 
-  local -a sev=() sv
-  for sv in ${NOTIFY_SEVERITIES//,/ }; do sev+=(--match-severity "$sv"); done
-  ensure_matcher phoenix-alerts "severity ${NOTIFY_SEVERITIES}" "${sev[@]}"
+  ensure_matcher phoenix-alerts "severity ${NOTIFY_SEVERITIES}" --match-severity "$NOTIFY_SEVERITIES"
+  if pve_exists /cluster/notifications/matchers/phoenix-alerts; then
+    if alert_matcher_ok /etc/pve/notifications.cfg; then ok "matcher phoenix-alerts: one rule, severity ${NOTIFY_SEVERITIES}"
+    else
+      change "matcher phoenix-alerts: severity rules '$(matcher_severities phoenix-alerts /etc/pve/notifications.cfg | paste -sd' ')' -> '${NOTIFY_SEVERITIES}' (one rule per severity never matches)"
+      run pvesh set /cluster/notifications/matchers/phoenix-alerts --match-severity "$NOTIFY_SEVERITIES"
+    fi
+  fi
   if [[ ${NOTIFY_ALL_BACKUP_JOBS:-no} == yes ]]; then
     ensure_matcher phoenix-backups "every backup job result" --match-field "exact:type=vzdump"
   elif pve_exists "/cluster/notifications/matchers/phoenix-backups"; then
@@ -1452,12 +1467,15 @@ pbs_notifications() {
     fi
   fi
 
-  if pbs_has name phoenix-alerts notification matcher list; then ok "PBS matcher phoenix-alerts"
+  if pbs_has name phoenix-alerts notification matcher list; then
+    if alert_matcher_ok /etc/proxmox-backup/notifications.cfg; then ok "PBS matcher phoenix-alerts: one rule, severity ${NOTIFY_SEVERITIES}"
+    else
+      change "PBS matcher phoenix-alerts: severity rules '$(matcher_severities phoenix-alerts /etc/proxmox-backup/notifications.cfg | paste -sd' ')' -> '${NOTIFY_SEVERITIES}' (one rule per severity never matches)"
+      run proxmox-backup-manager notification matcher update phoenix-alerts --match-severity "$NOTIFY_SEVERITIES"
+    fi
   else
-    local -a sev=() sv
-    for sv in ${NOTIFY_SEVERITIES//,/ }; do sev+=(--match-severity "$sv"); done
     change "add PBS matcher phoenix-alerts: severity ${NOTIFY_SEVERITIES} -> ${n}"
-    run proxmox-backup-manager notification matcher create phoenix-alerts --target "$n" "${sev[@]}" \
+    run proxmox-backup-manager notification matcher create phoenix-alerts --target "$n" --match-severity "$NOTIFY_SEVERITIES" \
       --comment "Managed by pve-bootstrap: severity ${NOTIFY_SEVERITIES}"
   fi
 

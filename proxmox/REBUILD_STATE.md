@@ -33,7 +33,12 @@ How things got here is in the git history (`git log -- proxmox/`).
    have a few weeks of history.
    Also Protected since 2026-11-28, as PLEX-TEMP's final backups (deleted guest): `vm/9999/2026-11-26T08:04:13Z` on
    `pbs-local` and `vzdump-qemu-9999-2026_11_26-10_41_33` on `nas-dump`, kept until about 2027-02-28.
-5. ~~Set `NOTIFY_ALL_BACKUP_JOBS="no"`~~ **Applied 2026-11-21** (`notify` stage; the plan removed only the `phoenix-backups` matcher). Only failed backups are emailed now.
+5. ~~Set `NOTIFY_ALL_BACKUP_JOBS="no"`~~ **Applied 2026-11-21** (`notify` stage; the plan removed only the `phoenix-backups` matcher). Only failed backups are emailed now. **But until 2026-11-28 not even those:** the `phoenix-alerts` matchers (PVE and PBS) had one `match-severity` rule
+   per severity, and a matcher's default mode is "all", so nothing could match (warning **and** error). Found when four
+   failed backups (PLEX-TEMP, 11-27 and 11-28) sent no email. Bootstrap 2026.11.10 writes one rule, `warning,error`,
+   and corrects an existing matcher; applied (`notify`, `pbs`). Tested: a backup of a missing VM (`vzdump 99999`) matched
+   `phoenix-alerts` and went to `brevo`. Root's system mail and the update notices have their own matchers and were
+   never affected.
 6. ~~Temporary migration host~~ **Wiped** (review item O8, closed 2026-11-26): the separate Proxmox machine on the
    Young LAN that ran copies of the guests during the rebuild (2026-11-12 to 2026-11-20).
 7. **Port forwards** (2026-11-24): `443` → `docker02` (`10.101.2.102`), Cloudflare's addresses only, port `443`
