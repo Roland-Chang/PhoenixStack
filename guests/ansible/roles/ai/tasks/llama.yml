@@ -72,6 +72,32 @@
     force: true
   register: ai_llama_link
 
+- name: Folder for llama-server's settings
+  ansible.builtin.file:
+    path: /etc/llama-server
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: llama-server's per-model settings (models.ini)
+  ansible.builtin.copy:
+    dest: /etc/llama-server/models.ini
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      ; Managed by Ansible (role ai, ai_llama_presets in defaults/main.yml).
+      version = 1
+      {% for section, opts in ai_llama_presets.items() %}
+
+      [{{ section }}]
+      {% for key, value in opts.items() %}
+      {{ key }} = {{ value }}
+      {% endfor %}
+      {% endfor %}
+  register: ai_llama_presets_file
+
 # Listens on every address: the Proxmox firewall lets only docker01 and the admin sources reach it.
 # No built-in chat app (Open WebUI is the front end) and no API key (as Ollama).
 - name: llama-server's service
@@ -91,7 +117,7 @@
       [Service]
       User=llama
       Group=llama
-      ExecStart=/opt/llama.cpp/current/llama-server --host 0.0.0.0 --port {{ ai_llama_port }} --models-dir {{ ai_models_dir }}/gguf --models-max {{ ai_llama_max_models }} --sleep-idle-seconds {{ ai_llama_idle_seconds }} --no-webui
+      ExecStart=/opt/llama.cpp/current/llama-server --host 0.0.0.0 --port {{ ai_llama_port }} --models-dir {{ ai_models_dir }}/gguf --models-preset /etc/llama-server/models.ini --models-max {{ ai_llama_max_models }} --sleep-idle-seconds {{ ai_llama_idle_seconds }} --no-webui
       Environment=HOME=/var/lib/llama
       Environment=LLAMA_CACHE=/var/lib/llama/cache
       Restart=always
@@ -114,8 +140,10 @@
     daemon_reload: "{{ ai_llama_unit is changed }}"
   when: not (ansible_check_mode and ai_llama_unit is changed)
 
-- name: Restart llama-server (new build or settings)
+- name: Restart llama-server (new build, service or per-model settings)
   ansible.builtin.systemd_service:
     name: llama-server.service
     state: restarted
-  when: (ai_llama_link is changed or ai_llama_unit is changed) and not ansible_check_mode
+  when: >-
+    (ai_llama_link is changed or ai_llama_unit is changed or ai_llama_presets_file is changed)
+    and not ansible_check_mode

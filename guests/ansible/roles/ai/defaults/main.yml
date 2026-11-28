@@ -61,3 +61,21 @@ ai_llama_port: 8080
 # a time (16 GB of VRAM), and unloaded after this much idle time, so Ollama can have the GPU.
 ai_llama_max_models: 1
 ai_llama_idle_seconds: 600
+
+# Per-model settings (llama-server's presets file, /etc/llama-server/models.ini): one section per model,
+# named as the router lists it (the GGUF file name without .gguf); keys are llama-server's own options
+# without the dashes. `*` applies to all. Chosen by the model test of 2026-11-27 (guests/README.md, L5h).
+ai_llama_presets:
+  "*":
+    jinja: "true"
+  # Main model: coding, automations, n8n. All on the GPU (12 GB at 32K). Two slots of 32K each, so two
+  # callers (Open WebUI, n8n) don't queue behind each other.
+  gpt-oss-20b-MXFP4:
+    c: 65536
+    np: 2
+  # Overnight and harder jobs: ~14 GB on the GPU, ~59 GB in RAM. Loaded without mmap: its experts in RAM
+  # are read faster from memory it owns than through the page cache (llama.cpp's own advice in the log).
+  gpt-oss-120b-MXFP4:
+    c: 32768
+    np: 1
+    load-mode: none

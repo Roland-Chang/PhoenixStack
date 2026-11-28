@@ -7,7 +7,7 @@ the services built on them, one layer at a time (L5a groundwork, then L5b onward
 Status (2026-11-27): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
 and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f**: `docker02` takes the internet's `443` and runs
 the public apps (Audiobookshelf, Immich, Mealie, IT-Tools), with logins through Authentik. **L5g**: `plex01` live.
-**L5h under way**: `ai01` serves Ollama and llama-server on its GPU (2026-11-27), no models yet; next, Open WebUI and n8n on `docker01`.
+**L5h under way**: `ai01` serves gpt-oss-20b and gpt-oss-120b through llama-server (model test 2026-11-27); next, Open WebUI and n8n on `docker01`.
 [Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -1198,7 +1198,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ## L5h: Local AI (`ai01`)
 
-**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `models` (`data/models`). **Driver and model servers 2026-11-27** (role `ai`, playbook `ai.yml`): Debian's standard kernel, NVIDIA 620.70.10, five stop/start cycles passed; the models disk at `/models`; Ollama 0.40.19 and llama-server (llama.cpp v1.1.0, build b12774), both on the GPU, no models yet. **Next:** choose the models; Open WebUI and n8n on `docker01` (step 5). Background, models and use cases:
+**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `models` (`data/models`). **Driver and model servers 2026-11-27** (role `ai`, playbook `ai.yml`): Debian's standard kernel, NVIDIA 620.70.10, five stop/start cycles passed; the models disk at `/models`; Ollama 0.40.19 and llama-server (llama.cpp v1.1.0, build b12774), both on the GPU. **Models chosen 2026-11-27** by a test on ai01 ([Models](#models)): gpt-oss-20b and gpt-oss-120b, in llama-server. **Next:** Open WebUI and n8n on `docker01` (step 5). Background, models and use cases:
 [Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
 container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
 
@@ -1216,14 +1216,38 @@ container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `
 | Firewall | `11434` and `8080` from `docker01` and the admin sources only; SSH and ping from admin sources. | The model servers' APIs are open to anyone who can reach them. |
 | Backups | System disk in the nightly guest backups; the models disk excluded. | |
 
+### Models
+
+Tested on `ai01` 2026-11-27, each model alone with a 32K context and the same three tasks: a Python duplicate-file
+finder (run against a test folder with three-way duplicates, same-size different files, a symlink, empty files),
+two tool calls (restart two services), and 120 lines of pve01's firewall log (~19K tokens: Plex discovery
+broadcasts with 10 drops of `dns01` probing `ai01` mixed in). Builds from `ggml-org` on Hugging Face, SHA-256 checked.
+
+| Model (build) | GPU + RAM | Output | Prompt reading | Script | Tools | Log answer |
+| --- | --- | --- | --- | --- | --- | --- |
+| **gpt-oss-20b** (MXFP4, 12 GB) | 12 GB + 0 | **118 tok/s** | **5,200 tok/s** | correct | correct | found the probe; counts wrong |
+| **gpt-oss-120b** (MXFP4, 63 GB) | 14 GB + 59 GB | 16.7 tok/s | 100 tok/s | correct | correct | **best**: counts right, probe flagged (5 min) |
+| Nemotron 3.5 Lightning (Q4_0; NVFP4) | 14.7 GB + 4.8 GB | 68 tok/s (NVFP4: 55) | 800 tok/s | correct | correct | none: 4,000 tokens of reasoning, counting lines |
+| Inkling 2 Mini (IQ4_NL; NVFP4) | 15 GB + 14 GB | 13.8 tok/s (NVFP4: 12.7) | 182 tok/s | correct (NVFP4: none) | 5 calls (listed every zone first) | none: as Nemotron |
+
+**Kept:** gpt-oss-20b, the main model (coding help, automations, n8n), and gpt-oss-120b for overnight and harder
+jobs, both in llama-server, one loaded at a time (the router swaps them; 120b takes ~1.5 min to load). Ollama stays
+for small helper models (an embedding model for document search later). **Dropped:** Nemotron (slower than 20b,
+won nothing) and Inkling, whose looped layers read the part that doesn't fit the GPU three times per token: it
+needs a 24 GB card. Lessons: a model that fits the GPU entirely is several times faster than one that spills; for
+log analytics, let tools do the counting (awk, Loki, an n8n step) and the model interpret the summary, since the
+reasoning models spent their whole budget counting lines.
+
 ### How to use it
 
 - **An Ollama model:** `ssh ai01`, then `/opt/ollama/current/bin/ollama pull <model>` (listed with `ollama list`,
   removed with `ollama rm`).
 - **A GGUF model for llama-server:** download it into `/models/gguf` as its user, e.g.
-  `sudo -u llama curl -fL -o /models/gguf/<file>.gguf <url>`, then `sudo systemctl restart llama-server`: it reads
-  the folder only when it starts. A request's `model` is the file name without `.gguf`. Per-model settings
-  (`--n-cpu-moe`, context size) go in a presets file (`--models-preset`), added with the first big model.
+  `sudo -u llama curl -fL -o /models/gguf/<file>.gguf <url>` (check its SHA-256 against Hugging Face's), then
+  `curl -s 'localhost:8080/models?reload=1'`: the router reads the folder at start and on that request. A
+  request's `model` is the file name without `.gguf`. Its settings (context, slots, loading) go in
+  `ai_llama_presets` (role defaults), written to `/etc/llama-server/models.ini`; `apb ai.yml` restarts the server
+  when they change. llama-server places each model across GPU and RAM by itself (`--fit`, on by default).
 - **A new version:** change it and its SHA-256 in `roles/ai/defaults/main.yml`, `apb ai.yml --check --diff`, then
   `apb ai.yml`. The old version's folder stays in `/opt` for a rollback until removed by hand.
 - **Checked 2026-11-27** with 1B test models, then removed: Ollama 243 tokens/s, all layers on the GPU; llama-server
