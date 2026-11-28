@@ -12,7 +12,7 @@ How things got here is in the git history (`git log -- proxmox/`).
 | Pools | `nvme` (mirror, 860G), `ssd` (mirror, 231G), `backup` (RAIDZ1 + special mirror, 3.07T, dataset `backup/pbs`). `data` (3-way mirror of 3× Samsung 990 Pro 1TB on the ASUS Hyper M.2 card, 899G, dataset `data/models`, PVE storage `models` with 128k blocks for model disks; built 2026-11-27). |
 | Access | `aaron@pve` (group `admins`) and `root@pam` have TOTP, in PVE and in PBS. `ben@pve` (group `admins`) created 2026-11-26: the Porter admin changes the initial password and adds TOTP. Tokens: `terraform@pve!automation` (Terraform's, in use since L5a) and `claude-audit@pve!discovery` (secret in 1Password, `(Proxmox) Claude API`). |
 | Admin allowlist | `ADMIN_SOURCES`: `10.1.1.69` and `10.1.1.169` (Young admin workstation and laptop), `10.2.1.69` and `10.2.1.169` (Porter admin workstation and laptop, over the BPorter site-to-site VPN), `192.168.2.0/24` (Teleport VPN clients). The same list as the inventory's `admin_sources` and the UDM's admin rules (item 9 has the one exception). Last applied 2026-11-21: firewall plan 0 changes, `verify` 0 warnings. Checked 2026-11-15: a VPN client reaches the host; guests on the mgmt network can't reach ports 22, 8006 or 3128. |
-| Guests | **Restored 2026-11-14** with `onboot: 1`. Running: docker-temp (lxc 999, `nvme`, 10.101.0.178 since the 2026-11-26 reboot, fixed IP in UniFi; NAS shares Media and Porter bind-mounted read-write) and PLEX-TEMP (VM 9999, `nvme`, 10.101.0.111; GPU01 attached). AMP-TEMP (lxc 100, `ssd`) was **deleted 2026-11-23** by the Young admin (stopped since 2026-11-20); its backups stay: on `pbs-local` (retention never removes a deleted guest's last backups) and the protected `lxc-100-2026_11_12-19_32_20` on `nas-dump`. The game servers return with `amp01` (DMZ). FTP01 (9000) and INTEL01 (9001) are retired. |
+| Guests | **Restored 2026-11-14** with `onboot: 1`. Running: docker-temp (lxc 999, `nvme`, 10.101.0.178 since the 2026-11-26 reboot, fixed IP in UniFi; NAS shares Media and Porter bind-mounted read-write). PLEX-TEMP (VM 9999) was **deleted 2026-11-28** (Plex runs on `plex01` since 11-27); its final backups of 11-26 are Protected on `pbs-local` and `nas-dump`. AMP-TEMP (lxc 100, `ssd`) was **deleted 2026-11-23** by the Young admin (stopped since 2026-11-20); its backups stay: on `pbs-local` (retention never removes a deleted guest's last backups) and the protected `lxc-100-2026_11_12-19_32_20` on `nas-dump`. The game servers return with `amp01` (DMZ). FTP01 (9000) and INTEL01 (9001) are retired. |
 | Backups (L4) | **Done.** PBS 4.2 on the host, datastore `pve01-local`. Jobs `nightly-pbs` 01:00 and `nightly-nas` 03:30 (Denver; since 2026-11-24 written as 08:00 and 10:30 UTC, the host's clock now being UTC) have run successfully every night since 2026-11-14 (reported by the Young admin 2026-11-16). First PBS run: 256 GiB in 29 minutes. Test restore from the NAS passed, at about 24 MiB/s, so restoring every guest from the NAS takes hours. |
 | Alerts (L4) | **Done 2026-11-16.** Everything goes to `alerts@phoenixstack.net` through Brevo, from PVE and from PBS; test emails from both arrived. Root's mail (ZFS events, smartd, cron) goes the same way, and a `sendmail root` test arrived. The built-in `mail-to-root` targets are disabled, and the postfix queue is empty (the undeliverable mail from before the fix was deleted 2026-11-16). |
 | Patching and logging | **Applied 2026-11-16.** New package updates are emailed (matcher `phoenix-updates`, `notify package-updates=always`). Dropped inbound packets are logged to `/var/log/pve-firewall.log`. Updates are installed weekly, by hand. |
@@ -31,12 +31,14 @@ How things got here is in the git history (`git log -- proxmox/`).
 4. The pre-rebuild archives on `nas-dump` are still **Protected**: `lxc-100-2026_11_12-19_32_20`,
    `lxc-999-2026_11_12-02_26_20`, `qemu-9999-2026_11_12-02_39_30`. Remove the flag once the new backups
    have a few weeks of history.
+   Also Protected since 2026-11-28, as PLEX-TEMP's final backups (deleted guest): `vm/9999/2026-11-26T08:04:13Z` on
+   `pbs-local` and `vzdump-qemu-9999-2026_11_26-10_41_33` on `nas-dump`, kept until about 2027-02-28.
 5. ~~Set `NOTIFY_ALL_BACKUP_JOBS="no"`~~ **Applied 2026-11-21** (`notify` stage; the plan removed only the `phoenix-backups` matcher). Only failed backups are emailed now.
 6. ~~Temporary migration host~~ **Wiped** (review item O8, closed 2026-11-26): the separate Proxmox machine on the
    Young LAN that ran copies of the guests during the rebuild (2026-11-12 to 2026-11-20).
 7. **Port forwards** (2026-11-24): `443` → `docker02` (`10.101.2.102`), Cloudflare's addresses only, port `443`
    only; every public app runs there since 2026-11-26 (the temporary rule to docker-temp is deleted). `32400` (Plex) → `plex01` (`10.101.2.61`, DMZ) since
-   2026-11-27; no forward reaches the mgmt subnet any more. PLEX-TEMP is stopped (rollback until about 2026-12-04). No game-port forward
+   2026-11-27; no forward reaches the mgmt subnet any more. PLEX-TEMP was deleted 2026-11-28. No game-port forward
    is left (confirmed in UniFi 2026-11-26, review item O11).
 8. **Mgmt network** `10.101.0.0/24` (since 2026-11-20; DHCP `10.101.0.100`–`.249`, fixed addresses below `.100`).
    PLEX-TEMP has a fixed IP `.111` in UniFi since 2026-11-26: after that day's patch reboot it came back at
@@ -69,7 +71,7 @@ How things got here is in the git history (`git log -- proxmox/`).
     ([../guests/README.md](../guests/README.md#ansible), SSH agent).
 12. **Offsite backup copy**: both backup copies (PBS and the NAS) are in the same building. An open decision
     (see "Backup design" in [README.md](README.md)).
-13. **Retire docker-temp and PLEX-TEMP on about 2026-12-04** (planned 2026-11-27; steps in
+13. **Retire docker-temp on about 2026-12-04** (PLEX-TEMP retired early, deleted 2026-11-28; its UniFi rules, fixed IP and `svc_plex` change still to do) (planned 2026-11-27; steps in
     [../guests/README.md](../guests/README.md#retiring-docker-temp-and-plex-temp)): final backups Protected for 3
     months, delete both guests, drop pve01's `media` and `porter` mounts, narrow `svc_proxmox` and `svc_plex`, UniFi
     rules, revoke docker-temp's Cloudflare token.

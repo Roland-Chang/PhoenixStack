@@ -1091,10 +1091,19 @@ equal); Deployrr's compose files and Traefik rules archived on the Young admin's
 `~/phoenix-docker-temp-archive/` (owner-only; not `.env` or `secrets`, and one compose line holds a literal secret,
 so it stays private).
 
+**PLEX-TEMP retired early, 2026-11-28** (decided by the Young admin after plex01's home TV test passed): its backups
+failed every night since the switch (a stopped VM is started paused for its backup, and its GPU, `GPU01`, belongs
+to `plex01` now). Its last good backups, **2026-11-26** (PBS 08:04 UTC, NAS 10:41 UTC: the final state, as the switch
+was 11-27 02:26), are **Protected**, noted "kept 3 months, until 2027-02-28"; then `qm destroy 9999 --purge`
+(3 volumes, ~275 GB freed on `nvme`; nothing in HA, replication, jobs, ACLs or pools referred to it). A rollback is
+now a restore of that backup (`qmrestore`, PBS). Left for PLEX-TEMP: step 4's `svc_plex` change, step 5's two
+Plex-TEMP rules and the fixed IP `.111` (MAC `BC:24:11:27:7F:C9`), step 7's `Media/transfer`, and
+`Preferences.xml.pre-switch` on `plex01`.
+
 On the day, in this order (each checked; dry runs first where there are any):
 
 1. **A final backup** of docker-temp (`999`) and PLEX-TEMP (`9999`) to PBS and the NAS, **Protected for 3 months**
-   (until about 2026-03-04), then deleted only when the Young admin says so. Everything not copied out is only there:
+   (until about 2027-03-04), then deleted only when the Young admin says so. Everything not copied out is only there:
    docker-temp's `.env` and `secrets`, the old Audiobookshelf folder (with the Microsoft 365 secret, review item S5),
    Libation's June–August logs.
 2. **Delete both guests** on pve01 (`pct destroy 999`, `qm destroy 9999`): irreversible, so only after step 1 is
@@ -1190,7 +1199,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
    answer): plex.tv reports it `mapped`. Checked: same name `PLEX01` and machine identifier, claimed; all 15 libraries
    with their IDs; through the public address; a phone on mobile data browses and plays with no change on it; a
    transcode runs on the GPU (`nvdec` → `nvenc`, 15.7× real time).
-5. **Rollback** until about 2026-12-04: on `plex01`, `plex_enabled: false` and `gpu_mapping` removed (`apb plex.yml`,
+5. **Rollback** (until PLEX-TEMP was deleted, 2026-11-28; since then by restoring its protected 11-26 backup): on `plex01`, `plex_enabled: false` and `gpu_mapping` removed (`apb plex.yml`,
    `tf apply`); PLEX-TEMP `onboot` on, started, `systemctl enable --now plexmediaserver` there; forward back to
    `.111`. (Plex data changed on `plex01` meanwhile stays there.) Afterwards: delete PLEX-TEMP (VM `9999`), the
    transfer folder's two archives (29 GB), `Preferences.xml.pre-switch`, the UDM rules `Internal -> Plex-TEMP` and
