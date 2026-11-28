@@ -7,7 +7,7 @@ the services built on them, one layer at a time (L5a groundwork, then L5b onward
 Status (2026-11-27): **L5a–L5e applied and checked**: DNS (`dns01`, `dns02`), PostgreSQL (`pgsql01`), the Docker host
 and Services Traefik (`docker01`), Authentik (`authentik01`). **L5f**: `docker02` takes the internet's `443` and runs
 the public apps (Audiobookshelf, Immich, Mealie, IT-Tools), with logins through Authentik. **L5g**: `plex01` live.
-**L5h under way**: the `ai01` VM is built; the NVIDIA driver and the model servers are next.
+**L5h under way**: the `ai01` VM is built and its GPU works (driver R620, five stop/start cycles passed); the model servers are next.
 [Household DNS](#household-dns) goes through the UDM to Pi-hole. The topology diagram is [topology.html](topology.html) (published:
 <https://claude.ai/artifact/Uc6MzcxWspFZyG8dAN5qsA>, private).
 
@@ -260,7 +260,9 @@ How (2026-11-21):
   leaves a marker (`/etc/phoenix/initial-upgrade`) so it never runs again. The templates' packages can be weeks old.
 - **Weekly:** `apb patch.yml --check --diff`, then `apb patch.yml`, after the host's patching. One guest at a time:
   `apt full-upgrade`, a reboot only when Debian asks for one (`/var/run/reboot-required`), then `pihole -up` on the
-  DNS guests. `pihole -up` (v6.6) exits 1 even after a successful update, so the playbook checks the result with
+  DNS guests. **GPU guests** (inventory `gpu_mapping`: `plex01`, `ai01`, since 2026-11-27): a driver update doesn't ask
+  for a reboot, but until one the GPU fails ("Driver/library version mismatch"); so `patch.yml` runs `nvidia-smi`
+  after the upgrade, reboots if it fails, and checks it again. `pihole -up` (v6.6) exits 1 even after a successful update, so the playbook checks the result with
   `pihole -up --check-only` instead. The `base` role and the service playbooks never upgrade anything themselves, so a
   repeat run stays `changed=0`.
 
@@ -315,7 +317,7 @@ apb dns.yml -l dns01
 | Guest list | [inventory.yml](inventory.yml) | Read by both tools. `admin_sources` must match pve01's `ADMIN_SOURCES` and the UDM's Management rules. |
 | Terraform | [terraform/](terraform/) | Provider `bpg/proxmox` pinned to `0.120.0` (released 2026-11-02); lock file committed. Each guest gets its MAC, VMID, VLAN, static IP and DNS servers, and a Proxmox firewall (inbound DROP, SSH and ping from admin sources, the guest's `firewall_in` rules, the IP filter). **Cloud-init changes** (DNS servers, address): a container restarts during the `apply` (the provider has no option against it); a VM doesn't (`reboot_after_update = false`, since 2026-11-22): the apply warns or fails instead, and the VM is rebooted by hand (`ansible <guest> -m reboot`). VMs keep their SSH host keys through such a change (`base` role). After a new module: `tf init` once. |
 | Wrapper | [tf.sh](tf.sh) | Token from 1Password item `(Proxmox) - Terraform Token` (by item ID; update `TOKEN_REF` if the item moves). State: `infrastructure` / `(Terraform) - Guests State` is the copy of record; fetched when the local copy is missing or older, saved after apply, destroy, import and state commands (see [Terraform](#terraform)). |
-| Ansible | [ansible/](ansible/) | `site.yml` runs the `base` role (see [Ansible](#ansible)) on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`), run after it as the admin user, because `base` turns root's SSH login off. `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. |
+| Ansible | [ansible/](ansible/) | `site.yml` runs the `base` role (see [Ansible](#ansible)) on every guest; each service has its own playbook (`dns.yml`, `database.yml`, `docker.yml`, `authentik.yml`, `plex.yml`, `ai.yml`), run after it as the admin user, because `base` turns root's SSH login off. `patch.yml` is the weekly patch run (see [Guest patching](#guest-patching)); it also checks the database dumps. |
 
 ### New guest checklist
 
@@ -1195,7 +1197,7 @@ downtime is acceptable. Goals: users never reconfigure a client, and the VM is o
 
 ## L5h: Local AI (`ai01`)
 
-**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `data`. **Next:** the NVIDIA driver, the five stop/start cycles, then Ollama and llama-server (role `ai`). Background, models and use cases:
+**VM built 2026-11-27** (Terraform, baseline, DNS name): 12 vCPUs, 96 GiB on host node 0, the RTX 5060 Ti (`GPU02`), the models disk on `data`. **Driver 2026-11-27** (role `ai`, playbook `ai.yml`): Debian's standard kernel, NVIDIA 620.70.10, five stop/start cycles passed. **Next:** the models disk, then Ollama and llama-server (role `ai`). Background, models and use cases:
 [Local AI Agents Plan.md](../Local%20AI%20Agents%20Plan.md). Decided by the Young admin the same day: a **VM**, not a
 container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `docker01`.
 
@@ -1205,9 +1207,9 @@ container; the **RTX 5060 Ti 16 GB**, not the 3070; the chat and agent apps on `
 | --- | --- | --- |
 | Guest | `ai01`: VM `11201`, MAC `02:aa:bb:cc:12:01`, **static** `10.101.1.121`, Services, Debian 13 (clone of `10001`). **12 cores, 96 GiB**, kept on **one socket** (CPU 1, NUMA node 0), raised to 128 GiB if the big models need it. | Tier 12 (decision 4). Models that don't fit on the GPU run partly from system RAM, and RAM on the other socket is slower to reach. A VM with a GPU passed through has **all** its memory pinned at start: the 96 GiB are taken from node 0 at boot, used or not (node 0 had ~9.5 GB free after, node 1 ~119 GB). Memory binding is policy `preferred` (Terraform `numa_node`); vCPUs aren't pinned, as only `root@pam` may set `affinity`. |
 | GPU | **RTX 5060 Ti 16 GB** (blower, rear exhaust) in **slot 1** (CPU 1), bound to `vfio-pci` by device ID like the P2000, mapping **`GPU02`**. | VRAM decides what fits: 16 GB against the 3070's 8. Same memory bandwidth (448 GB/s), newer tensor cores with FP8 and FP4, 180 W on one power lead. Its x8 link (PCIe 3.0 here: ~8 GB/s) slows prompt reading only for models partly in RAM. The P2000 stays on `plex01`; the 3070 leaves the server. |
-| Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. | Some RTX 50 cards stopped responding after a VM restart. |
+| Passthrough check | Before anything else is built on it: **five stop/start cycles** of `ai01`, `nvidia-smi` working after each. **Passed 2026-11-27:** each cycle a full power-off (`qm shutdown`, `qm start`), back in ~20 s, the GPU in P0 at PCIe 3.0 x8, no NVIDIA errors in ai01's kernel log, only normal `vfio-pci` resets in pve01's. | Some RTX 50 cards stopped responding after a VM restart. |
 | Disks | 32 GB system disk on `nvme`; a **models disk** (256 GB, thin, `discard=on`) on the **`data`** pool (Terraform needs `/storage/data` for it). Models disk **not backed up**. | Models are large and re-downloadable; `data` keeps them apart from VM disk I/O, on the GPU's CPU. |
-| Driver | NVIDIA's **open kernel modules**, from NVIDIA's own Debian 13 repository, version pinned (Blackwell needs 575 or later; Debian's `non-free` 550 series predates it); Debian's standard kernel, as on `plex01`. | Blackwell runs only with the open modules. |
+| Driver | NVIDIA's **open kernel modules** (`nvidia-kernel-open-dkms`, `nvidia-driver-cuda`, `libcuda1`; headless, no X), from NVIDIA's own Debian 13 repository (signing key fingerprint checked on every run), held on **branch R620** by NVIDIA's pinning package `nvidia-driver-pinning-620`: 620.70.10 at install. The weekly `patch.yml` takes fixes within the branch, never another branch. Debian's standard kernel, as on `plex01`; the persistence daemon on. | Blackwell runs only with the open modules (575 or later; Debian's `non-free` 550 series predates it). R620 is a Long Term Support Branch, supported until September 2029 (NVIDIA's support matrix, 2026-11-27); R595, the Production Branch, ends March 2027. |
 | Model servers | **Ollama** on `:11434` (small models, all on the GPU) and **llama.cpp's `llama-server`** on `:8080` (big MoE models, experts in RAM); native, systemd, versions pinned. New role `ai`, playbook `ai.yml`. | Both speak the OpenAI API, Ollama also Anthropic's, so every client changes only a base URL. |
 | Apps | **Open WebUI** and **n8n** on `docker01` (`<app>.int.phoenixstack.net`, LAN and VPN only), logins through Authentik (OIDC). Public on `docker02`: later, if at all. | Neither model server has logins: family members reach the models only through Open WebUI. |
 | Firewall | `11434` and `8080` from `docker01` and the admin sources only; SSH and ping from admin sources. | The model servers' APIs are open to anyone who can reach them. |

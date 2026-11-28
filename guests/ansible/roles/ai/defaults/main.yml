@@ -1,0 +1,28 @@
+# Local AI on ai01 (L5h). This part: Debian's standard kernel and NVIDIA's driver (open kernel modules).
+# The model servers follow once the GPU has passed its five stop/start cycles (guests/README.md, L5h).
+
+# NVIDIA's own Debian 13 repository: Debian's non-free has the 550 series, too old for Blackwell (RTX 50).
+ai_nvidia_repo_url: https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/
+ai_nvidia_key_url: https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/8793F200.pub
+# NVIDIA's signing key for Debian 13 ("Kitmaker (Debian 13 Trixie)", 2025). The downloaded key must match.
+ai_nvidia_key_fingerprint: 02182E60104FCDC26EAE1B8597A5D4CB8793F200
+ai_nvidia_key_path: /etc/apt/keyrings/nvidia-cuda.asc
+
+# Driver branch, held by NVIDIA's pinning package (apt preferences: every driver package at 620.*).
+# R620 is a Long Term Support Branch, supported until September 2029 (NVIDIA's support matrix,
+# 2026-11-27); patch.yml takes its fixes, never another branch. Another branch: change this, then
+# apb ai.yml (the old pinning package is replaced) and reboot.
+ai_nvidia_branch: "620"
+
+# Headless, compute only: the open kernel module (built by DKMS for each kernel with headers), CUDA's
+# library, and nvidia-driver-cuda's tools (nvidia-smi, the persistence daemon; it conflicts with the
+# separate nvidia-smi package, which it replaces). No X, no OpenGL or Vulkan.
+ai_nvidia_packages:
+  - nvidia-kernel-open-dkms
+  - nvidia-driver-cuda
+  - libcuda1
+# Debian's standard kernel instead of the cloud image's, as on plex01: the module isn't built or tested
+# against the slimmed-down cloud kernel.
+ai_kernel_packages:
+  - linux-image-amd64
+  - linux-headers-amd64
