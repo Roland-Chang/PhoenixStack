@@ -38,7 +38,7 @@ services:
       ENABLE_OAUTH_SIGNUP: "true"
       OAUTH_MERGE_ACCOUNTS_BY_EMAIL: "true"
       OAUTH_PROVIDER_NAME: PhoenixStack
-      OPENID_PROVIDER_URL: https://auth.{{ public_domain }}/application/o/{{ owui.route }}/.well-known/openid-configuration
+      OPENID_PROVIDER_URL: https://{{ owui.auth_host }}/application/o/{{ owui.route }}/.well-known/openid-configuration
       OPENID_REDIRECT_URI: {{ owui_url }}/oauth/oidc/login/callback
       OAUTH_CLIENT_ID: {{ owui.route }}
       OAUTH_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?no .env}

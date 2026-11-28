@@ -1281,6 +1281,11 @@ firewall already lets `docker01` in).
 - **DNS:** household devices need the `int.` names. The Young LAN has them through the UDM; Porter is in progress
   ([Household DNS](#household-dns)); VPN clients don't (REBUILD_STATE item 1).
 - **Accounts:** each person already exists in Authentik (`first.last`, Google sign-in) with group `Young` or `Porter`.
+- **Authentik's name:** Open WebUI logs in through `auth.int` (`apps_catalog.openwebui.auth_host`): admins may log in only
+  from the admin sources, and through the public `auth.phoenixstack.net` (Cloudflare, `docker02`) Authentik sees the
+  home's internet address instead (found 2026-11-28: "Admin accounts can only log in from the admin networks").
+  Family members sign in with Google, whose redirect URI is registered for the public name only: add
+  `https://auth.int.phoenixstack.net/source/oauth/callback/google/` in Google Cloud, or revisit the name, before family.
 
 **Applied 2026-11-28.** Found on the way, fixed in the templates: both images assume their own user's home, so
 each uid needs one it can write. Open WebUI: `HOME` = its data folder (the PostgreSQL client treats an unreadable

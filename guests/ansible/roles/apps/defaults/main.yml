@@ -126,6 +126,10 @@ apps_catalog:
     allowed_groups: [authentik Admins]        # family later: Young, Porter (and on the OIDC client)
     admin_groups: [authentik Admins]
     password_login: false
+    # Authentik's internal name: Authentik lets admins log in only from the admin sources, and through the
+    # public name (Cloudflare, docker02) it sees the home's internet address instead. Family later needs
+    # Google sign-in, registered for the public name only: revisit then (guests/README.md, L5h step 5).
+    auth_host: "auth.{{ domain }}"
     openai_url: "http://ai01.int.phoenixstack.net:8080/v1"
     ollama_url: "http://ai01.int.phoenixstack.net:11434"
     # 1Password: "(Open WebUI) - PostgreSQL", "(Open WebUI) - Secret key", and "(Authentik) - Open WebUI
